@@ -143,3 +143,14 @@ secret strength and expiry, attacker without the secret cannot pair, batches
 applied atomically, attachments stored only after hash match.
 Not yet reviewed by anyone else: `lib/doc/checklist_projection.dart`,
 `lib/importer/`, the editor session.
+
+
+## D16. Second independent review (importer, checklist projection, editor session)
+- Disposing the editor after a failed save discarded the only copy of the
+  text. Fixed: the pending text is handed to a background retry that outlives
+  the editor (tested).
+- "An edit can undo a purge that arrived by sync": accepted. Rule D6 says an
+  active edit beats a concurrent delete-forever, because losing typed text is
+  worse than keeping a note the user was still editing.
+- Reviewer found no loss in checklist split/merge, open-writes-nothing, or
+  import/rollback transactions (it could not see migrations.dart).

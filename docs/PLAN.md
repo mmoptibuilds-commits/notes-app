@@ -12,10 +12,9 @@ this machine does not have: the Android toolchain, a phone, a second device,
 the user's real backup, and reference screenshots. See the acceptance matrix.
 
 **Next actions**
-1. Android: install JDK 17 + Android SDK (needs the user's licence approval),
-   `flutter build apk --release`, install beside the legacy app, run on the
-   Nothing Phone (2), verify arm64 SQLite/encryption, QR scan, sync with the
-   Linux build.
+1. Phone: install `build/app/outputs/flutter-apk/app-release.apk` (arm64, signed)
+   on the Nothing Phone (2) beside the legacy app; verify QR scan, sync with the
+   Linux build, arm64 SQLite, performance. (APK builds; emulator run done.)
 2. Private import verification: user drops the backup in `private/`, run
    `flutter test test/private` (prints counts/hashes only).
 3. Compare UI to the user's reference screenshots once provided.
@@ -108,9 +107,9 @@ Legend: **verified** = automated test or measured run, evidence named;
 | Synchronise bidirectionally between real devices | verified over loopback sockets; **real devices unverified** | sync tests |
 | Preserve concurrent edits and deleted-note states | verified (randomised 3-device convergence, conflict copies, trash/purge rules) | `test/sync/merge_test.dart` |
 | Recover from interrupted saves, failed sync, interrupted imports | verified (cut at every frame; killed-transaction test; import rollback on error) | sync/data/importer tests |
-| Update the APK and Linux app without losing data | Linux verified (installer upgrade keeps data; v1→v2→v3 migration with backup); **APK unverified (no Android SDK)** | `tool/package_linux.sh`, e2e tests |
-| Run on target Android and Linux | Linux release builds and runs (keyring path verified); **Android unverified** | run logs in the verification log |
-| Android arm64 encrypted SQLite | **unverified** | Linux only so far |
+| Update the APK and Linux app without losing data | Linux verified (installer upgrade keeps data; v1→v2→v3 migration with backup); **APK in-place update unverified** | `tool/package_linux.sh`, e2e tests |
+| Run on target Android and Linux | Linux release builds and runs (keyring path verified); Android: signed release APK builds and runs on an emulator; **no phone yet** | verification log |
+| Android encrypted SQLite | verified on x86_64 emulator (Android 15): DB opens, note survives force-stop; **arm64 on a phone unverified** (arm64 APK built, `libsqlite3mc.so` present) | adb screencaps, logs clean |
 | Tailscale reachability | **unverified** (not installed); works as an ordinary address by design | |
 | Visual quality vs. references | widget-render screenshots reviewed; **references not provided; real-window capture blocked by GNOME** | `build/screens/` |
 
@@ -133,3 +132,6 @@ Legend: **verified** = automated test or measured run, evidence named;
 | 2026-11-17 | Release run, real keyring (data dir redirected, test entry removed after) | `notes` with `XDG_DATA_HOME`, run twice | first run stored the key in the GNOME keyring and created an encrypted DB; second run read it back and opened (sync port listening) |
 | 2026-11-17 | Release process sample | `ps` ~18 s after launch, 84 notes, Linux | ~175 MB RSS, ~2% CPU averaged incl. startup (single sample, not a benchmark) |
 | 2026-11-17 | Linux packaging | `tool/package_linux.sh`; install/upgrade/uninstall in a fake HOME; rebuild | upgrade kept the data marker; uninstall kept data; identical archive checksum on rebuild |
+| 2026-11-17 | Android toolchain + APK | SDK/JDK 21 installed (licences accepted with user's yes); `flutter build apk --release --target-platform android-arm64` | 41.0 MB; signer SHA-256 3A:17:30:A6… matches `~/.notes-signing`; package `com.mmoptibuilds.notes`; CAMERA/INTERNET perms. First attempt failed under JDK 17 (AGP lint needs 21), fixed by toolchain, no check disabled |
+| 2026-11-17 | Android emulator (Pixel 7 profile, Android 15 x86_64, KVM) | x64 release APK; typed a note, `force-stop`, relaunch | app starts, note persisted, no exceptions in logcat |
+| 2026-11-17 | Second independent review | Codex gpt-6-luna on projection/session/importer | 1 real data-loss bug fixed (text dropped when editor closes during failing save), 1 accepted (D16); 339 pass, 1 skipped |

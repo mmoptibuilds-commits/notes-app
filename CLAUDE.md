@@ -9,6 +9,11 @@ explains why the stack is what it is.
 
 - Flutter 3.50.0 stable at `~/development/flutter` (not on PATH by default):
   `export PATH="$HOME/development/flutter/bin:$PATH"`
+- Android: SDK at `~/Android/Sdk`, **JDK 21** (`/usr/lib/jvm/java-21-openjdk`; JDK 17 makes
+  AGP's lint crash). `flutter config` already points at both.
+- Release signing key is in `~/.notes-signing/` (outside the repo, back it up: losing it
+  means installed phones cannot be updated in place). `android/key.properties` is a
+  git-ignored symlink to it.
 - The project path contains a space. Always quote it.
 
 ## Commands
@@ -19,7 +24,8 @@ dart format lib test tool          # formatting gate
 flutter analyze                    # must report "No issues found"
 flutter test                       # unit + widget tests
 flutter build linux --release      # -> build/linux/x64/release/bundle/notes
-flutter build apk --release        # needs the Android SDK (see PLAN.md)
+flutter build apk --release --target-platform android-arm64   # signed APK
+tool/package_linux.sh              # dist/notes-<ver>-linux-x64.tar.gz + sha256
 ```
 
 Run a second, isolated instance (for sync testing) with

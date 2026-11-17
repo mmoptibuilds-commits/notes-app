@@ -399,4 +399,31 @@ void main() {
     expect(repo.counts().trash, 1);
     e.dispose();
   });
+
+  test(
+    'text typed just before a failing save is not lost when the editor closes',
+    () {
+      fakeAsync((fake) {
+        final note = repo.createNote(body: json(Delta()..insert('old\n')));
+        final e = EditorSession(
+          repo: repo,
+          noteId: note.id,
+          autosaveDelay: const Duration(milliseconds: 100),
+          retryDelay: const Duration(seconds: 3),
+        );
+        e.quill.replaceText(
+          0,
+          0,
+          'precious ',
+          const TextSelection.collapsed(offset: 9),
+        );
+        s.db.execute('ALTER TABLE notes RENAME TO notes_away');
+        e.dispose(); // the editor closes while storage is failing
+        fake.elapse(const Duration(seconds: 7));
+        s.db.execute('ALTER TABLE notes_away RENAME TO notes');
+        fake.elapse(const Duration(seconds: 4));
+        expect(repo.getNote(note.id)!.preview, 'precious old');
+      });
+    },
+  );
 }

@@ -306,11 +306,36 @@ class EditorSession extends ChangeNotifier {
   @override
   void dispose() {
     flush();
+    if (_dirty && !_readOnly && loadError == null) {
+      // The last save failed (disk full, database busy...). The editor is
+      // going away, so this is the only copy of the typed text: keep trying
+      // in the background rather than drop it.
+      _handOff(_id, title.text, bodyFromDelta(canonicalDelta()), _base);
+    }
     _disposed = true;
     _timer?.cancel();
     title.dispose();
     scroll.dispose();
     quill.dispose();
     super.dispose();
+  }
+
+  /// Keeps retrying a save after the editor is closed.
+  void _handOff(String? id, String t, String body, VersionVector base) {
+    var attempts = 0;
+    void attempt() {
+      try {
+        if (id == null) {
+          if (t.trim().isEmpty && digestBody(body).isBlank) return;
+          repo.createNote(title: t, body: body, folderId: folderId);
+        } else {
+          repo.saveContent(id, title: t, body: body, base: base);
+        }
+      } on Object {
+        if (++attempts < 2000) Timer(retryDelay, attempt);
+      }
+    }
+
+    Timer(retryDelay, attempt);
   }
 }

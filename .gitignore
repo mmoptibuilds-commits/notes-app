@@ -58,3 +58,6 @@ app.*.map.json
 /android/key.properties
 # Local build output and packaging
 /dist/
+
+# Worker worktrees and local agent state
+/.claude/

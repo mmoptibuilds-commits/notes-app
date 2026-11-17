@@ -123,7 +123,9 @@ class SyncSession {
     final from = theirFrom > snapshot ? 0 : theirFrom;
 
     // --- data, both directions at once so neither side can stall the other
-    final sending = _sendRows(from, snapshot);
+    // If the connection drops while we are still reading, this send fails too;
+    // `ignore` keeps that second failure from being reported as unhandled.
+    final sending = _sendRows(from, snapshot)..ignore();
     final received = await _receiveRows();
     await sending;
     _applyReceived(peer.id, received);
@@ -202,8 +204,9 @@ class SyncSession {
             _ => throw SyncProtocolException('unknown row kind'),
           };
           for (final row in rows) {
-            if (row is! Map)
+            if (row is! Map) {
               throw SyncProtocolException('row is not an object');
+            }
             target.add(Map<String, Object?>.from(row));
           }
         case 'done':
@@ -270,7 +273,7 @@ class SyncSession {
     if (hashes is! List || hashes.length > SyncLimits.maxNeed) {
       throw SyncProtocolException('bad attachment request');
     }
-    final serving = _serve([for (final h in hashes) '$h']);
+    final serving = _serve([for (final h in hashes) '$h'])..ignore();
     await _receiveBlobs(wanted.toSet());
     await serving;
     outcome.attachmentsStillMissing = repo.missingAttachments().length;
@@ -321,8 +324,9 @@ class SyncSession {
           break;
         case 'blob':
           final h = '${m['h']}';
-          if (!wanted.contains(h))
+          if (!wanted.contains(h)) {
             throw SyncProtocolException('unrequested image');
+          }
           final i = _int(m['i']);
           final n = _int(m['n']);
           final size = _int(m['size']);
@@ -374,8 +378,9 @@ String describeSyncError(Object e) {
   if (e is ChannelIntegrityException) {
     return 'The connection was corrupted and was dropped.';
   }
-  if (e is SyncProtocolException)
+  if (e is SyncProtocolException) {
     return 'The other device sent unexpected data.';
+  }
   return '$e';
 }
 

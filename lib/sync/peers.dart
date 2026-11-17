@@ -194,6 +194,35 @@ class PeerStore {
     }
   }
 
+  /// Sets (not raises) the cursor for what we have received from [id]. Used
+  /// when the peer tells us it was restored from an older copy, so its
+  /// numbering started over.
+  void setReceived(String id, int value) =>
+      db.execute('UPDATE peers SET recv_cursor = ? WHERE id = ?', [value, id]);
+
+  /// Keeps a row from [id] that could not be applied, for inspection.
+  void quarantine(String id, String kind, String reason, String raw) {
+    db.execute(
+      'INSERT INTO quarantine(peer_id, kind, received_at, reason, raw) '
+      'VALUES (?, ?, ?, ?, ?)',
+      [
+        id,
+        kind,
+        _now(),
+        reason,
+        raw.length > 2000000 ? raw.substring(0, 2000000) : raw,
+      ],
+    );
+    // Bounded: oldest entries go first.
+    db.execute(
+      'DELETE FROM quarantine WHERE id NOT IN '
+      '(SELECT id FROM quarantine ORDER BY id DESC LIMIT 500)',
+    );
+  }
+
+  int quarantined() =>
+      db.select('SELECT count(*) AS n FROM quarantine').first['n'] as int;
+
   /// Local changes this peer has not confirmed yet (rows above its cursor).
   int pendingFor(String id) {
     final p = get(id);

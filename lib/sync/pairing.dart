@@ -124,8 +124,15 @@ class PairingHost {
     return offer;
   }
 
-  /// Marks the offer as spent. Call as soon as a handshake with it succeeds.
-  void consume() => _used = true;
+  /// Claims the offer. Returns true for exactly one caller: the first
+  /// handshake to prove it holds the secret. Any other connection that also
+  /// completed a handshake with it (two people who saw the same code) gets
+  /// false and must be turned away.
+  bool consume() {
+    if (_used) return false;
+    _used = true;
+    return true;
+  }
 
   PairingCode code({
     required String deviceId,

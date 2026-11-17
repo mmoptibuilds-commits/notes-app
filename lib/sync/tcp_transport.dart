@@ -29,6 +29,16 @@ class TcpTransport implements FrameTransport {
   int _buffered = 0;
   int? _want;
   final _frames = Queue<Uint8List>();
+  int _queuedBytes = 0;
+
+  /// When this much received data is waiting to be read, stop reading from
+  /// the socket (TCP then slows the sender) until the reader catches up. A
+  /// peer that sends faster than we process cannot make us hold unbounded
+  /// memory. The hard limit only guards against a bug.
+  static const pauseAtBytes = 2 * maxFrame;
+  static const resumeAtBytes = maxFrame;
+  static const hardLimitBytes = 16 * maxFrame;
+  bool _paused = false;
   Completer<void>? _waiter;
   String? _closedReason;
 
@@ -71,6 +81,15 @@ class TcpTransport implements FrameTransport {
       if (_buffered < _want!) return;
       final all = _buffer.takeBytes();
       _frames.add(Uint8List.sublistView(all, 0, _want!));
+      _queuedBytes += _want!;
+      if (_queuedBytes > hardLimitBytes) {
+        _fail('too much unread data');
+        return;
+      }
+      if (_queuedBytes >= pauseAtBytes && !_paused) {
+        _paused = true;
+        _sub.pause();
+      }
       final rest = all.length - _want!;
       _buffered = rest;
       if (rest > 0) _buffer.add(Uint8List.sublistView(all, _want!));
@@ -107,7 +126,15 @@ class TcpTransport implements FrameTransport {
   @override
   Future<Uint8List> receive() async {
     while (true) {
-      if (_frames.isNotEmpty) return _frames.removeFirst();
+      if (_frames.isNotEmpty) {
+        final f = _frames.removeFirst();
+        _queuedBytes -= f.length;
+        if (_paused && _queuedBytes < resumeAtBytes) {
+          _paused = false;
+          _sub.resume();
+        }
+        return f;
+      }
       if (_closedReason != null) throw TransportClosed(_closedReason!);
       _waiter = Completer<void>();
       await _waiter!.future;

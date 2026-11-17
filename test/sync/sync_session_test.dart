@@ -406,8 +406,10 @@ void main() {
   group('a misbehaving peer', () {
     /// B is a raw channel script; A runs the real session against it.
     Future<Object> against(
-      Future<void> Function(MessageStream ms) script,
-    ) async {
+      Future<void> Function(MessageStream ms) script, {
+      Duration idle = const Duration(seconds: 2),
+      Duration deadline = const Duration(minutes: 30),
+    }) async {
       final (ta, tb) = MemoryEnd.pair();
       final chA = SecureChannel.initiateSession(
         ta,
@@ -440,7 +442,8 @@ void main() {
               repo: a.repo,
               peers: a.peers,
               deviceName: 'A',
-              idleTimeout: const Duration(seconds: 2),
+              idleTimeout: idle,
+              sessionDeadline: deadline,
             ).run(),
           )
           .then<Object>((o) => o, onError: (Object e) => e);
@@ -504,6 +507,18 @@ void main() {
       final o = ok(r);
       expect(o.created, 1);
       expect(o.invalidRows, 2);
+      expect(
+        a.peers.quarantined(),
+        2,
+        reason: 'unreadable rows are kept aside, not discarded',
+      );
+      expect(
+        a.db
+            .select('SELECT raw FROM quarantine')
+            .map((r) => r['raw'] as String)
+            .any((r) => r.contains('this is not a delta')),
+        isTrue,
+      );
       expect(a.repo.getNote(good.id), isNotNull);
       expect(a.repo.getRecord('bad-1'), isNull);
     });
@@ -654,4 +669,170 @@ void main() {
     expect(shouldDial('0000000000000001', '0000000000000002'), isTrue);
     expect(shouldDial('0000000000000002', '0000000000000001'), isFalse);
   });
+
+  test('after a peer is restored from an older copy, nothing it creates later is skipped', () async {
+    for (var i = 0; i < 4; i++) {
+      b.repo.createNote(id: 'old-$i', title: 'old $i', body: body('x'));
+    }
+    await syncPair(a, b);
+    // A remembers having received far more than B has now (B was restored).
+    a.db.transaction(() => a.peers.advance(b.id, received: 50));
+    await syncPair(a, b);
+    expect(
+      a.peers.get(b.id)!.recvCursor,
+      lessThan(50),
+      reason: 'the cursor must follow the restored numbering',
+    );
+    // B goes on to write more notes than the stale cursor covered.
+    for (var i = 0; i < 90; i++) {
+      b.repo.createNote(id: 'new-$i', title: 'new $i', body: body('y'));
+    }
+    await syncPair(a, b);
+    await syncPair(a, b);
+    for (var i = 0; i < 90; i++) {
+      expect(
+        a.repo.getRecord('new-$i'),
+        isNotNull,
+        reason: 'note new-$i was skipped',
+      );
+    }
+    expect(a.dump(), b.dump());
+  });
+
+  test('a repeated or unsolicited image reply is a protocol error', () async {
+    final ghost = 'd' * 64;
+    a.repo.createNote(
+      body: jsonEncode([
+        {
+          'insert': {'image': 'att:$ghost'},
+        },
+        {'insert': '\n'},
+      ]),
+    );
+    Future<Object> twice(String type) => (() async {
+      final (ta, tb) = MemoryEnd.pair();
+      final chA = SecureChannel.initiateSession(
+        ta,
+        myId: a.id,
+        identity: a.identity,
+        peerId: b.id,
+        peerPublicKey: b.identity.publicKey,
+      );
+      final chB = SecureChannel.respond(
+        tb,
+        myId: b.id,
+        identity: b.identity,
+        lookupPeer: b.peers.get,
+        lookupOffer: (_) => null,
+      );
+      final scripted = chB.then((c) async {
+        final ms = MessageStream(c);
+        try {
+          await ms.send({
+            't': 'hello',
+            'proto': 1,
+            'id': b.id,
+            'name': 'B',
+            'schema': 3,
+            'from': 0,
+            'max': 0,
+          });
+          await ms.expect('hello');
+          await ms.send({'t': 'done', 'upTo': 0, 'count': 0});
+          await ms.expect('rows');
+          await ms.expect('done');
+          await ms.expect('applied');
+          await ms.send({'t': 'applied', 'upTo': 0});
+          await ms.expect('need');
+          await ms.send({'t': 'need', 'hashes': <Object>[]});
+          await ms.send({'t': 'blobmissing', 'h': ghost});
+          await ms.send({'t': type, 'h': ghost});
+          await ms.expect('blobsdone');
+        } on Object {
+          // the peer's side is not under test
+        } finally {
+          await c.close();
+        }
+      });
+      final res = await chA
+          .then(
+            (c) => SyncSession(
+              channel: c,
+              repo: a.repo,
+              peers: a.peers,
+              deviceName: 'A',
+              idleTimeout: const Duration(seconds: 2),
+            ).run(),
+          )
+          .then<Object>((o) => o, onError: (Object e) => e);
+      await scripted;
+      return res;
+    })();
+    expect(
+      await twice('blobmissing'),
+      isA<SyncProtocolException>(),
+      reason: 'answering the same request twice',
+    );
+  });
+
+  test(
+    'a session that keeps looking busy still ends at its deadline',
+    () async {
+      final (ta, tb) = MemoryEnd.pair();
+      final chA = SecureChannel.initiateSession(
+        ta,
+        myId: a.id,
+        identity: a.identity,
+        peerId: b.id,
+        peerPublicKey: b.identity.publicKey,
+      );
+      final chB = SecureChannel.respond(
+        tb,
+        myId: b.id,
+        identity: b.identity,
+        lookupPeer: b.peers.get,
+        lookupOffer: (_) => null,
+      );
+      var keepGoing = true;
+      final scripted = chB.then((c) async {
+        final ms = MessageStream(c);
+        try {
+          await ms.send({
+            't': 'hello',
+            'proto': 1,
+            'id': b.id,
+            'name': 'B',
+            'schema': 3,
+            'from': 0,
+            'max': 0,
+          });
+          await ms.expect('hello');
+          while (keepGoing) {
+            // Empty batches forever: each message resets the idle timer.
+            await ms.send({'t': 'rows', 'k': 'notes', 'rows': <Object>[]});
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+        } on Object {
+          // closed by the other side
+        } finally {
+          await c.close();
+        }
+      });
+      final res = await chA
+          .then(
+            (c) => SyncSession(
+              channel: c,
+              repo: a.repo,
+              peers: a.peers,
+              deviceName: 'A',
+              idleTimeout: const Duration(seconds: 5),
+              sessionDeadline: const Duration(milliseconds: 600),
+            ).run(),
+          )
+          .then<Object>((o) => o, onError: (Object e) => e);
+      keepGoing = false;
+      await scripted;
+      expect(res, isA<SyncTimeoutException>());
+    },
+  );
 }

@@ -201,6 +201,28 @@ void main() {
       expect(j(m), j(mergeNotes(edited, trashed).merged));
     });
 
+    test(
+      'the same version with different content keeps both, on both sides',
+      () {
+        final x = rec('n', text: 'one', vv: {'a': 1});
+        final y = rec(
+          'n',
+          text: 'two',
+          vv: {'a': 1},
+          hlc: const Hlc(1000, 0, 'b'),
+        );
+        final xy = mergeNotes(x, y);
+        final yx = mergeNotes(y, x);
+        expect(j(xy.merged), j(yx.merged));
+        expect(xy.conflictLoser, isNotNull);
+        expect(
+          {xy.merged.body, xy.conflictLoser!.body},
+          {body('one'), body('two')},
+        );
+        expect(j(xy.conflictLoser!), j(yx.conflictLoser!));
+      },
+    );
+
     test('equal records merge to themselves', () {
       final x = rec('n', text: 'same');
       expect(j(mergeNotes(x, x).merged), j(x));

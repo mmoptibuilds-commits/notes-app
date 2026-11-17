@@ -64,6 +64,7 @@ class SyncSession {
     required this.peers,
     required this.deviceName,
     this.idleTimeout = const Duration(seconds: 45),
+    this.sessionDeadline = const Duration(minutes: 30),
     int Function()? nowMs,
   }) : _applier = RemoteApplier(repo, nowMs: nowMs),
        _ms = MessageStream(channel);
@@ -73,6 +74,9 @@ class SyncSession {
   final PeerStore peers;
   final String deviceName;
   final Duration idleTimeout;
+
+  /// Longest a whole session may take, however busy the connection looks.
+  final Duration sessionDeadline;
   final RemoteApplier _applier;
   final MessageStream _ms;
   final outcome = SyncOutcome();
@@ -93,7 +97,12 @@ class SyncSession {
     final peer = peers.get(channel.peerId);
     if (peer == null) throw SyncProtocolException('not a paired device');
     try {
-      await _exchange(peer);
+      try {
+        await _exchange(peer).timeout(sessionDeadline);
+      } on TimeoutException {
+        await channel.close();
+        throw SyncTimeoutException();
+      }
       peers.recordSuccess(peer.id);
       return outcome;
     } finally {
@@ -120,12 +129,13 @@ class SyncSession {
     final snapshot = db.currentSeq;
     // A cursor ahead of everything we have means we were restored from an
     // older copy: send it all rather than silently skipping new changes.
-    final from = theirFrom > snapshot ? 0 : theirFrom;
+    final reset = theirFrom > snapshot;
+    final from = reset ? 0 : theirFrom;
 
     // --- data, both directions at once so neither side can stall the other
     // If the connection drops while we are still reading, this send fails too;
     // `ignore` keeps that second failure from being reported as unhandled.
-    final sending = _sendRows(from, snapshot)..ignore();
+    final sending = _sendRows(from, snapshot, reset)..ignore();
     final received = await _receiveRows();
     await sending;
     _applyReceived(peer.id, received);
@@ -144,7 +154,7 @@ class SyncSession {
 
   // ----------------------------------------------------------------- rows
 
-  Future<void> _sendRows(int from, int upTo) async {
+  Future<void> _sendRows(int from, int upTo, bool reset) async {
     final folders = [
       for (final (seq, f) in repo.folderRecordsSince(from))
         if (seq <= upTo) f.toJson(),
@@ -182,7 +192,12 @@ class SyncSession {
       }
       if (done || page.length < 200) break;
     }
-    await _ms.send({'t': 'done', 'upTo': upTo, 'count': outcome.sentRows});
+    await _ms.send({
+      't': 'done',
+      'upTo': upTo,
+      'count': outcome.sentRows,
+      'reset': reset,
+    });
   }
 
   Future<_Received> _receiveRows() async {
@@ -211,6 +226,7 @@ class SyncSession {
           }
         case 'done':
           r.upTo = _int(m['upTo']);
+          r.reset = m['reset'] == true;
           if (_int(m['count']) != r.count) {
             throw SyncProtocolException('row count does not match');
           }
@@ -228,8 +244,9 @@ class SyncSession {
         final FolderRecord f;
         try {
           f = FolderRecord.fromJson(json);
-        } on Object {
+        } on Object catch (e) {
           outcome.invalidRows++;
+          peers.quarantine(peerId, 'folder', '$e', jsonEncode(json));
           continue;
         }
         _count(_applier.applyFolder(f));
@@ -239,16 +256,22 @@ class SyncSession {
         try {
           n = NoteRecord.fromJson(json);
           if (!n.purged) decodeOps(n.body);
-        } on Object {
-          // One unreadable row must not block every later sync.
+        } on Object catch (e) {
+          // One unreadable row must not block every later sync, and must not
+          // vanish either: it is kept aside for inspection.
           outcome.invalidRows++;
+          peers.quarantine(peerId, 'note', '$e', jsonEncode(json));
           continue;
         }
         final res = _applier.applyNote(n);
         _count(res);
         if (res.conflictCopyId != null) outcome.conflictCopies++;
       }
-      peers.advance(peerId, received: r.upTo);
+      if (r.reset) {
+        peers.setReceived(peerId, r.upTo);
+      } else {
+        peers.advance(peerId, received: r.upTo);
+      }
     });
   }
 
@@ -315,16 +338,22 @@ class SyncSession {
   Future<void> _receiveBlobs(Set<String> wanted) async {
     final parts = <String, BytesBuilder>{};
     final next = <String, int>{};
+    final answered = <String>{};
+    var total = 0;
     while (true) {
       final m = await _recv();
       switch (m['t']) {
         case 'blobsdone':
           return;
         case 'blobmissing':
-          break;
+          // One answer per requested image, never more.
+          final h = '${m['h']}';
+          if (!wanted.contains(h) || !answered.add(h)) {
+            throw SyncProtocolException('unexpected image reply');
+          }
         case 'blob':
           final h = '${m['h']}';
-          if (!wanted.contains(h)) {
+          if (!wanted.contains(h) || answered.contains(h)) {
             throw SyncProtocolException('unrequested image');
           }
           final i = _int(m['i']);
@@ -333,8 +362,12 @@ class SyncSession {
           if (size > SyncLimits.maxAttachment || n < 1 || i != (next[h] ?? 0)) {
             throw SyncProtocolException('bad image data');
           }
-          final b = parts.putIfAbsent(h, BytesBuilder.new)
-            ..add(base64Decode('${m['d']}'));
+          final chunk = base64Decode('${m['d']}');
+          total += chunk.length;
+          if (total > SyncLimits.maxAttachmentBytesPerSession) {
+            throw SyncProtocolException('too much image data in one session');
+          }
+          final b = parts.putIfAbsent(h, BytesBuilder.new)..add(chunk);
           next[h] = i + 1;
           if (b.length > SyncLimits.maxAttachment) {
             throw SyncProtocolException('image too large');
@@ -343,6 +376,7 @@ class SyncSession {
             final bytes = b.toBytes();
             parts.remove(h);
             next.remove(h);
+            answered.add(h);
             if (bytes.length == size && sha256Hex(bytes) == h) {
               repo.putAttachment(bytes, '${m['mime']}');
               outcome.attachmentsReceived++;
@@ -367,6 +401,7 @@ class _Received {
   final notes = <Map<String, Object?>>[];
   int count = 0;
   int upTo = 0;
+  bool reset = false;
 }
 
 /// For the UI: a short, plain-language description of how a sync ended.

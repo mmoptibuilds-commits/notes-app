@@ -38,7 +38,14 @@ NoteMerge mergeNotes(NoteRecord a, NoteRecord b) {
     case VvOrder.dominated:
       winner = b;
     case VvOrder.equal:
-      winner = _later(a, b);
+      if (a.title == b.title && a.body == b.body && a.purged == b.purged) {
+        winner = a;
+        break;
+      }
+      // The same version with different content should be impossible (a bug
+      // or a damaged peer). Keep both rather than choose silently.
+      continue concurrent;
+    concurrent:
     case VvOrder.concurrent:
       if (a.purged != b.purged) {
         winner = a.purged ? b : a;

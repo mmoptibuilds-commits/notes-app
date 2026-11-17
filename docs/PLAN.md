@@ -19,8 +19,8 @@ In flight: library + settings UI worker `a08f7a73b3e20d67e`
    into `bootstrap`/`AppScope`, auto-sync on open/resume and after edits.
    Needs `qr_flutter` and `mobile_scanner` (decisions to record).
 3. Import UI (settings → Data): pick backup file, report, rollback; export.
-4. Independent security review of `lib/sync/secure_channel.dart`,
-   `pairing.dart`, `sync_session.dart`, `tcp_transport.dart`.
+4. ~~Independent security review of the sync stack~~ done, see D15; still to
+   review independently: checklist projection, importer, editor session.
 5. Android SDK (needs user's licence approval), APK build, device checks.
 
 ## Waiting on the user
@@ -105,3 +105,4 @@ In flight: library + settings UI worker `a08f7a73b3e20d67e`
 | 2026-11-17 | Sync stack | `flutter test test/sync` | 81 pass: secure channel, session fault injection, loopback pairing + sync |
 | 2026-11-17 | Data-layer timings (Dart VM/JIT via `flutter test test/perf`, encrypted DB, NOT release) | 5,000 notes × ~1.5 KB | create all 2.7 s (one transaction); list all 66 ms; search 54–62 ms for words matching every note (200 hits + 60 snippets), 0.5 ms for none; counts 38 ms; small-note save 0.56 ms |
 | 2026-11-17 | Long note (VM) | one 1.15 MB note | create 62 ms, digest 17 ms, save 90 ms, search 2 ms. Found and fixed: SQLite `snippet()` took 2,419 ms on it; snippets are now built in Dart from a 150-char window |
+| 2026-11-17 | Independent review (Codex gpt-6-luna) of lib/sync → fixes | `flutter test` | 7 findings: 6 fixed with tests (incl. one real cursor bug), 1 accepted with reasoning (D15); 333 pass, 1 skipped |

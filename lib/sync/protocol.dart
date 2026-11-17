@@ -34,6 +34,9 @@ abstract final class SyncLimits {
   /// Attachment bytes per blob message.
   static const blobChunk = 192 * 1024;
 
+  /// Attachment bytes accepted from a peer in one session.
+  static const maxAttachmentBytesPerSession = 512 * 1024 * 1024;
+
   /// Hashes requested in one `need` message.
   static const maxNeed = 500;
 }

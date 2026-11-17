@@ -25,7 +25,7 @@ class Node {
   final String name;
   String get id => db.deviceId;
 
-  static Future<Node> start(String name) async {
+  static Future<Node> start(String name, {Duration? handshakeTimeout}) async {
     final db = AppDatabase.open(null);
     final repo = NoteRepository(db);
     final peers = PeerStore(db);
@@ -38,6 +38,7 @@ class Node {
       port: 0,
       bindAddress: InternetAddress.loopbackIPv4,
       enableDiscovery: false,
+      handshakeTimeout: handshakeTimeout ?? const Duration(seconds: 6),
       localAddresses: () async => ['127.0.0.1'],
     );
     await service.start();
@@ -331,5 +332,87 @@ void main() {
     );
     expect(describeEndpoint('192.168.1.5:47380'), '192.168.1.5');
     expect(describeEndpoint('100.30.1.1:47380'), '100.30.1.1');
+  });
+
+  test('two people holding the same code cannot both pair', () async {
+    final code = await a.service.beginPairing();
+    final c = await Node.start('Tablet');
+    addTearDown(c.stop);
+    final paired = a.service.onPaired.first.timeout(const Duration(seconds: 3));
+    final results = await Future.wait([
+      b.service.pairWith(code).then<Object>((p) => p, onError: (Object e) => e),
+      c.service.pairWith(code).then<Object>((p) => p, onError: (Object e) => e),
+    ]);
+    final succeeded = results.whereType<Peer>().length;
+    expect(succeeded, 1, reason: '$results');
+    await paired; // the host finishes its side a moment later
+    expect(a.peers.list().length, 1);
+  });
+
+  test(
+    'strangers cannot use up the connection slots, and slots are freed',
+    () async {
+      final n = await Node.start(
+        'Host',
+        handshakeTimeout: const Duration(milliseconds: 500),
+      );
+      addTearDown(n.stop);
+      final idle = <Socket>[];
+      for (var i = 0; i < 2; i++) {
+        idle.add(await Socket.connect('127.0.0.1', n.service.port));
+      }
+      // A third connection from the same address is refused straight away.
+      final third = await Socket.connect('127.0.0.1', n.service.port);
+      var thirdClosed = false;
+      third.listen(
+        (_) {},
+        onDone: () => thirdClosed = true,
+        onError: (Object _) => thirdClosed = true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(thirdClosed, isTrue);
+      // Idle ones are dropped by the handshake timeout, freeing the slots.
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      final again = await Socket.connect('127.0.0.1', n.service.port);
+      var againClosed = false;
+      again.listen(
+        (_) {},
+        onDone: () => againClosed = true,
+        onError: (Object _) => againClosed = true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(
+        againClosed,
+        isFalse,
+        reason: 'a fresh connection is accepted once the slots are free',
+      );
+      for (final s in [...idle, third, again]) {
+        s.destroy();
+      }
+    },
+  );
+
+  test('a fast sender and a slow reader: data is held back by TCP, not lost or dropped', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    const frames = 14;
+    final received = <int>[];
+    final done = server.first.then((sock) async {
+      final t = TcpTransport(sock);
+      for (var i = 0; i < frames; i++) {
+        final f = await t.receive();
+        received.add(f.length);
+        await Future<void>.delayed(
+          const Duration(milliseconds: 15),
+        ); // slow reader
+      }
+    });
+    final client = TcpTransport(await Socket.connect('127.0.0.1', server.port));
+    for (var i = 0; i < frames; i++) {
+      await client.send(Uint8List(900 * 1024));
+    }
+    await done.timeout(const Duration(seconds: 20));
+    expect(received, List.filled(frames, 900 * 1024));
+    await client.close();
   });
 }

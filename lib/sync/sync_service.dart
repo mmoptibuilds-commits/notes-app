@@ -33,6 +33,7 @@ class SyncService extends ChangeNotifier {
     this.port = defaultSyncPort,
     this.bindAddress,
     this.enableDiscovery = true,
+    this.handshakeTimeout = const Duration(seconds: 6),
     Future<List<String>> Function()? localAddresses,
   }) : _localAddresses = localAddresses ?? _interfaceAddresses;
 
@@ -45,13 +46,15 @@ class SyncService extends ChangeNotifier {
   int port;
   final InternetAddress? bindAddress;
   final bool enableDiscovery;
+
+  /// How long a new connection may take to prove who it is.
+  final Duration handshakeTimeout;
   final Future<List<String>> Function() _localAddresses;
 
   ServerSocket? _server;
   RawDatagramSocket? _udp;
   PairingHost? _pairing;
   final _paired = StreamController<Peer>.broadcast();
-  int _incoming = 0;
   final _busy = <String>{};
   final _nextAttempt = <String, DateTime>{};
   final _failures = <String, int>{};
@@ -126,17 +129,48 @@ class SyncService extends ChangeNotifier {
     super.dispose();
   }
 
+  /// Connections that have not yet proved who they are, in total and per
+  /// address, and established sessions. Strangers on the network cannot use
+  /// up the slots that paired devices need.
+  int _handshaking = 0;
+  int _sessions = 0;
+  final _perAddress = <String, int>{};
+  static const _maxHandshakes = 6;
+  static const _maxHandshakesPerAddress = 2;
+  static const _maxSessions = 3;
+
   void _accept(Socket socket) {
-    if (_incoming >= 3 || _stopped) {
+    final ip = socket.remoteAddress.address;
+    if (_stopped ||
+        _handshaking >= _maxHandshakes ||
+        (_perAddress[ip] ?? 0) >= _maxHandshakesPerAddress) {
       socket.destroy();
       return;
     }
-    _incoming++;
-    unawaited(_handle(TcpTransport(socket)).whenComplete(() => _incoming--));
+    _handshaking++;
+    _perAddress[ip] = (_perAddress[ip] ?? 0) + 1;
+    unawaited(
+      _handle(TcpTransport(socket), ip).whenComplete(() {
+        final n = (_perAddress[ip] ?? 1) - 1;
+        if (n <= 0) {
+          _perAddress.remove(ip);
+        } else {
+          _perAddress[ip] = n;
+        }
+      }),
+    );
   }
 
-  Future<void> _handle(TcpTransport t) async {
+  Future<void> _handle(TcpTransport t, String ip) async {
     String? peerId;
+    var handshaking = true;
+    void established() {
+      if (!handshaking) return;
+      handshaking = false;
+      _handshaking--;
+      _sessions++;
+    }
+
     try {
       final ch = await SecureChannel.respond(
         t,
@@ -144,11 +178,19 @@ class SyncService extends ChangeNotifier {
         identity: identity,
         lookupPeer: peers.get,
         lookupOffer: (id) => _pairing?.lookup(id),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(handshakeTimeout);
+      established();
+      if (_sessions > _maxSessions) {
+        await ch.close();
+        return;
+      }
       peerId = ch.peerId;
       if (ch.mode == HandshakeMode.pairing) {
         final host = _pairing;
-        host?.consume();
+        if (host == null || !host.consume()) {
+          await ch.close();
+          return;
+        }
         final addrs = await _localAddresses();
         final peer = await completePairing(
           channel: ch,
@@ -189,6 +231,12 @@ class SyncService extends ChangeNotifier {
         notifyListeners();
       }
       await t.close();
+    } finally {
+      if (handshaking) {
+        _handshaking--;
+      } else {
+        _sessions--;
+      }
     }
   }
 
@@ -401,10 +449,15 @@ class SyncService extends ChangeNotifier {
 
   // ------------------------------------------------------------- discovery
 
-  static List<int> _tag(String deviceId) => sha256
-      .convert(utf8.encode('notes-discovery-v1$deviceId'))
+  /// What a discovery packet carries instead of a device id. It changes every
+  /// day, so someone watching the network cannot follow one device by it.
+  static List<int> _tag(String deviceId, int day) => sha256
+      .convert(utf8.encode('notes-discovery-v2$deviceId:$day'))
       .bytes
       .sublist(0, 8);
+
+  static int get _today =>
+      DateTime.now().toUtc().millisecondsSinceEpoch ~/ 86400000;
 
   Future<void> _startDiscovery() async {
     try {
@@ -414,7 +467,7 @@ class SyncService extends ChangeNotifier {
         reuseAddress: true,
       );
       _udp = s;
-      final mine = _tag(repo.db.deviceId);
+      final id = repo.db.deviceId;
       s.listen((e) {
         if (e != RawSocketEvent.read) return;
         final d = s.receive();
@@ -423,10 +476,17 @@ class SyncService extends ChangeNotifier {
             'NTSD1') {
           return;
         }
-        if (!_eq(d.data.sublist(5), mine)) return;
+        // Accept yesterday's and tomorrow's too: clocks and midnight differ.
+        final asked = d.data.sublist(5);
+        final day = _today;
+        final mine = [
+          for (final dd in [day, day - 1, day + 1])
+            if (_eq(asked, _tag(id, dd))) asked,
+        ];
+        if (mine.isEmpty) return;
         final reply = BytesBuilder()
           ..add(utf8.encode('NTSR1'))
-          ..add(mine)
+          ..add(mine.first)
           ..add([port >> 8, port & 0xff]);
         s.send(reply.toBytes(), d.address, d.port);
       });
@@ -437,7 +497,7 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<List<String>> _discover(String peerId) async {
-    final tag = _tag(peerId);
+    final tag = _tag(peerId, _today);
     final found = <String>[];
     RawDatagramSocket? s;
     try {

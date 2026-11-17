@@ -121,3 +121,25 @@ Found while testing the merge (`test/sync/merge_test.dart`):
 Official Flutter package with Android and Linux implementations; used only to
 choose an image to attach. Chosen over `file_picker` (larger, more platforms
 than needed) and `image_picker` (no Linux).
+
+## D15. Independent security review of the sync stack (2026-11-17)
+Reviewer: OpenAI Codex CLI (`gpt-6-luna`), read-only, given only `lib/sync`,
+the models and the design notes (no repo history, no private data). Seven
+findings; outcome of each:
+
+| # | Finding | Outcome |
+|---|---|---|
+| 1 | Unauthenticated connections can hold every inbound slot; unbounded frame queue | Fixed: separate handshake/session slots, 2 handshakes per address, 6 s handshake timeout; socket reads pause (TCP backpressure) when 2 frames are waiting. Tested. |
+| 2 | One pairing code could be consumed by several concurrent handshakes | Fixed: `PairingHost.consume()` is an atomic claim; the losing handshake is closed. Tested with two scanners racing. |
+| 3 | UDP discovery tag is stable and reveals the port | Fixed in part: tag now rotates daily (accepts ±1 day). The listening port is still revealed to the local network; accepted. |
+| 4 | A peer can advance our receive cursor past rows it omitted | Accepted as outside the threat model: a paired device is trusted with all notes and could already rewrite or purge them. The *honest* variant of this problem was real and is fixed: after a peer is restored from an older copy, its numbering restarts, and our cursor (which only moves forward) would have skipped its later rows. The peer now flags `reset` and the cursor is set, not raised. The test fails without the fix. |
+| 5 | Unreadable rows are skipped while the cursor advances | Kept the skip (retrying a permanently bad row would block all sync) but nothing is discarded any more: rows go to a `quarantine` table (schema v3, newest 500 kept) and are counted in the outcome. |
+| 6 | Attachment traffic and `blobmissing` replies unbounded | Fixed: 512 MiB image bytes per session, one reply per requested hash, 30-minute session deadline. Tested. |
+| 7 | Equal version vectors with different content silently discarded one | Fixed: treated like concurrent edits; both versions kept. Tested. |
+
+Reviewer's "checked and sound": handshake transcript binding, DH input
+order, directional keys, key confirmation, counters, no downgrade path, pairing
+secret strength and expiry, attacker without the secret cannot pair, batches
+applied atomically, attachments stored only after hash match.
+Not yet reviewed by anyone else: `lib/doc/checklist_projection.dart`,
+`lib/importer/`, the editor session.

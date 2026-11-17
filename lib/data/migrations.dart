@@ -1,6 +1,6 @@
 /// Schema migrations. Append only: once a version has shipped, its entry never
 /// changes. `migrations[i]` upgrades a database from version `i` to `i + 1`.
-const List<List<String>> migrations = [_v1, _v2];
+const List<List<String>> migrations = [_v1, _v2, _v3];
 
 int get schemaVersion => migrations.length;
 
@@ -162,5 +162,20 @@ const _v2 = <String>[
     sent_cursor INTEGER NOT NULL DEFAULT 0,
     recv_cursor INTEGER NOT NULL DEFAULT 0
   ) WITHOUT ROWID
+  ''',
+];
+
+// v3: rows received from a peer that could not be understood. They are kept,
+// not applied, so a damaged or newer-format row is never silently lost.
+const _v3 = <String>[
+  '''
+  CREATE TABLE quarantine (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    peer_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    received_at INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    raw TEXT NOT NULL
+  )
   ''',
 ];

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 
 import 'app_database.dart';
@@ -143,6 +145,22 @@ class AppSettings extends ChangeNotifier {
 
   set toolbar(List<ToolbarItem> v) =>
       _set('toolbar', jsonEncode([for (final t in v) t.name]));
+
+  /// Name other devices see for this one. Defaults to the machine name.
+  String get deviceName {
+    final v = _values['deviceName']?.trim();
+    if (v != null && v.isNotEmpty) return v;
+    try {
+      if (Platform.isAndroid) return 'Android phone';
+      final h = Platform.localHostname.trim();
+      if (h.isNotEmpty && h != 'localhost') return h;
+    } on Object {
+      // fall through
+    }
+    return 'My device';
+  }
+
+  set deviceName(String v) => _set('deviceName', v.trim());
 
   /// Raw access for small bits of UI state (for example, last opened folder).
   String? read(String key) => _values[key];

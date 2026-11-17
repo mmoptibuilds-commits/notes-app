@@ -72,7 +72,17 @@ class SyncService extends ChangeNotifier {
   /// What the most recent session with each peer did.
   final lastOutcome = <String, SyncOutcome>{};
 
+  /// This device's reachable addresses (LAN, Tailscale), for display.
+  Future<List<String>> addresses() async => [
+    for (final a in await _localAddresses()) '$a:$port',
+  ];
+
   PairingHost? get pairing => _pairing?.active == true ? _pairing : null;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
 
   // ---------------------------------------------------------------- server
 
@@ -92,18 +102,26 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    await _teardown();
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _teardown() async {
     _stopped = true;
     _debounce?.cancel();
-    await _server?.close();
+    final server = _server;
     _server = null;
     _udp?.close();
     _udp = null;
-    notifyListeners();
+    await server?.close();
   }
+
+  bool _disposed = false;
 
   @override
   void dispose() {
-    stop();
+    _disposed = true;
+    unawaited(_teardown());
     _paired.close();
     super.dispose();
   }
@@ -251,6 +269,20 @@ class SyncService extends ChangeNotifier {
   }
 
   // ------------------------------------------------------------------ sync
+
+  /// Renames a paired device (a label only this device sees).
+  void renamePeer(String id, String name) {
+    peers.rename(id, name);
+    notifyListeners();
+  }
+
+  /// Un-pairs a device and updates the status shown.
+  void removePeer(String id) {
+    peers.remove(id);
+    lastError.remove(id);
+    lastOutcome.remove(id);
+    notifyListeners();
+  }
 
   /// Syncs with every paired device now. Returns the outcomes by peer id
   /// (only for devices that were reached).

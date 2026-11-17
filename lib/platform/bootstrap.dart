@@ -10,14 +10,19 @@ import '../core/ids.dart';
 import '../data/app_database.dart';
 import '../data/app_settings.dart';
 import '../data/note_repository.dart';
+import '../sync/peers.dart';
+import '../sync/sync_service.dart';
 
 /// The long-lived objects of a running app.
 class AppServices {
-  AppServices(this.db, this.notes, this.settings, this.dataDir);
+  AppServices(this.db, this.notes, this.settings, this.dataDir, {this.sync});
 
   final AppDatabase db;
   final NoteRepository notes;
   final AppSettings settings;
+
+  /// Device sync. Null in tests that do not exercise it.
+  final SyncService? sync;
 
   /// Directory holding the database and local backups.
   final String dataDir;
@@ -34,6 +39,7 @@ class AppServices {
   }
 
   void close() {
+    sync?.dispose();
     settings.dispose();
     db.close();
   }
@@ -118,5 +124,17 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
     }
   }
   final db = AppDatabase.open(dbPath, key: key);
-  return AppServices(db, NoteRepository(db), AppSettings(db), dir);
+  final notes = NoteRepository(db);
+  final settings = AppSettings(db);
+  final identity = await DeviceIdentity.loadOrCreate(db);
+  final sync = SyncService(
+    repo: notes,
+    peers: PeerStore(db),
+    identity: identity,
+    deviceName: settings.deviceName,
+    // A second instance (development) must not fight over the same port.
+    port: override == null ? defaultSyncPort : 0,
+  );
+  settings.addListener(() => sync.deviceName = settings.deviceName);
+  return AppServices(db, notes, settings, dir, sync: sync);
 }

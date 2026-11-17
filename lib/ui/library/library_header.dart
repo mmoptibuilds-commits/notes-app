@@ -37,12 +37,14 @@ class LibrarySearchField extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onChanged,
+    this.onSubmitted,
     this.autofocus = false,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final ValueChanged<String> onChanged;
+  final VoidCallback? onSubmitted;
   final bool autofocus;
 
   @override
@@ -57,6 +59,7 @@ class LibrarySearchField extends StatelessWidget {
           focusNode: focusNode,
           autofocus: autofocus,
           onChanged: onChanged,
+          onSubmitted: (_) => onSubmitted?.call(),
           textInputAction: TextInputAction.search,
           style: const TextStyle(fontSize: 14),
           decoration: InputDecoration(

@@ -136,7 +136,6 @@ class LibraryController extends ChangeNotifier {
   void setQuery(String q) {
     if (q == _query) return;
     _query = q;
-    _selected.clear();
     reload();
   }
 

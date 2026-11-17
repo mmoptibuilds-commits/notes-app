@@ -467,6 +467,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _c.clearSelection();
         return KeyEventResult.handled;
       }
+      if (_searchFocus.hasFocus) {
+        _rootFocus.requestFocus();
+        return KeyEventResult.handled;
+      }
       return KeyEventResult.ignored;
     }
     if (_typing) return KeyEventResult.ignored;
@@ -622,6 +626,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               controller: _searchCtl,
               focusNode: _searchFocus,
               onChanged: _onQueryChanged,
+              onSubmitted: _rootFocus.requestFocus,
               autofocus: true,
             ),
           ),
@@ -655,6 +660,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 controller: _searchCtl,
                 focusNode: _searchFocus,
                 onChanged: _onQueryChanged,
+                onSubmitted: _rootFocus.requestFocus,
               ),
             ),
             const SizedBox(width: 4),

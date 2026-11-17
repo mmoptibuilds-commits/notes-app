@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dart_quill_delta/dart_quill_delta.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/app.dart';
@@ -220,6 +221,49 @@ void main() {
     expect(s.notes.listNotes().single.preview, 'first thought');
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'copy as Markdown puts the whole note, completed items included, on the clipboard',
+    (tester) async {
+      final s = AppServices.inMemory();
+      addTearDown(s.close);
+      final note = s.notes.createNote(
+        title: 'Weekend plan',
+        body: jsonEncode(sample().toJson()),
+      );
+      await pumpEditor(tester, s, noteId: note.id);
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy as Markdown'));
+      await tester.pumpAndSettle();
+      expect(copied, startsWith('# Weekend plan\n\n'));
+      expect(copied, contains('- [ ] Buy oat milk'));
+      expect(
+        copied,
+        contains('- [x] ~~Book train tickets~~'),
+        reason: 'the legacy strike-through is kept',
+      );
+      expect(copied, contains('- [x] Renew library card'));
+      expect(copied, contains('[Link text](https://example.org)'));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final (theme, name) in [
     (AppTheme.light, 'light'),

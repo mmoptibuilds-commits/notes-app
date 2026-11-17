@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -6,6 +8,8 @@ import '../../app.dart';
 import '../../platform/bootstrap.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
+import '../../doc/checklist_projection.dart' show bodyFromDelta;
+import '../../doc/markdown.dart';
 import 'completed_section.dart';
 import 'editor_session.dart';
 import 'editor_style.dart';
@@ -99,6 +103,44 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: session.plainText()));
     if (mounted) _toast('Note copied');
+  }
+
+  /// The whole note (title as a heading, completed items included) as
+  /// Markdown.
+  String _markdown() {
+    final body = deltaToMarkdown(bodyFromDelta(session.canonicalDelta()))
+        .trim();
+    final t = session.title.text.trim();
+    return t.isEmpty ? body : '# $t\n\n$body';
+  }
+
+  Future<void> _copyMarkdown() async {
+    await Clipboard.setData(ClipboardData(text: _markdown()));
+    if (mounted) _toast('Copied as Markdown');
+  }
+
+  Future<void> _saveMarkdown() async {
+    final raw = session.title.text.trim();
+    final safe = raw
+        .replaceAll(RegExp(r'[^\p{L}\p{N} _.-]', unicode: true), '')
+        .trim();
+    final name = '${safe.isEmpty ? 'note' : safe}.md';
+    final loc = await getSaveLocation(
+      suggestedName: name,
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Markdown', extensions: ['md']),
+      ],
+    );
+    if (loc == null) return;
+    try {
+      await XFile.fromData(
+        Uint8List.fromList(utf8.encode(_markdown())),
+        mimeType: 'text/markdown',
+      ).saveTo(loc.path);
+      if (mounted) _toast('Saved ${loc.path.split('/').last}');
+    } on Object catch (e) {
+      if (mounted) _toast('Could not save: $e');
+    }
   }
 
   void _trash() {
@@ -382,11 +424,23 @@ class _EditorScreenState extends State<EditorScreen>
                     _moveToFolder();
                   case 'trash':
                     _trash();
+                  case 'copy-md':
+                    _copyMarkdown();
+                  case 'save-md':
+                    _saveMarkdown();
                 }
               },
               itemBuilder: (context) {
                 final archived = session.stored?.archived ?? false;
                 return [
+                  const PopupMenuItem(
+                    value: 'copy-md',
+                    child: Text('Copy as Markdown'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'save-md',
+                    child: Text('Save as Markdown file…'),
+                  ),
                   if (!session.readOnly) ...[
                     PopupMenuItem(
                       value: 'folder',

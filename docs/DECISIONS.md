@@ -96,3 +96,28 @@ with `NOTES_DATA_DIR`. Deliberately different from upstream's
 default all rights are reserved. Nothing is copied from it; behaviour and data
 formats are re-implemented. The user reports having the author's permission;
 its scope must be confirmed in writing before publishing anything.
+
+## D13. Sync protocol invariants the transport must keep
+Found while testing the merge (`test/sync/merge_test.dart`):
+- **Batches are applied atomically.** When devices make independent edits,
+  the device that resolves first writes the losing version as a conflict copy
+  and a merged note whose version includes both. If a peer received the
+  merged note without the copy, it would overwrite its own edit with
+  nothing left to show for it. Therefore a received batch is applied in one
+  transaction, only after it has arrived completely, and the sender emits
+  rows in change order (the copy is written before the note that resolved it).
+- **Records, not operations.** Peers exchange whole note/folder rows; the
+  receiver merges with `RemoteApplier` (idempotent, order-independent).
+- **Future clocks are refused.** A peer clock more than 2 days ahead aborts
+  the batch (`ClockSkewException`) instead of dragging this device's clock
+  forward permanently.
+- **Folders** merge by id; the same name created on two devices gets the same
+  id (`derivedId`), so pairing does not duplicate folders.
+- Convergence is checked by randomised simulation: 3 devices with skewed
+  clocks, dropped/duplicated/reordered exchanges, 8 seeds, final states
+  compared row for row.
+
+## D14. File picking: `file_selector`
+Official Flutter package with Android and Linux implementations; used only to
+choose an image to attach. Chosen over `file_picker` (larger, more platforms
+than needed) and `image_picker` (no Linux).

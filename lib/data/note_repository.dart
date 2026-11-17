@@ -356,8 +356,12 @@ class NoteRepository {
         return listFolders().firstWhere((f) => f.id == id);
       }
       final hlc = db.clock.now();
+      // Two devices that create the same folder name independently get the
+      // same id, so pairing them does not leave a duplicate. A name that was
+      // used before (and renamed or deleted since) gets a fresh id instead.
+      final byName = derivedId('folder', [clean.toLowerCase()]);
       final record = FolderRecord(
-        id: newId(),
+        id: getFolderRecord(byName) == null ? byName : newId(),
         name: clean,
         nameHlc: hlc,
         deleted: false,

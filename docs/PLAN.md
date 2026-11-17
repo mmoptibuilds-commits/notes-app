@@ -69,7 +69,12 @@ reviewed the diff.
   partial state; private run matches 84 records (42 active, 2 archived,
   40 deleted) by count and hash.
 
-### 6. Pairing and sync — not started
+### 6. Pairing and sync — partial
+- [x] Merge rules and `RemoteApplier` (pure Dart): symmetric merge, conflict
+      copies, delete-vs-edit, per-field metadata, clock-skew guard.
+      Verified: 25 tests incl. randomised 3-device convergence (8 seeds).
+- [ ] Device identity/pairing (QR, key exchange), encrypted transport, batch
+      protocol (see D13), peer high-water marks, sync status UI, discovery.
 - Accept: two in-process peers converge under reordering, duplication and
   disconnects; concurrent edits produce a conflict copy on both sides;
   purge/trash rules hold; tampered or replayed frames are rejected; two real
@@ -89,3 +94,5 @@ reviewed the diff.
 | 2026-11-17 | Linux release build, path with space | `flutter build linux --release` | built `bundle/notes`, `libsqlite3mc.so` bundled |
 | 2026-11-17 | Core + data layer | `flutter analyze && flutter test` | no issues; 41 tests pass |
 | 2026-11-17 | Editor session + screen | `flutter analyze && flutter test` | no issues; 85 tests pass (property tests for checklist projection; widget tests tick/restore/undo-delete/toolbar/trash) |
+| 2026-11-17 | Sync merge + convergence | `flutter test test/sync` | 25 pass; 3 devices, skewed clocks, dup/drop/reorder, 8 seeds converge |
+| 2026-11-17 | Linux release smoke | `flutter build linux --release`; run 8 s with `NOTES_DATA_DIR` | builds, starts, creates encrypted `notes.db` (header not plaintext) |

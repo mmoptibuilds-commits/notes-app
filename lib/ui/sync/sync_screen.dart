@@ -185,11 +185,12 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
+    return Material(
+      color: p.card,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppMetrics.cardRadius),
-        border: Border.all(color: p.cardBorder),
+        side: BorderSide(color: p.cardBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

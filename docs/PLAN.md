@@ -16,6 +16,8 @@ Milestones 3 and 5 are in flight with two workers that were stopped by the
 | Legacy importer, markdown, export, tests | `a70744eaf1a4d2b24` | `worktree-agent-a70744eaf1a4d2b24` @ `456923f` | `legacy_backup.dart` (1129 lines) only; not gate-checked; no tests, markdown or export yet |
 | Library UI, settings screen, tests | `a08f7a73b3e20d67e` | `worktree-agent-a08f7a73b3e20d67e` @ `791ee7f` | controller, layout, card, dialogs, format helper; no screen, settings, tests yet; not gate-checked |
 
+Lead has since built the editor on `main` (session, screen, toolbar,
+completed section, image/unknown embeds); 85 tests pass, analyzer clean.
 **Next action:** after the limit resets, `SendMessage` each worker to continue
 (their context is intact). Meanwhile the lead builds the editor
 (`lib/ui/editor/`) on `main`, using `lib/doc/checklist_projection.dart`.
@@ -47,7 +49,11 @@ reviewed the diff.
 - Accept: create → edit → close DB → reopen returns identical content;
   killed mid-transaction leaves the previous state.
 
-### 3. Library, editor, themes — not started
+### 3. Library, editor, themes — partial
+- [x] Editor screen, toolbar (user-configurable), completed section, autosave (done, widget-tested).
+- [ ] Library + settings screens (worker `a08f7a73b3e20d67e`, interrupted).
+- Known limitation: checking or restoring a checklist item clears the editor's undo
+  history (undo across a moved line would act on shifted text).
 - Accept: three themes, three layouts, fonts, text size, animation level;
   new note opens instantly; autosave; restart keeps content; library scroll
   position restored; screenshots reviewed against references.
@@ -82,3 +88,4 @@ reviewed the diff.
 | 2026-11-17 | Encrypted DB + FTS5 | `flutter test test/spike/sqlite_spike_test.dart` | pass; SQLite 3.54.0, cipher chacha20, fts5 true |
 | 2026-11-17 | Linux release build, path with space | `flutter build linux --release` | built `bundle/notes`, `libsqlite3mc.so` bundled |
 | 2026-11-17 | Core + data layer | `flutter analyze && flutter test` | no issues; 41 tests pass |
+| 2026-11-17 | Editor session + screen | `flutter analyze && flutter test` | no issues; 85 tests pass (property tests for checklist projection; widget tests tick/restore/undo-delete/toolbar/trash) |

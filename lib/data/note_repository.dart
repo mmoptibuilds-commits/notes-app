@@ -202,8 +202,7 @@ class NoteRepository {
     }
     final rows = db.select(
       '''
-      SELECT ${_summaryColumns.join(', ')},
-             snippet(notes_fts, 1, '${SearchHit.matchStart}', '${SearchHit.matchEnd}', '…', 14) AS snip
+      SELECT ${_summaryColumns.join(', ')}, n.pk AS pk
       FROM notes_fts
       JOIN notes n ON n.pk = notes_fts.rowid
       LEFT JOIN folders f ON f.id = n.folder_id AND f.deleted = 0
@@ -213,15 +212,68 @@ class NoteRepository {
       ''',
       [match, limit],
     );
+    final terms = [
+      for (final w in query.split(RegExp(r'\s+')))
+        if (RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(w))
+          w
+              .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '')
+              .toLowerCase(),
+    ].where((w) => w.isNotEmpty).toList();
+    var n = 0;
     return [
       for (final r in rows)
         SearchHit(
           _summary(r),
-          (r['snip'] as String).contains(SearchHit.matchStart)
-              ? r['snip'] as String
-              : '',
+          n++ < _snippetRows ? _snippet(r['pk'] as int, terms) : '',
         ),
     ];
+  }
+
+  /// Snippets are built for the first results only.
+  static const _snippetRows = 60;
+
+  /// A short excerpt around the first match, with matches marked.
+  ///
+  /// Built here, not with SQLite's `snippet()`, because that re-reads the
+  /// whole document: one hit inside a 1 MB note took over two seconds. This
+  /// looks only at a small window. Accent-insensitive matches (which the
+  /// index finds) may yield no excerpt; the card then shows its normal preview.
+  String _snippet(int pk, List<String> terms) {
+    const before = 40;
+    const width = 150;
+    for (final term in terms) {
+      final row = db.select(
+        'SELECT instr(lower(plain_text), ?) AS p FROM notes WHERE pk = ?',
+        [term, pk],
+      ).first;
+      final pos = row['p'] as int;
+      if (pos <= 0) continue;
+      final start = pos > before ? pos - before : 1;
+      var text =
+          db.select(
+                'SELECT substr(plain_text, ?, ?) AS t FROM notes WHERE pk = ?',
+                [start, width, pk],
+              ).first['t']
+              as String;
+      text = text.replaceAll(RegExp(r'\s+'), ' ');
+      // Drop a half word at the left edge and mark the cut.
+      if (start > 1) {
+        final sp = text.indexOf(' ');
+        if (sp >= 0 && sp < 15) text = text.substring(sp + 1);
+        text = '…$text';
+      }
+      final re = RegExp(
+        terms.map(RegExp.escape).join('|'),
+        caseSensitive: false,
+        unicode: true,
+      );
+      text = text.replaceAllMapped(
+        re,
+        (m) => '${SearchHit.matchStart}${m[0]}${SearchHit.matchEnd}',
+      );
+      return '$text…';
+    }
+    return '';
   }
 
   /// Turns free text into an FTS5 query, or null if it has no searchable

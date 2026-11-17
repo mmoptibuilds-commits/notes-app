@@ -103,3 +103,5 @@ In flight: library + settings UI worker `a08f7a73b3e20d67e`
 | 2026-11-17 | Linux release smoke | `flutter build linux --release`; run 8 s with `NOTES_DATA_DIR` | builds, starts, creates encrypted `notes.db` (header not plaintext) |
 | 2026-11-17 | Legacy importer/export/markdown merged | `flutter analyze && flutter test` on main | no issues; 198 pass, 1 skipped (private-backup test, no file present) |
 | 2026-11-17 | Sync stack | `flutter test test/sync` | 81 pass: secure channel, session fault injection, loopback pairing + sync |
+| 2026-11-17 | Data-layer timings (Dart VM/JIT via `flutter test test/perf`, encrypted DB, NOT release) | 5,000 notes × ~1.5 KB | create all 2.7 s (one transaction); list all 66 ms; search 54–62 ms for words matching every note (200 hits + 60 snippets), 0.5 ms for none; counts 38 ms; small-note save 0.56 ms |
+| 2026-11-17 | Long note (VM) | one 1.15 MB note | create 62 ms, digest 17 ms, save 90 ms, search 2 ms. Found and fixed: SQLite `snippet()` took 2,419 ms on it; snippets are now built in Dart from a 150-char window |

@@ -89,9 +89,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _restoreOffset(_offsets[key] ?? 0);
     } else if (_c.searching && _c.query != _lastQuery) {
       _restoreOffset(0);
+    } else if (_scroll.hasClients) {
+      _holdOffset(_scroll.offset);
     }
     _lastQuery = _c.query;
     if (mounted) setState(() {});
+  }
+
+  /// After a reload in the same view, a lazy sliver may lay out from scratch
+  /// and correct the offset to something earlier. Walk back to [keep] in
+  /// viewport-sized steps unless the user has moved meanwhile.
+  void _holdOffset(double keep) {
+    var tries = 0;
+    void check() {
+      if (!mounted || !_scroll.hasClients) return;
+      final pos = _scroll.position;
+      if (pos.isScrollingNotifier.value || pos.pixels == keep) return;
+      if (++tries > 40) return;
+      final step = pos.viewportDimension * 0.8;
+      final next = keep > pos.pixels
+          ? (pos.pixels + step < keep ? pos.pixels + step : keep)
+          : keep;
+      pos.jumpTo(next);
+      WidgetsBinding.instance.addPostFrameCallback((_) => check());
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => check());
   }
 
   /// Puts the scroll view back to [target] once the new content is laid out.
@@ -793,10 +816,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    Widget group(int start, int end) {
+    Widget group(int start, int end, Key key) {
       switch (layout) {
         case LibraryLayout.grid:
           return SliverGrid(
+            key: key,
             delegate: delegate(start, end),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
@@ -811,6 +835,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           );
         case LibraryLayout.masonry:
           return SliverMasonryGrid(
+            key: key,
             delegate: delegate(start, end),
             gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
@@ -819,11 +844,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             crossAxisSpacing: cardGap,
           );
         case LibraryLayout.list:
-          return SliverList(delegate: delegate(start, end));
+          return SliverList(key: key, delegate: delegate(start, end));
       }
     }
 
     Widget label(String text, {required bool first}) => SliverToBoxAdapter(
+      key: ValueKey('label-$text'),
       child: Padding(
         padding: EdgeInsets.fromLTRB(inset + 2, first ? 2 : 14, inset, 6),
         child: Text(
@@ -839,6 +865,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
 
     Widget padded(Widget sliver) => SliverPadding(
+      key: sliver.key,
       padding: EdgeInsets.symmetric(horizontal: inset),
       sliver: sliver,
     );
@@ -865,14 +892,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ),
       );
-    } else if (c.showGroups) {
+    } else if (c.showGroups && layout != LibraryLayout.masonry) {
       slivers
         ..add(label('Pinned', first: true))
-        ..add(padded(group(0, c.pinnedCount)))
+        ..add(padded(group(0, c.pinnedCount, const ValueKey('pinned'))))
         ..add(label('Others', first: false))
-        ..add(padded(group(c.pinnedCount, items.length)));
+        ..add(
+          padded(group(c.pinnedCount, items.length, const ValueKey('others'))),
+        );
     } else {
-      slivers.add(padded(group(0, items.length)));
+      slivers.add(padded(group(0, items.length, const ValueKey('others'))));
     }
     slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 96)));
 

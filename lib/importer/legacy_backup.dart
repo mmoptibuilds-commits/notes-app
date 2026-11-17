@@ -197,8 +197,10 @@ class ImportReport {
         if (e.value > 0) '${e.key}: ${e.value}',
     ];
     if (kept.isNotEmpty) {
-      b.writeln('Kept in the import record only (no place in the app yet): '
-          '${kept.join(', ')}.');
+      b.writeln(
+        'Kept in the import record only (no place in the app yet): '
+        '${kept.join(', ')}.',
+      );
     }
     if (outOfScopeTables.isNotEmpty) {
       b.writeln(
@@ -368,7 +370,9 @@ class LegacyBackupImporter {
       final rows = repo.db.select('SELECT * FROM import_batches WHERE id = ?', [
         batchId,
       ]);
-      if (rows.isEmpty) throw ArgumentError.value(batchId, 'batchId', 'unknown');
+      if (rows.isEmpty) {
+        throw ArgumentError.value(batchId, 'batchId', 'unknown');
+      }
       final out = RollbackReport(batchId);
       if (rows.first['rolled_back_at'] != null) {
         out.alreadyRolledBack = true;
@@ -406,7 +410,8 @@ class LegacyBackupImporter {
         }
         if (action == ImportAction.updated) {
           final prev = NoteRecord.fromJson(
-            (jsonDecode(r['previous'] as String) as Map).cast<String, Object?>(),
+            (jsonDecode(r['previous'] as String) as Map)
+                .cast<String, Object?>(),
           );
           var next = cur.copyWith(
             title: prev.title,
@@ -439,13 +444,11 @@ class LegacyBackupImporter {
         final folder = repo.getFolderRecord(id);
         if (folder == null || folder.deleted) continue;
         final live =
-            repo.db
-                    .select(
-                      'SELECT count(*) AS c FROM notes '
-                      'WHERE folder_id = ? AND purged = 0',
-                      [id],
-                    )
-                    .first['c']
+            repo.db.select(
+                  'SELECT count(*) AS c FROM notes '
+                  'WHERE folder_id = ? AND purged = 0',
+                  [id],
+                ).first['c']
                 as int;
         if (live == 0) {
           repo.deleteFolder(id);
@@ -509,7 +512,8 @@ class LegacyBackupImporter {
 
   static String _sniffMime(Uint8List b) {
     bool starts(List<int> p) =>
-        b.length >= p.length && [for (var i = 0; i < p.length; i++) b[i]].toString() == p.toString();
+        b.length >= p.length &&
+        [for (var i = 0; i < p.length; i++) b[i]].toString() == p.toString();
     if (starts([0x89, 0x50, 0x4E, 0x47])) return 'image/png';
     if (starts([0xFF, 0xD8, 0xFF])) return 'image/jpeg';
     if (starts([0x47, 0x49, 0x46, 0x38])) return 'image/gif';
@@ -682,8 +686,7 @@ class LegacyBackupImporter {
     final createdAt = createdParsed ?? _afterBad(badDate, exportedMs ?? 0);
     final modifiedParsed = parse(row['dateModified']);
     final updatedAt =
-        modifiedParsed ??
-        _afterBad(badDate, createdParsed ?? exportedMs ?? 0);
+        modifiedParsed ?? _afterBad(badDate, createdParsed ?? exportedMs ?? 0);
 
     final deletedRaw = row['deletedAt'];
     final deleted =
@@ -781,9 +784,7 @@ class LegacyBackupImporter {
       folderName: folderName,
       sourceHash: sha256OfString(canonicalJson(row)),
       raw: raw,
-      state: deleted
-          ? 'deleted'
-          : (record.archived ? 'archived' : 'active'),
+      state: deleted ? 'deleted' : (record.archived ? 'archived' : 'active'),
       plainConverted: plain,
       carried: carried,
       missingImages: images,
@@ -960,7 +961,14 @@ class LegacyBackupImporter {
             : ImportAction.skippedDeleted;
       }
       count(action);
-      if (!write) continue;
+      if (!write) {
+        final needsFolder =
+            action == ImportAction.created ||
+            action == ImportAction.restored ||
+            action == ImportAction.conflictCopy;
+        if (needsFolder && m.folderName != null) resolveFolder(m.folderName!);
+        continue;
+      }
 
       String? noteId = m.id;
       VersionVector? writtenVv;

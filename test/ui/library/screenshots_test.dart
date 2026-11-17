@@ -21,7 +21,7 @@ void main() {
       s.services.settings.theme = theme;
       await pumpLibrary(tester, s, size: phone);
       await tester.pumpAndSettle();
-      await screenshot(tester, 'library_phone_masonry_${theme.name}');
+      await shot(tester, 'library_phone_masonry_${theme.name}');
     });
   }
 
@@ -30,30 +30,30 @@ void main() {
     addTearDown(s.services.close);
     s.services.settings.layout = LibraryLayout.list;
     await pumpLibrary(tester, s, size: phone);
-    await screenshot(tester, 'library_phone_list');
+    await shot(tester, 'library_phone_list');
     s.services.settings.layout = LibraryLayout.grid;
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_phone_grid');
+    await shot(tester, 'library_phone_grid');
   });
 
   testWidgets('library desktop', (tester) async {
     final s = seedLibrary();
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: laptop);
-    await screenshot(tester, 'library_desktop_1280_masonry');
+    await shot(tester, 'library_desktop_1280_masonry');
     s.services.settings.layout = LibraryLayout.list;
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_desktop_1280_list');
+    await shot(tester, 'library_desktop_1280_list');
     s.services.settings.layout = LibraryLayout.grid;
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_desktop_1280_grid');
+    await shot(tester, 'library_desktop_1280_grid');
   });
 
   testWidgets('library desktop 1920', (tester) async {
     final s = seedLibrary();
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: fullHd);
-    await screenshot(tester, 'library_desktop_1920_masonry');
+    await shot(tester, 'library_desktop_1920_masonry');
   });
 
   testWidgets('selection mode', (tester) async {
@@ -64,7 +64,7 @@ void main() {
     await selectByLongPress(tester, 'Passport');
     await tester.tap(find.text('Wifi'));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_selection');
+    await shot(tester, 'library_selection');
   });
 
   testWidgets('search results', (tester) async {
@@ -77,7 +77,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'the');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_search_phone');
+    await shot(tester, 'library_search_phone');
   });
 
   testWidgets('search results desktop', (tester) async {
@@ -87,7 +87,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'the');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_search_desktop');
+    await shot(tester, 'library_search_desktop');
   });
 
   testWidgets('trash and conflicts', (tester) async {
@@ -97,20 +97,20 @@ void main() {
     markConflict(s, 'ideas');
     await pumpLibrary(tester, s, size: phone);
     await menuTap(tester, 'Trash');
-    await screenshot(tester, 'library_trash');
+    await shot(tester, 'library_trash');
     await menuTap(tester, 'All notes');
     await openMenu(tester);
-    await screenshot(tester, 'library_menu');
+    await shot(tester, 'library_menu');
     await tester.tap(find.text('Conflicts'));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_conflicts');
+    await shot(tester, 'library_conflicts');
   });
 
   testWidgets('empty state', (tester) async {
     final s = freshServices();
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: phone);
-    await screenshot(tester, 'library_empty');
+    await shot(tester, 'library_empty');
   });
 
   testWidgets('folder selected, desktop context menu', (tester) async {
@@ -121,6 +121,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Groceries'), buttons: 2);
     await tester.pumpAndSettle();
-    await screenshot(tester, 'library_desktop_context_menu');
+    await shot(tester, 'library_desktop_context_menu');
   });
 }

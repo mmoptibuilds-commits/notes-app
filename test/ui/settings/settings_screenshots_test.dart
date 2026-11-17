@@ -27,25 +27,25 @@ void main() {
 
   testWidgets('settings phone', (tester) async {
     await open(tester, const Size(412, 915));
-    await screenshot(tester, 'settings_phone');
+    await shot(tester, 'settings_phone');
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'settings_phone_2');
+    await shot(tester, 'settings_phone_2');
     await tester.drag(find.byType(ListView), const Offset(0, -900));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'settings_phone_3');
+    await shot(tester, 'settings_phone_3');
   });
 
   testWidgets('settings phone light', (tester) async {
     final s = await open(tester, const Size(412, 915));
     s.settings.theme = AppTheme.light;
     await tester.pumpAndSettle();
-    await screenshot(tester, 'settings_phone_light');
+    await shot(tester, 'settings_phone_light');
   });
 
   testWidgets('settings desktop', (tester) async {
     await open(tester, const Size(1280, 1500));
-    await screenshot(tester, 'settings_desktop');
+    await shot(tester, 'settings_desktop');
   });
 
   testWidgets('toolbar customisation', (tester) async {
@@ -54,13 +54,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Customise toolbar'));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'settings_toolbar_phone');
+    await shot(tester, 'settings_toolbar_phone');
   });
 
   testWidgets('toolbar customisation desktop', (tester) async {
     await open(tester, const Size(1280, 1500));
     await tester.tap(find.text('Customise toolbar'));
     await tester.pumpAndSettle();
-    await screenshot(tester, 'settings_toolbar_desktop');
+    await shot(tester, 'settings_toolbar_desktop');
   });
 }

@@ -378,7 +378,7 @@ class SliderRow extends StatelessWidget {
           thumbColor: p.accent,
           overlayColor: p.accent.withValues(alpha: 0.12),
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-          overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 11),
           tickMarkShape: SliderTickMarkShape.noTickMark,
           showValueIndicator: ShowValueIndicator.never,
         ),

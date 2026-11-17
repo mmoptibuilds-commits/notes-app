@@ -1,3 +1,8 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart' show OffsetLayer;
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -238,3 +243,20 @@ ScrollPosition scrollPosition(WidgetTester tester) => tester
       ),
     )
     .position;
+
+/// Like `screenshot` from test/support, but captures the whole view including
+/// menus, dialogs and snackbars (which live in overlay routes).
+Future<void> shot(WidgetTester tester, String name) async {
+  final view = tester.binding.renderViews.first;
+  final layer = view.debugLayer! as OffsetLayer;
+  await tester.runAsync(() async {
+    final image = await layer.toImage(
+      Offset.zero & (view.size * tester.view.devicePixelRatio),
+    );
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    File('build/screens/$name.png')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(bytes!.buffer.asUint8List());
+    image.dispose();
+  });
+}

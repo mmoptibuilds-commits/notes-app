@@ -141,19 +141,24 @@ class _ToolbarSettingsScreenState extends State<ToolbarSettingsScreen> {
                                 ),
                               ),
                             ),
-                            Switch(
-                              value: on,
-                              onChanged: (v) => _toggle(t, v),
-                              activeThumbColor: p.onAccent,
-                              activeTrackColor: p.accent,
-                              inactiveThumbColor: p.textMuted,
-                              inactiveTrackColor: p.background,
-                              trackOutlineColor:
-                                  WidgetStateProperty.resolveWith(
-                                    (s) => s.contains(WidgetState.selected)
-                                        ? p.accent
-                                        : p.cardBorder,
-                                  ),
+                            SizedBox(
+                              height: 28,
+                              child: FittedBox(
+                                child: Switch(
+                                  value: on,
+                                  onChanged: (v) => _toggle(t, v),
+                                  activeThumbColor: p.onAccent,
+                                  activeTrackColor: p.accent,
+                                  inactiveThumbColor: p.textMuted,
+                                  inactiveTrackColor: p.background,
+                                  trackOutlineColor:
+                                      WidgetStateProperty.resolveWith(
+                                        (s) => s.contains(WidgetState.selected)
+                                            ? p.accent
+                                            : p.cardBorder,
+                                      ),
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 8),
                           ],

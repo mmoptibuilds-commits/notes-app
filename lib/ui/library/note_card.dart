@@ -16,15 +16,47 @@ typedef ItemMenuCallback = void Function(
 /// With no title, the first preview line carries the weight.
 ({String head, String body, bool untitled}) splitNote(NoteSummary n) {
   final title = n.title.trim();
+  String clean(String l) =>
+      l.startsWith(_todoMarker) ? l.substring(_todoMarker.length) : l;
   if (title.isNotEmpty) return (head: title, body: n.preview, untitled: false);
   final i = n.preview.indexOf('\n');
   if (n.preview.isEmpty) return (head: 'Untitled', body: '', untitled: true);
-  if (i < 0) return (head: n.preview, body: '', untitled: false);
+  if (i < 0) return (head: clean(n.preview), body: '', untitled: false);
   return (
-    head: n.preview.substring(0, i),
+    head: clean(n.preview.substring(0, i)),
     body: n.preview.substring(i + 1),
     untitled: false,
   );
+}
+
+const _todoMarker = '\u2610 ';
+
+/// Preview text where the stored "unchecked" marker is drawn as a small box
+/// (the glyph is missing from several fonts).
+InlineSpan previewSpan(String text, TextStyle style, AppPalette p) {
+  final children = <InlineSpan>[];
+  final lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (line.startsWith(_todoMarker)) {
+      line = line.substring(_todoMarker.length);
+      children.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 5),
+            child: Icon(
+              Icons.check_box_outline_blank_rounded,
+              size: 14,
+              color: p.textFaint,
+            ),
+          ),
+        ),
+      );
+    }
+    children.add(TextSpan(text: i < lines.length - 1 ? '$line\n' : line));
+  }
+  return TextSpan(style: style, children: children);
 }
 
 /// Body text with the search match emphasised.
@@ -285,7 +317,7 @@ class NoteCard extends StatelessWidget {
     Widget body() => Text.rich(
       hasSnippet
           ? snippetSpan(item.snippet, st.body, st.match)
-          : TextSpan(text: parts.body, style: st.body),
+          : previewSpan(parts.body, st.body, p),
       maxLines: lines,
       overflow: TextOverflow.ellipsis,
     );
@@ -296,7 +328,7 @@ class NoteCard extends StatelessWidget {
           Icon(Icons.push_pin_rounded, size: 12, color: p.accent),
           const SizedBox(width: 3),
         ],
-        Flexible(
+        Expanded(
           child: Text(
             date,
             maxLines: 1,
@@ -304,7 +336,6 @@ class NoteCard extends StatelessWidget {
             style: st.meta,
           ),
         ),
-        const Spacer(),
         if (n.tasksTotal > 0)
           Text('${n.tasksDone}/${n.tasksTotal}', style: st.progress),
       ],
@@ -431,7 +462,7 @@ class NoteRow extends StatelessWidget {
                   Text.rich(
                     hasSnippet
                         ? snippetSpan(item.snippet, st.body, st.match)
-                        : TextSpan(text: firstBodyLine, style: st.body),
+                        : previewSpan(firstBodyLine, st.body, p),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

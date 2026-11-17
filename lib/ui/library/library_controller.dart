@@ -65,6 +65,7 @@ class LibraryController extends ChangeNotifier {
   bool _scheduled = false;
   bool _disposed = false;
 
+  bool get covered => _covered;
   NoteScope get scope => _scope;
   String? get folderId => _scope == NoteScope.active ? _folderId : null;
   bool get unfiled => _scope == NoteScope.active && _unfiled;
@@ -109,8 +110,7 @@ class LibraryController extends ChangeNotifier {
 
   /// True when any shown note needs a tag row (conflict copy, archived hit).
   bool get anyTagged => _items.any(
-    (i) =>
-        i.note.isConflictCopy || (searching && i.note.archived),
+    (i) => i.note.isConflictCopy || (searching && i.note.archived),
   );
 
   // ----------------------------------------------------------------- view
@@ -145,7 +145,7 @@ class LibraryController extends ChangeNotifier {
   void setCovered(bool covered) {
     if (_covered == covered) return;
     _covered = covered;
-    if (!covered && _dirty) reload();
+    if (!covered && _dirty) _scheduleReload();
   }
 
   void _onRepoChanged() {
@@ -153,6 +153,10 @@ class LibraryController extends ChangeNotifier {
       _dirty = true;
       return;
     }
+    _scheduleReload();
+  }
+
+  void _scheduleReload() {
     if (_scheduled) return;
     _scheduled = true;
     scheduleMicrotask(() {

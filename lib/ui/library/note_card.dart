@@ -1,6 +1,3 @@
-import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
-
 import '../../data/models.dart';
 import '../../data/note_repository.dart' show SearchHit;
 import '../material.dart';
@@ -10,8 +7,10 @@ import 'library_controller.dart';
 
 /// Shared callbacks of a library item.
 typedef ItemTapCallback = void Function(NoteSummary note);
-typedef ItemMenuCallback =
-    void Function(NoteSummary note, Offset globalPosition);
+typedef ItemMenuCallback = void Function(
+  NoteSummary note,
+  Offset globalPosition,
+);
 
 /// Splits a note into the heavy first line and the lighter body text.
 /// With no title, the first preview line carries the weight.
@@ -36,9 +35,7 @@ InlineSpan snippetSpan(String snippet, TextStyle base, TextStyle emphasis) {
   final buf = StringBuffer();
   void flush() {
     if (buf.isEmpty) return;
-    spans.add(
-      TextSpan(text: buf.toString(), style: inMatch ? emphasis : null),
-    );
+    spans.add(TextSpan(text: buf.toString(), style: inMatch ? emphasis : null));
     buf.clear();
   }
 
@@ -211,8 +208,7 @@ class _ItemSurfaceState extends State<_ItemSurface> {
       child: InkWell(
         onTap: () => widget.onTap(widget.note),
         onLongPress: () => widget.onLongPress(widget.note),
-        onSecondaryTapDown: (d) =>
-            widget.onMenu(widget.note, d.globalPosition),
+        onSecondaryTapDown: (d) => widget.onMenu(widget.note, d.globalPosition),
         onHover: (h) => setState(() => _hover = h),
         onFocusChange: (f) => setState(() => _focus = f),
         hoverColor: p.text.withValues(alpha: 0.03),
@@ -276,7 +272,9 @@ class NoteCard extends StatelessWidget {
     final parts = splitNote(n);
     final st = _Styles(p, untitled: parts.untitled);
     final hasSnippet = item.snippet.isNotEmpty;
-    final lines = hasSnippet ? (previewLines < 2 ? 2 : previewLines) : previewLines;
+    final lines = hasSnippet
+        ? (previewLines < 2 ? 2 : previewLines)
+        : previewLines;
     final showBody = hasSnippet || (lines > 0 && parts.body.isNotEmpty);
     final tags = noteTags(p, n, searching: searching);
     final date = formatRelativeDate(

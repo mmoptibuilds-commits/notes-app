@@ -6,9 +6,21 @@ Update this file at every checkpoint. Evidence means a command and its result.
 
 ## Current position
 
-Milestone 1 done. Milestone 2 data layer done and tested; keystore bootstrap
-still open. **Next action:** platform bootstrap (key storage, data dir), then
-milestone 3 UI.
+Milestone 2 done except nothing on a real keystore yet (bootstrap code written,
+untested against the real keyring). Checklist projection (milestone 4 core) done.
+Milestones 3 and 5 are in flight with two workers that were stopped by the
+5-hour usage limit (resets 2026-11-17 16:40 IST); their partial work is saved:
+
+| Task | Worker | Branch (worktree under `.claude/worktrees/`) | State |
+|---|---|---|---|
+| Legacy importer, markdown, export, tests | `a70744eaf1a4d2b24` | `worktree-agent-a70744eaf1a4d2b24` @ `456923f` | `legacy_backup.dart` (1129 lines) only; not gate-checked; no tests, markdown or export yet |
+| Library UI, settings screen, tests | `a08f7a73b3e20d67e` | `worktree-agent-a08f7a73b3e20d67e` @ `791ee7f` | controller, layout, card, dialogs, format helper; no screen, settings, tests yet; not gate-checked |
+
+**Next action:** after the limit resets, `SendMessage` each worker to continue
+(their context is intact). Meanwhile the lead builds the editor
+(`lib/ui/editor/`) on `main`, using `lib/doc/checklist_projection.dart`.
+Merge worker branches into `main` only after their gates pass and the lead has
+reviewed the diff.
 
 ## Waiting on the user
 

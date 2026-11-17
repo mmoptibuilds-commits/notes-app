@@ -1,0 +1,239 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/data/app_settings.dart';
+import 'package:notes/data/note_repository.dart';
+import 'package:notes/platform/bootstrap.dart';
+import 'package:notes/ui/material.dart';
+import 'package:notes/ui/settings/settings_screen.dart';
+import 'package:notes/ui/settings/settings_widgets.dart';
+import 'package:notes/ui/toolbar_item_info.dart';
+
+import '../../support/screenshot.dart';
+import '../library/support.dart';
+
+Future<AppServices> openSettings(
+  WidgetTester tester, {
+  Size size = const Size(412, 2600),
+  String dataDir = '',
+}) async {
+  final base = AppServices.inMemory();
+  final services = AppServices(base.db, base.notes, base.settings, dataDir);
+  addTearDown(services.close);
+  await setWindow(tester, size);
+  await pumpApp(tester, services);
+  await menuTap(tester, 'Settings');
+  expect(find.byType(SettingsScreen), findsOneWidget);
+  return services;
+}
+
+void main() {
+  setUpAll(loadAppFonts);
+
+  testWidgets('reachable from the overflow menu; has all four sections', (
+    tester,
+  ) async {
+    await openSettings(tester);
+    for (final t in ['Appearance', 'Library', 'Editor', 'About']) {
+      expect(find.text(t), findsWidgets, reason: t);
+    }
+    expect(find.text('Version $appVersionText'), findsOneWidget);
+    expect(find.text('Data folder'), findsNothing, reason: 'dataDir is empty');
+  });
+
+  testWidgets('data folder is shown and selectable when known', (tester) async {
+    await openSettings(tester, dataDir: '/home/someone/notes-data');
+    expect(find.text('Data folder'), findsOneWidget);
+    expect(find.byType(SelectableText), findsOneWidget);
+    expect(find.text('/home/someone/notes-data'), findsOneWidget);
+  });
+
+  testWidgets('appearance controls write their settings', (tester) async {
+    final s = await openSettings(tester);
+    final st = s.settings;
+    await tester.tap(find.text('Charcoal'));
+    await tester.pumpAndSettle();
+    expect(st.theme, AppTheme.charcoal);
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+    expect(st.theme, AppTheme.light);
+    await tester.tap(find.text('AMOLED'));
+    await tester.pumpAndSettle();
+    expect(st.theme, AppTheme.amoled);
+
+    await tester.tap(find.text('Interface font'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Source Serif'));
+    await tester.pumpAndSettle();
+    expect(st.uiFont, AppFont.serif);
+
+    await tester.tap(find.text('Reduced'));
+    await tester.pumpAndSettle();
+    expect(st.animations, AnimationLevel.reduced);
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    expect(st.animations, AnimationLevel.off);
+    await tester.tap(find.text('Full'));
+    await tester.pumpAndSettle();
+    expect(st.animations, AnimationLevel.full);
+  });
+
+  testWidgets('text size previews while dragging and commits on release', (
+    tester,
+  ) async {
+    final s = await openSettings(tester);
+    expect(s.settings.textScale, 1.0);
+    final slider = find.byType(Slider).first;
+    final g = await tester.startGesture(tester.getCenter(slider));
+    await g.moveBy(const Offset(60, 0));
+    await tester.pump();
+    expect(s.settings.textScale, 1.0, reason: 'not committed mid-drag');
+    expect(find.textContaining('%'), findsOneWidget);
+    await g.up();
+    await tester.pumpAndSettle();
+    expect(s.settings.textScale, greaterThan(1.0));
+  });
+
+  testWidgets('library controls write layout, sort and preview lines', (
+    tester,
+  ) async {
+    final s = await openSettings(tester);
+    final st = s.settings;
+    await tester.tap(find.text('List'));
+    await tester.pumpAndSettle();
+    expect(st.layout, LibraryLayout.list);
+    await tester.tap(find.text('Grid'));
+    await tester.pumpAndSettle();
+    expect(st.layout, LibraryLayout.grid);
+    await tester.tap(find.text('Title'));
+    await tester.pumpAndSettle();
+    expect(st.sort, NoteSort.title);
+    await tester.tap(find.text('Created'));
+    await tester.pumpAndSettle();
+    expect(st.sort, NoteSort.created);
+
+    final lines = find.byType(Slider).at(1);
+    await tester.drag(lines, const Offset(-400, 0));
+    await tester.pumpAndSettle();
+    expect(st.previewLines, 0);
+    expect(find.text('None'), findsOneWidget);
+    await tester.drag(lines, const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(st.previewLines, 10);
+  });
+
+  testWidgets('editor controls write their settings', (tester) async {
+    final s = await openSettings(tester);
+    final st = s.settings;
+    await tester.tap(find.text('Note font'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('JetBrains Mono'));
+    await tester.pumpAndSettle();
+    expect(st.editorFont, AppFont.mono);
+
+    final size = find.byType(Slider).at(2);
+    await tester.drag(size, const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(st.editorFontSize, 28);
+    final height = find.byType(Slider).at(3);
+    await tester.drag(height, const Offset(-400, 0));
+    await tester.pumpAndSettle();
+    expect(st.editorLineHeight, closeTo(1.1, 0.001));
+
+    expect(st.completedSection, isTrue);
+    await tester.tap(
+      find.text('Move completed checklist items to a collapsible section'),
+    );
+    await tester.pumpAndSettle();
+    expect(st.completedSection, isFalse);
+    expect(st.completedCollapsed, isTrue);
+    await tester.tap(find.text('Start with completed section collapsed'));
+    await tester.pumpAndSettle();
+    expect(st.completedCollapsed, isFalse);
+  });
+
+  testWidgets('desktop: content is a centred column of at most 640px', (
+    tester,
+  ) async {
+    await openSettings(tester, size: const Size(1280, 1600));
+    final box = tester.getRect(find.byType(SettingsSection).first);
+    expect(box.width, lessThanOrEqualTo(640));
+    expect(box.center.dx, closeTo(640, 1));
+  });
+
+  group('toolbar customisation', () {
+    Future<AppServices> openToolbar(WidgetTester tester) async {
+      final s = await openSettings(tester);
+      await tester.tap(find.text('Customise toolbar'));
+      await tester.pumpAndSettle();
+      return s;
+    }
+
+    testWidgets('lists every item, enabled first in saved order', (
+      tester,
+    ) async {
+      await setWindow(tester, const Size(412, 2600));
+      await openToolbar(tester);
+      for (final t in ToolbarItem.values) {
+        expect(find.text(t.label), findsOneWidget, reason: t.name);
+      }
+      final first = tester.getTopLeft(find.text('Checklist')).dy;
+      final bold = tester.getTopLeft(find.text('Bold')).dy;
+      final underline = tester.getTopLeft(find.text('Underline')).dy;
+      expect(first, lessThan(bold));
+      expect(bold, lessThan(underline), reason: 'hidden items come last');
+    });
+
+    testWidgets('switch hides and shows an item', (tester) async {
+      final s = await openToolbar(tester);
+      Finder switchOf(String label) => find.descendant(
+        of: find
+            .ancestor(of: find.text(label), matching: find.byType(Row))
+            .first,
+        matching: find.byType(Switch),
+      );
+      await tester.tap(switchOf('Bold'));
+      await tester.pumpAndSettle();
+      expect(s.settings.toolbar, isNot(contains(ToolbarItem.bold)));
+      await tester.tap(switchOf('Underline'));
+      await tester.pumpAndSettle();
+      expect(s.settings.toolbar, contains(ToolbarItem.underline));
+      await tester.tap(switchOf('Bold'));
+      await tester.pumpAndSettle();
+      expect(s.settings.toolbar, contains(ToolbarItem.bold));
+    });
+
+    testWidgets('drag reorders and writes the order', (tester) async {
+      final s = await openToolbar(tester);
+      expect(s.settings.toolbar.first, ToolbarItem.checklist);
+      final handle = find.byIcon(Icons.drag_indicator_rounded).first;
+      await tester.drag(handle, const Offset(0, 190));
+      await tester.pumpAndSettle();
+      final t = s.settings.toolbar;
+      expect(t.take(3), [
+        ToolbarItem.bold,
+        ToolbarItem.italic,
+        ToolbarItem.checklist,
+      ]);
+      expect(t.length, ToolbarItem.defaults.length);
+    });
+
+    testWidgets('reset to default restores the default toolbar', (
+      tester,
+    ) async {
+      final s = await openToolbar(tester);
+      s.settings.toolbar = [ToolbarItem.link];
+      await tester.tap(find.text('Reset to default'));
+      await tester.pumpAndSettle();
+      expect(s.settings.toolbar, ToolbarItem.defaults);
+    });
+
+    testWidgets('the settings row reports how many are shown', (tester) async {
+      final s = await openSettings(tester);
+      expect(
+        find.text(
+          '${s.settings.toolbar.length} of ${ToolbarItem.values.length} buttons shown',
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+}

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Notes
+GenericName=Note taking
+Comment=Offline-first personal notes
+Exec=notes %U
+Icon=com.mmoptibuilds.notes
+Terminal=false
+Categories=Utility;TextEditor;
+StartupWMClass=com.mmoptibuilds.notes
+Keywords=notes;memo;checklist;

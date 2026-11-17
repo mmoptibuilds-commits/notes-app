@@ -6,6 +6,7 @@ import '../../data/note_repository.dart' show NoteSort;
 import '../material.dart';
 import '../theme/app_theme.dart';
 import 'settings_widgets.dart';
+import 'sync_data_section.dart';
 import 'toolbar_settings_screen.dart';
 
 const _pageMaxWidth = 640.0;
@@ -18,6 +19,7 @@ List<Widget> settingsSections() => const [
   AppearanceSection(),
   LibrarySection(),
   EditorSection(),
+  SyncDataSection(),
   AboutSection(),
 ];
 

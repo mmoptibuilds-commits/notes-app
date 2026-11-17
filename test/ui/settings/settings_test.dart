@@ -5,7 +5,6 @@ import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
 import 'package:notes/ui/settings/settings_widgets.dart';
-import 'package:notes/ui/theme/app_theme.dart';
 import 'package:notes/ui/toolbar_item_info.dart';
 
 import '../../support/screenshot.dart';
@@ -186,7 +185,9 @@ void main() {
     testWidgets('switch hides and shows an item', (tester) async {
       final s = await openToolbar(tester);
       Finder switchOf(String label) => find.descendant(
-        of: find.ancestor(of: find.text(label), matching: find.byType(Row)).first,
+        of: find
+            .ancestor(of: find.text(label), matching: find.byType(Row))
+            .first,
         matching: find.byType(Switch),
       );
       await tester.tap(switchOf('Bold'));
@@ -204,7 +205,7 @@ void main() {
       final s = await openToolbar(tester);
       expect(s.settings.toolbar.first, ToolbarItem.checklist);
       final handle = find.byIcon(Icons.drag_indicator_rounded).first;
-      await tester.drag(handle, const Offset(0, 125));
+      await tester.drag(handle, const Offset(0, 190));
       await tester.pumpAndSettle();
       final t = s.settings.toolbar;
       expect(t.take(3), [

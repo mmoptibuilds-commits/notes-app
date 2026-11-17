@@ -76,33 +76,34 @@ class AppearanceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context).settings;
-    return SettingsSection(
-      title: 'Appearance',
-      rows: [
-        SegmentedRow<AppTheme>(
-          title: 'Theme',
-          values: AppTheme.values,
-          labelOf: _themeLabel,
-          value: s.theme,
-          onChanged: (v) => s.theme = v,
-        ),
-        MenuRow<AppFont>(
-          title: 'Interface font',
-          values: AppFont.values,
-          labelOf: _fontLabel,
-          value: s.uiFont,
-          onChanged: (v) => s.uiFont = v,
-        ),
-        _TextScaleRow(settings: s),
-        SegmentedRow<AnimationLevel>(
-          title: 'Animations',
-          values: AnimationLevel.values,
-          labelOf: _animLabel,
-          value: s.animations,
-          onChanged: (v) => s.animations = v,
-        ),
-      ],
+    return SettingsBuilder(
+      builder: (context, s) => SettingsSection(
+        title: 'Appearance',
+        rows: [
+          SegmentedRow<AppTheme>(
+            title: 'Theme',
+            values: AppTheme.values,
+            labelOf: _themeLabel,
+            value: s.theme,
+            onChanged: (v) => s.theme = v,
+          ),
+          MenuRow<AppFont>(
+            title: 'Interface font',
+            values: AppFont.values,
+            labelOf: _fontLabel,
+            value: s.uiFont,
+            onChanged: (v) => s.uiFont = v,
+          ),
+          _TextScaleRow(settings: s),
+          SegmentedRow<AnimationLevel>(
+            title: 'Animations',
+            values: AnimationLevel.values,
+            labelOf: _animLabel,
+            value: s.animations,
+            onChanged: (v) => s.animations = v,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -170,34 +171,35 @@ class LibrarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context).settings;
-    return SettingsSection(
-      title: 'Library',
-      rows: [
-        SegmentedRow<LibraryLayout>(
-          title: 'Layout',
-          values: LibraryLayout.values,
-          labelOf: _layoutLabel,
-          value: s.layout,
-          onChanged: (v) => s.layout = v,
-        ),
-        SegmentedRow<NoteSort>(
-          title: 'Sort by',
-          values: NoteSort.values,
-          labelOf: _sortLabel,
-          value: s.sort,
-          onChanged: (v) => s.sort = v,
-        ),
-        SliderRow(
-          title: 'Preview lines',
-          value: s.previewLines.toDouble(),
-          min: 0,
-          max: 10,
-          divisions: 10,
-          label: s.previewLines == 0 ? 'None' : '${s.previewLines}',
-          onChanged: (v) => s.previewLines = v.round(),
-        ),
-      ],
+    return SettingsBuilder(
+      builder: (context, s) => SettingsSection(
+        title: 'Library',
+        rows: [
+          SegmentedRow<LibraryLayout>(
+            title: 'Layout',
+            values: LibraryLayout.values,
+            labelOf: _layoutLabel,
+            value: s.layout,
+            onChanged: (v) => s.layout = v,
+          ),
+          SegmentedRow<NoteSort>(
+            title: 'Sort by',
+            values: NoteSort.values,
+            labelOf: _sortLabel,
+            value: s.sort,
+            onChanged: (v) => s.sort = v,
+          ),
+          SliderRow(
+            title: 'Preview lines',
+            value: s.previewLines.toDouble(),
+            min: 0,
+            max: 10,
+            divisions: 10,
+            label: s.previewLines == 0 ? 'None' : '${s.previewLines}',
+            onChanged: (v) => s.previewLines = v.round(),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -207,72 +209,73 @@ class EditorSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context).settings;
     final p = AppPalette.of(context);
-    return SettingsSection(
-      title: 'Editor',
-      rows: [
-        MenuRow<AppFont>(
-          title: 'Note font',
-          values: AppFont.values,
-          labelOf: _fontLabel,
-          value: s.editorFont,
-          onChanged: (v) => s.editorFont = v,
-        ),
-        SliderRow(
-          title: 'Note text size',
-          value: s.editorFontSize,
-          min: 12,
-          max: 28,
-          divisions: 16,
-          label: '${s.editorFontSize.round()} px',
-          onChanged: (v) => s.editorFontSize = v.roundToDouble(),
-        ),
-        SliderRow(
-          title: 'Line height',
-          value: s.editorLineHeight,
-          min: 1.1,
-          max: 2.0,
-          divisions: 18,
-          label: s.editorLineHeight.toStringAsFixed(2),
-          onChanged: (v) => s.editorLineHeight = (v * 20).round() / 20,
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-          child: Text(
-            'Sample note text. Checklists, headings and plain paragraphs all '
-            'use this font, size and spacing.',
-            style: TextStyle(
-              fontFamily: s.editorFont.family,
-              fontSize: s.editorFontSize,
-              height: s.editorLineHeight,
-              color: p.text,
+    return SettingsBuilder(
+      builder: (context, s) => SettingsSection(
+        title: 'Editor',
+        rows: [
+          MenuRow<AppFont>(
+            title: 'Note font',
+            values: AppFont.values,
+            labelOf: _fontLabel,
+            value: s.editorFont,
+            onChanged: (v) => s.editorFont = v,
+          ),
+          SliderRow(
+            title: 'Note text size',
+            value: s.editorFontSize,
+            min: 12,
+            max: 28,
+            divisions: 16,
+            label: '${s.editorFontSize.round()} px',
+            onChanged: (v) => s.editorFontSize = v.roundToDouble(),
+          ),
+          SliderRow(
+            title: 'Line height',
+            value: s.editorLineHeight,
+            min: 1.1,
+            max: 2.0,
+            divisions: 18,
+            label: s.editorLineHeight.toStringAsFixed(2),
+            onChanged: (v) => s.editorLineHeight = (v * 20).round() / 20,
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            child: Text(
+              'Sample note text. Checklists, headings and plain paragraphs all '
+              'use this font, size and spacing.',
+              style: TextStyle(
+                fontFamily: s.editorFont.family,
+                fontSize: s.editorFontSize,
+                height: s.editorLineHeight,
+                color: p.text,
+              ),
             ),
           ),
-        ),
-        SwitchRow(
-          title: 'Move completed checklist items to a collapsible section',
-          value: s.completedSection,
-          onChanged: (v) => s.completedSection = v,
-        ),
-        SwitchRow(
-          title: 'Start with completed section collapsed',
-          value: s.completedCollapsed,
-          onChanged: (v) => s.completedCollapsed = v,
-        ),
-        SettingsRow(
-          title: 'Customise toolbar',
-          subtitle:
-              '${s.toolbar.length} of ${ToolbarItem.values.length} buttons shown',
-          trailing: Icon(Icons.chevron_right_rounded, color: p.textFaint),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const ToolbarSettingsScreen(),
+          SwitchRow(
+            title: 'Move completed checklist items to a collapsible section',
+            value: s.completedSection,
+            onChanged: (v) => s.completedSection = v,
+          ),
+          SwitchRow(
+            title: 'Start with completed section collapsed',
+            value: s.completedCollapsed,
+            onChanged: (v) => s.completedCollapsed = v,
+          ),
+          SettingsRow(
+            title: 'Customise toolbar',
+            subtitle:
+                '${s.toolbar.length} of ${ToolbarItem.values.length} buttons shown',
+            trailing: Icon(Icons.chevron_right_rounded, color: p.textFaint),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ToolbarSettingsScreen(),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -1,6 +1,24 @@
+import '../../app.dart';
+import '../../data/app_settings.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
+
+/// Rebuilds [builder] whenever a setting changes.
+class SettingsBuilder extends StatelessWidget {
+  const SettingsBuilder({super.key, required this.builder});
+
+  final Widget Function(BuildContext context, AppSettings settings) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppScope.of(context).settings;
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) => builder(context, settings),
+    );
+  }
+}
 
 /// A titled group of rows on one bordered surface.
 class SettingsSection extends StatelessWidget {
@@ -254,20 +272,18 @@ class MenuRow<T> extends StatelessWidget {
             ),
           ),
       ],
-      child: IgnorePointer(
-        child: SettingsRow(
-          title: title,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                labelOf(value),
-                style: TextStyle(fontSize: 13.5, color: p.textMuted),
-              ),
-              const SizedBox(width: 4),
-              Icon(Icons.unfold_more_rounded, size: 18, color: p.textFaint),
-            ],
-          ),
+      child: SettingsRow(
+        title: title,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              labelOf(value),
+              style: TextStyle(fontSize: 13.5, color: p.textMuted),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.unfold_more_rounded, size: 18, color: p.textFaint),
+          ],
         ),
       ),
     );

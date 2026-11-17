@@ -26,6 +26,11 @@ int documentLength(Delta delta) {
 class CompletedLine {
   CompletedLine._(this.id, this.delta, this.anchor);
 
+  /// Id of the line that preceded this one when it was last removed, so
+  /// [ChecklistProjection.putBack] can restore the exact order even among
+  /// lines that share an anchor.
+  int? _prevId;
+
   /// Stable for the life of the projection; use as a widget key.
   final int id;
 
@@ -276,21 +281,37 @@ class ChecklistProjection {
   /// caller can offer undo through [putBack].
   List<CompletedLine> remove(Iterable<int> ids) {
     final wanted = ids.toSet();
-    final gone = [
-      for (final c in _completed)
-        if (wanted.contains(c.id)) c,
-    ];
+    final gone = <CompletedLine>[];
+    int? prev;
+    for (final c in _completed) {
+      if (wanted.contains(c.id)) {
+        c._prevId = prev;
+        gone.add(c);
+      }
+      prev = c.id;
+    }
     _completed.removeWhere((c) => wanted.contains(c.id));
     return gone;
   }
 
-  /// Reverses [remove]: the lines return to the completed list at the places
-  /// their anchors say.
+  /// Reverses [remove] (pass the lines it returned, in that order): each
+  /// line goes back right after the line that preceded it, or, if that line
+  /// is gone, at the place its anchor says.
   void putBack(List<CompletedLine> lines) {
     for (final l in lines) {
-      var i = _completed.length;
-      while (i > 0 && _completed[i - 1].anchor > l.anchor) {
-        i--;
+      var i = _completed.indexWhere((c) => c.id == l._prevId);
+      if (i >= 0) {
+        i++;
+      } else if (l._prevId == null) {
+        i = 0;
+        while (i < _completed.length && _completed[i].anchor < l.anchor) {
+          i++;
+        }
+      } else {
+        i = _completed.length;
+        while (i > 0 && _completed[i - 1].anchor > l.anchor) {
+          i--;
+        }
       }
       _completed.insert(i, l);
     }

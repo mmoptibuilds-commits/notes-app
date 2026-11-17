@@ -624,7 +624,10 @@ void main() {
     expect(byId[travel]!.name, 'Travel');
     final rec = repo.getFolderRecord(travel!)!;
     expect(rec.createdAt, 0);
-    expect(rec.nameHlc.encode(), '000000000000'.padRight(15, '0') + '1-legacy');
+    expect(
+      (rec.nameHlc.millis, rec.nameHlc.counter, rec.nameHlc.node),
+      (0, 1, 'legacy'),
+    );
   });
 
   test(

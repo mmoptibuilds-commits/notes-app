@@ -224,12 +224,12 @@ bool _isDivider(_QLine l) =>
 String deltaToMarkdown(String bodyJson) {
   final lines = _qlines(decodeOps(bodyJson));
   final blocks = <String>[];
-  final isList = <bool>[];
+  final family = <String?>[]; // 'o' / 'u' for list items, else null
   final ordinals = <int, int>{};
   var i = 0;
-  void add(String s, {bool list = false}) {
+  void add(String s, {String? list}) {
     blocks.add(s);
-    isList.add(list);
+    family.add(list);
   }
 
   while (i < lines.length) {
@@ -293,7 +293,7 @@ String deltaToMarkdown(String bodyJson) {
           ordinals.remove(level);
           marker = '- ';
       }
-      add('$pad$marker$text', list: true);
+      add('$pad$marker$text', list: list == 'ordered' ? 'o' : 'u');
       continue;
     }
     ordinals.clear();
@@ -310,7 +310,7 @@ String deltaToMarkdown(String bodyJson) {
   if (blocks.isEmpty) return '';
   final out = StringBuffer(blocks.first);
   for (var k = 1; k < blocks.length; k++) {
-    final tight = isList[k] && isList[k - 1];
+    final tight = family[k] != null && family[k] == family[k - 1];
     final quotes = blocks[k].startsWith('> ') && blocks[k - 1].startsWith('> ');
     out.write(tight || quotes ? '\n' : '\n\n');
     out.write(blocks[k]);

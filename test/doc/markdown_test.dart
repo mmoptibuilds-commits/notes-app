@@ -6,11 +6,11 @@ import 'package:notes/doc/markdown.dart';
 String body(List<Object> ops) => jsonEncode(ops);
 Map<String, Object> nl([Map<String, Object>? attrs]) => {
   'insert': '\n',
-  if (attrs != null) 'attributes': attrs,
+  'attributes': ?attrs,
 };
 Map<String, Object> t(String text, [Map<String, Object>? attrs]) => {
   'insert': text,
-  if (attrs != null) 'attributes': attrs,
+  'attributes': ?attrs,
 };
 
 void main() {
@@ -26,16 +26,40 @@ void main() {
       md([t('a'), nl(), nl(), t('b'), nl()], 'a\n\nb\n');
     });
     test('headings 1-3', () {
-      md([t('A'), nl({'header': 1}), t('B'), nl({'header': 2}), t('C'), nl({'header': 3})],
-          '# A\n\n## B\n\n### C\n');
+      md([
+        t('A'),
+        nl({'header': 1}),
+        t('B'),
+        nl({'header': 2}),
+        t('C'),
+        nl({'header': 3}),
+      ], '# A\n\n## B\n\n### C\n');
     });
     test('inline styles', () {
-      md([t('b', {'bold': true}), nl()], '**b**\n');
-      md([t('i', {'italic': true}), nl()], '*i*\n');
-      md([t('s', {'strike': true}), nl()], '~~s~~\n');
-      md([t('c', {'code': true}), nl()], '`c`\n');
-      md([t('l', {'link': 'https://e.x/a'}), nl()], '[l](https://e.x/a)\n');
-      md([t('bi', {'bold': true, 'italic': true}), nl()], '***bi***\n');
+      md([
+        t('b', {'bold': true}),
+        nl(),
+      ], '**b**\n');
+      md([
+        t('i', {'italic': true}),
+        nl(),
+      ], '*i*\n');
+      md([
+        t('s', {'strike': true}),
+        nl(),
+      ], '~~s~~\n');
+      md([
+        t('c', {'code': true}),
+        nl(),
+      ], '`c`\n');
+      md([
+        t('l', {'link': 'https://e.x/a'}),
+        nl(),
+      ], '[l](https://e.x/a)\n');
+      md([
+        t('bi', {'bold': true, 'italic': true}),
+        nl(),
+      ], '***bi***\n');
     });
     test('styles mixed in a line, shared marks stay open', () {
       md([
@@ -47,65 +71,114 @@ void main() {
       ], 'a **bold *bi*** end\n');
     });
     test('whitespace stays outside the markers', () {
-      md([t('x'), t(' pad ', {'bold': true}), t('y'), nl()], 'x **pad** y\n');
+      md([
+        t('x'),
+        t(' pad ', {'bold': true}),
+        t('y'),
+        nl(),
+      ], 'x **pad** y\n');
     });
     test('inline code with backticks', () {
-      md([t('a`b', {'code': true}), nl()], '``a`b``\n');
+      md([
+        t('a`b', {'code': true}),
+        nl(),
+      ], '``a`b``\n');
     });
     test('bullet and numbered lists with indent levels', () {
       md([
-        t('a'), nl({'list': 'bullet'}),
-        t('b'), nl({'list': 'bullet', 'indent': 1}),
-        t('c'), nl({'list': 'bullet', 'indent': 2}),
-        t('d'), nl({'list': 'bullet'}),
+        t('a'),
+        nl({'list': 'bullet'}),
+        t('b'),
+        nl({'list': 'bullet', 'indent': 1}),
+        t('c'),
+        nl({'list': 'bullet', 'indent': 2}),
+        t('d'),
+        nl({'list': 'bullet'}),
       ], '- a\n    - b\n        - c\n- d\n');
       md([
-        t('x'), nl({'list': 'ordered'}),
-        t('y'), nl({'list': 'ordered'}),
-        t('y1'), nl({'list': 'ordered', 'indent': 1}),
-        t('y2'), nl({'list': 'ordered', 'indent': 1}),
-        t('z'), nl({'list': 'ordered'}),
+        t('x'),
+        nl({'list': 'ordered'}),
+        t('y'),
+        nl({'list': 'ordered'}),
+        t('y1'),
+        nl({'list': 'ordered', 'indent': 1}),
+        t('y2'),
+        nl({'list': 'ordered', 'indent': 1}),
+        t('z'),
+        nl({'list': 'ordered'}),
       ], '1. x\n2. y\n    1. y1\n    2. y2\n3. z\n');
     });
     test('a list is separated from the paragraph after it', () {
-      md([t('a'), nl({'list': 'bullet'}), t('p'), nl()], '- a\n\np\n');
+      md([
+        t('a'),
+        nl({'list': 'bullet'}),
+        t('p'),
+        nl(),
+      ], '- a\n\np\n');
     });
     test('checklists', () {
       md([
-        t('todo'), nl({'list': 'unchecked'}),
-        t('done', {'strike': true}), nl({'list': 'checked'}),
+        t('todo'),
+        nl({'list': 'unchecked'}),
+        t('done', {'strike': true}),
+        nl({'list': 'checked'}),
       ], '- [ ] todo\n- [x] ~~done~~\n');
     });
     test('block quotes', () {
-      md([t('q1'), nl({'blockquote': true}), t('q2'), nl({'blockquote': true})],
-          '> q1\n> q2\n');
+      md([
+        t('q1'),
+        nl({'blockquote': true}),
+        t('q2'),
+        nl({'blockquote': true}),
+      ], '> q1\n> q2\n');
     });
     test('fenced code blocks, with and without a language', () {
-      md([t('x = 1'), nl({'code-block': true}), t('y *2*'), nl({'code-block': true})],
-          '```\nx = 1\ny *2*\n```\n');
-      md([t('print()'), nl({'code-block': 'python'})], '```python\nprint()\n```\n');
-      md([t('```'), nl({'code-block': true})], '````\n```\n````\n');
+      md([
+        t('x = 1'),
+        nl({'code-block': true}),
+        t('y *2*'),
+        nl({'code-block': true}),
+      ], '```\nx = 1\ny *2*\n```\n');
+      md([
+        t('print()'),
+        nl({'code-block': 'python'}),
+      ], '```python\nprint()\n```\n');
+      md([
+        t('```'),
+        nl({'code-block': true}),
+      ], '````\n```\n````\n');
     });
     test('images and dividers', () {
       md([
-        {'insert': {'image': 'att:abc'}},
+        {
+          'insert': {'image': 'att:abc'},
+        },
         nl(),
       ], '![](att:abc)\n');
       md([
         t('see '),
-        {'insert': {'image': 'https://e.x/a b.png'}},
+        {
+          'insert': {'image': 'https://e.x/a b.png'},
+        },
         nl(),
       ], 'see ![](https://e.x/a%20b.png)\n');
       md([
-        t('a'), nl(),
-        {'insert': {'divider': 'hr'}}, nl(),
-        t('b'), nl(),
+        t('a'),
+        nl(),
+        {
+          'insert': {'divider': 'hr'},
+        },
+        nl(),
+        t('b'),
+        nl(),
       ], 'a\n\n---\n\nb\n');
     });
     test('characters that need escaping', () {
       md([t('3.14 a_b - x! #1'), nl()], '3.14 a\\_b - x! #1\n');
-      md([t(r'*star* [x] `tick` <b> ~t~ \back'), nl()],
-          '\\*star\\* \\[x\\] \\`tick\\` \\<b> \\~t\\~ \\\\back\n');
+      md([
+        t(r'*star* [x] `tick` <b> ~t~ \back'),
+        nl(),
+      ], '\\*star\\* \\[x\\] \\`tick\\` \\<b> \\~t\\~ \\\\back\n');
       md([t('# not a heading'), nl()], '\\# not a heading\n');
       md([t('1. not a list'), nl()], '1\\. not a list\n');
       md([t('- not a bullet'), nl()], '\\- not a bullet\n');
@@ -115,7 +188,9 @@ void main() {
     test('unknown embeds and attributes never throw and keep text', () {
       md([
         t('before '),
-        {'insert': {'table': '{"x":1}'}},
+        {
+          'insert': {'table': '{"x":1}'},
+        },
         t(' after', {'underline': true, 'color': '#f00', 'x-new': 'y'}),
         nl({'align': 'center'}),
       ], 'before \\[table\\] after\n');
@@ -139,51 +214,91 @@ void main() {
     });
     test('headings', () {
       delta('# A\n## B\n### C', [
-        t('A'), nl({'header': 1}), t('B'), nl({'header': 2}), t('C'), nl({'header': 3}),
+        t('A'),
+        nl({'header': 1}),
+        t('B'),
+        nl({'header': 2}),
+        t('C'),
+        nl({'header': 3}),
       ]);
     });
     test('inline styles', () {
       delta('**b** *i* _i2_ ~~s~~ `c` [l](https://e.x)', [
-        t('b', {'bold': true}), t(' '), t('i', {'italic': true}), t(' '),
-        t('i2', {'italic': true}), t(' '), t('s', {'strike': true}), t(' '),
-        t('c', {'code': true}), t(' '), t('l', {'link': 'https://e.x'}), nl(),
+        t('b', {'bold': true}),
+        t(' '),
+        t('i', {'italic': true}),
+        t(' '),
+        t('i2', {'italic': true}),
+        t(' '),
+        t('s', {'strike': true}),
+        t(' '),
+        t('c', {'code': true}),
+        t(' '),
+        t('l', {'link': 'https://e.x'}),
+        nl(),
       ]);
-      delta('***bi***', [t('bi', {'bold': true, 'italic': true}), nl()]);
+      delta('***bi***', [
+        t('bi', {'bold': true, 'italic': true}),
+        nl(),
+      ]);
     });
     test('lists with indent levels', () {
       delta('- a\n    - b\n        - c\n- d', [
-        t('a'), nl({'list': 'bullet'}),
-        t('b'), nl({'list': 'bullet', 'indent': 1}),
-        t('c'), nl({'list': 'bullet', 'indent': 2}),
-        t('d'), nl({'list': 'bullet'}),
+        t('a'),
+        nl({'list': 'bullet'}),
+        t('b'),
+        nl({'list': 'bullet', 'indent': 1}),
+        t('c'),
+        nl({'list': 'bullet', 'indent': 2}),
+        t('d'),
+        nl({'list': 'bullet'}),
       ]);
       delta('1. x\n2. y\n    1. z', [
-        t('x'), nl({'list': 'ordered'}),
-        t('y'), nl({'list': 'ordered'}),
-        t('z'), nl({'list': 'ordered', 'indent': 1}),
+        t('x'),
+        nl({'list': 'ordered'}),
+        t('y'),
+        nl({'list': 'ordered'}),
+        t('z'),
+        nl({'list': 'ordered', 'indent': 1}),
       ]);
     });
     test('checklists', () {
       delta('- [ ] todo\n- [x] done', [
-        t('todo'), nl({'list': 'unchecked'}),
-        t('done'), nl({'list': 'checked'}),
+        t('todo'),
+        nl({'list': 'unchecked'}),
+        t('done'),
+        nl({'list': 'checked'}),
       ]);
     });
     test('block quotes, fenced and indented code, rules, images', () {
       delta('> q1\n> q2', [
-        t('q1'), nl({'blockquote': true}), t('q2'), nl({'blockquote': true}),
+        t('q1'),
+        nl({'blockquote': true}),
+        t('q2'),
+        nl({'blockquote': true}),
       ]);
       delta('```\nx = 1\n\ny\n```', [
-        t('x = 1'), nl({'code-block': true}),
+        t('x = 1'),
         nl({'code-block': true}),
-        t('y'), nl({'code-block': true}),
+        nl({'code-block': true}),
+        t('y'),
+        nl({'code-block': true}),
       ]);
-      delta('```dart\nvar a;\n```', [t('var a;'), nl({'code-block': 'dart'})]);
+      delta('```dart\nvar a;\n```', [
+        t('var a;'),
+        nl({'code-block': 'dart'}),
+      ]);
       delta('---', [
-        {'insert': {'divider': 'hr'}}, nl(),
+        {
+          'insert': {'divider': 'hr'},
+        },
+        nl(),
       ]);
       delta('![](att:abc)', [
-        {'insert': {'image': 'att:abc'}}, nl(),
+        {
+          'insert': {'image': 'att:abc'},
+        },
+        nl(),
       ]);
     });
     test('escapes are removed', () {
@@ -207,31 +322,61 @@ void main() {
   group('round trips', () {
     final samples = <String, List<Object>>{
       'everything': [
-        t('Title'), nl({'header': 1}),
-        t('plain '), t('bold', {'bold': true}), t(' '),
-        t('it', {'italic': true}), t(' '), t('gone', {'strike': true}), t(' '),
-        t('code', {'code': true}), t(' '),
-        t('link', {'link': 'https://example.invalid/x'}), nl(),
-        t('a'), nl({'list': 'bullet'}),
-        t('b'), nl({'list': 'bullet', 'indent': 1}),
-        t('one'), nl({'list': 'ordered'}),
-        t('two'), nl({'list': 'ordered'}),
-        t('open'), nl({'list': 'unchecked'}),
-        t('shut'), nl({'list': 'checked'}),
-        t('quoted'), nl({'blockquote': true}),
-        t('let x = 1;'), nl({'code-block': 'js'}),
-        t('3.14 a_b - x! #1 [x] *y* <z>'), nl(),
-        {'insert': {'image': 'att:0011'}}, nl(),
-        {'insert': {'divider': 'hr'}}, nl(),
-        t('end'), nl(),
+        t('Title'),
+        nl({'header': 1}),
+        t('plain '),
+        t('bold', {'bold': true}),
+        t(' '),
+        t('it', {'italic': true}),
+        t(' '),
+        t('gone', {'strike': true}),
+        t(' '),
+        t('code', {'code': true}),
+        t(' '),
+        t('link', {'link': 'https://example.invalid/x'}),
+        nl(),
+        t('a'),
+        nl({'list': 'bullet'}),
+        t('b'),
+        nl({'list': 'bullet', 'indent': 1}),
+        t('one'),
+        nl({'list': 'ordered'}),
+        t('two'),
+        nl({'list': 'ordered'}),
+        t('open'),
+        nl({'list': 'unchecked'}),
+        t('shut'),
+        nl({'list': 'checked'}),
+        t('quoted'),
+        nl({'blockquote': true}),
+        t('let x = 1;'),
+        nl({'code-block': 'js'}),
+        t('3.14 a_b - x! #1 [x] *y* <z>'),
+        nl(),
+        {
+          'insert': {'image': 'att:0011'},
+        },
+        nl(),
+        {
+          'insert': {'divider': 'hr'},
+        },
+        nl(),
+        t('end'),
+        nl(),
       ],
       'tricky text': [
-        t('1. not a list'), nl(),
-        t('# not a heading'), nl(),
-        t('- x'), nl({'list': 'bullet'}),
-        t('> quoted'), nl({'blockquote': true}),
-        t('a\\b `c`'), nl(),
-        t('bold *and italic*', {'bold': true}), nl(),
+        t('1. not a list'),
+        nl(),
+        t('# not a heading'),
+        nl(),
+        t('- x'),
+        nl({'list': 'bullet'}),
+        t('> quoted'),
+        nl({'blockquote': true}),
+        t('a\\b `c`'),
+        nl(),
+        t('bold *and italic*', {'bold': true}),
+        nl(),
       ],
     };
     samples.forEach((name, ops) {
@@ -264,7 +409,8 @@ void main() {
       }
     });
     test('markdown -> delta -> markdown reaches a fixed point', () {
-      const src = '# T\n\nhello **w** and *x*\n\n- [ ] a\n- [x] b\n\n1. n\n2. m\n\n'
+      const src =
+          '# T\n\nhello **w** and *x*\n\n- [ ] a\n- [x] b\n\n1. n\n2. m\n\n'
           '> q\n\n```py\nx\n```\n\n---\n';
       final once = deltaToMarkdown(markdownToDelta(src));
       expect(once, src);

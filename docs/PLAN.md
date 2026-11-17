@@ -6,22 +6,22 @@ Update this file at every checkpoint. Evidence means a command and its result.
 
 ## Current position
 
-Done and verified: data layer, editor, checklist projection, legacy importer /
-export / markdown (merged from worker branch), sync merge, secure channel,
-sync session, TCP + pairing + `SyncService` (tested over real loopback sockets).
-In flight: library + settings UI worker `a08f7a73b3e20d67e`
-(branch `worktree-agent-a08f7a73b3e20d67e`, resumed after the usage limit).
+All feature milestones are implemented on `main` and covered by automated
+tests (333 pass, 1 skipped). What remains is verification that needs things
+this machine does not have: the Android toolchain, a phone, a second device,
+the user's real backup, and reference screenshots. See the acceptance matrix.
 
-**Next actions (lead):**
-1. Merge the library/settings branch when its gates pass; review its diff.
-2. Sync UI: Settings → Sync section (device list, status, sync now, pair via
-   QR show / scan / paste, remove device, device name); wire `SyncService`
-   into `bootstrap`/`AppScope`, auto-sync on open/resume and after edits.
-   Needs `qr_flutter` and `mobile_scanner` (decisions to record).
-3. Import UI (settings → Data): pick backup file, report, rollback; export.
-4. ~~Independent security review of the sync stack~~ done, see D15; still to
-   review independently: checklist projection, importer, editor session.
-5. Android SDK (needs user's licence approval), APK build, device checks.
+**Next actions**
+1. Android: install JDK 17 + Android SDK (needs the user's licence approval),
+   `flutter build apk --release`, install beside the legacy app, run on the
+   Nothing Phone (2), verify arm64 SQLite/encryption, QR scan, sync with the
+   Linux build.
+2. Private import verification: user drops the backup in `private/`, run
+   `flutter test test/private` (prints counts/hashes only).
+3. Compare UI to the user's reference screenshots once provided.
+4. Review findings of the second independent review (importer, checklist
+   projection, editor session) when it lands; fix what holds up.
+5. Release builds measurement on devices (startup, memory, scroll, typing).
 
 ## Waiting on the user
 
@@ -90,6 +90,30 @@ In flight: library + settings UI worker `a08f7a73b3e20d67e`
   without data loss; Linux bundle with desktop entry; measured startup,
   memory, scroll, search and typing figures recorded here.
 
+## Acceptance matrix (the brief's critical tests)
+
+Legend: **verified** = automated test or measured run, evidence named;
+**unverified** = not done, reason given.
+
+| Acceptance test | Status | Evidence / gap |
+|---|---|---|
+| Create, edit, autosave, restart, reopen a note | verified (Linux, real encrypted DB + key file) | `test/e2e/persistence_test.dart` |
+| Preserve rich-text formatting and checklist states | verified | persistence test; `test/ui/editor/*` |
+| Import all existing note records without silent data loss | verified on a synthetic backup shaped like the real one (84 = 42/2/40); **unverified on the real file** | `test/importer/`; `test/private/` skips until `private/*.json` exists |
+| Reimport the same backup without duplication | verified (synthetic) | importer + data screen tests |
+| Library scroll position after long lists and notes | verified in widget tests (80–5,000 notes, all layouts); **unverified on a device** | `test/ui/library/` |
+| Completed checklist items move to a collapsible section, restore correctly | verified | property tests, session + widget tests |
+| Edit and search long notes without lag | search verified (VM timings: 2 ms in a 1.15 MB note); **typing latency in a long document in release: unverified** | `test/perf/` |
+| Continue working offline | verified by design/tests (everything local; failed sync leaves data) | `test/sync/sync_service_test.dart` |
+| Synchronise bidirectionally between real devices | verified over loopback sockets; **real devices unverified** | sync tests |
+| Preserve concurrent edits and deleted-note states | verified (randomised 3-device convergence, conflict copies, trash/purge rules) | `test/sync/merge_test.dart` |
+| Recover from interrupted saves, failed sync, interrupted imports | verified (cut at every frame; killed-transaction test; import rollback on error) | sync/data/importer tests |
+| Update the APK and Linux app without losing data | Linux verified (installer upgrade keeps data; v1→v2→v3 migration with backup); **APK unverified (no Android SDK)** | `tool/package_linux.sh`, e2e tests |
+| Run on target Android and Linux | Linux release builds and runs (keyring path verified); **Android unverified** | run logs in the verification log |
+| Android arm64 encrypted SQLite | **unverified** | Linux only so far |
+| Tailscale reachability | **unverified** (not installed); works as an ordinary address by design | |
+| Visual quality vs. references | widget-render screenshots reviewed; **references not provided; real-window capture blocked by GNOME** | `build/screens/` |
+
 ## Verification log
 
 | Date | What | Command | Result |
@@ -106,3 +130,6 @@ In flight: library + settings UI worker `a08f7a73b3e20d67e`
 | 2026-11-17 | Data-layer timings (Dart VM/JIT via `flutter test test/perf`, encrypted DB, NOT release) | 5,000 notes × ~1.5 KB | create all 2.7 s (one transaction); list all 66 ms; search 54–62 ms for words matching every note (200 hits + 60 snippets), 0.5 ms for none; counts 38 ms; small-note save 0.56 ms |
 | 2026-11-17 | Long note (VM) | one 1.15 MB note | create 62 ms, digest 17 ms, save 90 ms, search 2 ms. Found and fixed: SQLite `snippet()` took 2,419 ms on it; snippets are now built in Dart from a 150-char window |
 | 2026-11-17 | Independent review (Codex gpt-6-luna) of lib/sync → fixes | `flutter test` | 7 findings: 6 fixed with tests (incl. one real cursor bug), 1 accepted with reasoning (D15); 333 pass, 1 skipped |
+| 2026-11-17 | Release run, real keyring (data dir redirected, test entry removed after) | `notes` with `XDG_DATA_HOME`, run twice | first run stored the key in the GNOME keyring and created an encrypted DB; second run read it back and opened (sync port listening) |
+| 2026-11-17 | Release process sample | `ps` ~18 s after launch, 84 notes, Linux | ~175 MB RSS, ~2% CPU averaged incl. startup (single sample, not a benchmark) |
+| 2026-11-17 | Linux packaging | `tool/package_linux.sh`; install/upgrade/uninstall in a fake HOME; rebuild | upgrade kept the data marker; uninstall kept data; identical archive checksum on rebuild |

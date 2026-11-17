@@ -1,6 +1,6 @@
 /// Schema migrations. Append only: once a version has shipped, its entry never
 /// changes. `migrations[i]` upgrades a database from version `i` to `i + 1`.
-const List<List<String>> migrations = [_v1];
+const List<List<String>> migrations = [_v1, _v2];
 
 int get schemaVersion => migrations.length;
 
@@ -144,4 +144,23 @@ const _v1 = <String>[
   ) WITHOUT ROWID
   ''',
   'CREATE INDEX import_records_source ON import_records(source_id)',
+];
+
+// v2: paired devices. A peer is authorised by its long-term public key.
+// `sent_cursor` is the highest local change sequence the peer has confirmed;
+// `recv_cursor` is the highest sequence of the peer's we have applied.
+const _v2 = <String>[
+  '''
+  CREATE TABLE peers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    public_key BLOB NOT NULL,
+    added_at INTEGER NOT NULL,
+    endpoints TEXT NOT NULL DEFAULT '[]',
+    last_sync_at INTEGER,
+    last_error TEXT,
+    sent_cursor INTEGER NOT NULL DEFAULT 0,
+    recv_cursor INTEGER NOT NULL DEFAULT 0
+  ) WITHOUT ROWID
+  ''',
 ];

@@ -127,7 +127,9 @@ const _v1 = <String>[
   ''',
   // One row per source record per batch. `raw` keeps the source record
   // verbatim so nothing the importer does not understand is lost.
-  // `previous` holds the note as it was before an update, for rollback.
+  // `previous` holds the note as it was before the import touched it and
+  // `written_vv` the content version the import left behind; rollback only
+  // undoes notes still at exactly that version.
   '''
   CREATE TABLE import_records (
     batch_id TEXT NOT NULL,
@@ -137,6 +139,7 @@ const _v1 = <String>[
     action TEXT NOT NULL,
     raw TEXT,
     previous TEXT,
+    written_vv TEXT,
     PRIMARY KEY (batch_id, source_id)
   ) WITHOUT ROWID
   ''',

@@ -6,23 +6,22 @@ Update this file at every checkpoint. Evidence means a command and its result.
 
 ## Current position
 
-Milestone 2 done except nothing on a real keystore yet (bootstrap code written,
-untested against the real keyring). Checklist projection (milestone 4 core) done.
-Milestones 3 and 5 are in flight with two workers that were stopped by the
-5-hour usage limit (resets 2026-11-17 16:40 IST); their partial work is saved:
+Done and verified: data layer, editor, checklist projection, legacy importer /
+export / markdown (merged from worker branch), sync merge, secure channel,
+sync session, TCP + pairing + `SyncService` (tested over real loopback sockets).
+In flight: library + settings UI worker `a08f7a73b3e20d67e`
+(branch `worktree-agent-a08f7a73b3e20d67e`, resumed after the usage limit).
 
-| Task | Worker | Branch (worktree under `.claude/worktrees/`) | State |
-|---|---|---|---|
-| Legacy importer, markdown, export, tests | `a70744eaf1a4d2b24` | `worktree-agent-a70744eaf1a4d2b24` @ `456923f` | `legacy_backup.dart` (1129 lines) only; not gate-checked; no tests, markdown or export yet |
-| Library UI, settings screen, tests | `a08f7a73b3e20d67e` | `worktree-agent-a08f7a73b3e20d67e` @ `791ee7f` | controller, layout, card, dialogs, format helper; no screen, settings, tests yet; not gate-checked |
-
-Lead has since built the editor on `main` (session, screen, toolbar,
-completed section, image/unknown embeds); 85 tests pass, analyzer clean.
-**Next action:** after the limit resets, `SendMessage` each worker to continue
-(their context is intact). Meanwhile the lead builds the editor
-(`lib/ui/editor/`) on `main`, using `lib/doc/checklist_projection.dart`.
-Merge worker branches into `main` only after their gates pass and the lead has
-reviewed the diff.
+**Next actions (lead):**
+1. Merge the library/settings branch when its gates pass; review its diff.
+2. Sync UI: Settings → Sync section (device list, status, sync now, pair via
+   QR show / scan / paste, remove device, device name); wire `SyncService`
+   into `bootstrap`/`AppScope`, auto-sync on open/resume and after edits.
+   Needs `qr_flutter` and `mobile_scanner` (decisions to record).
+3. Import UI (settings → Data): pick backup file, report, rollback; export.
+4. Independent security review of `lib/sync/secure_channel.dart`,
+   `pairing.dart`, `sync_session.dart`, `tcp_transport.dart`.
+5. Android SDK (needs user's licence approval), APK build, device checks.
 
 ## Waiting on the user
 
@@ -69,12 +68,18 @@ reviewed the diff.
   partial state; private run matches 84 records (42 active, 2 archived,
   40 deleted) by count and hash.
 
-### 6. Pairing and sync — partial
+### 6. Pairing and sync — partial (engine done; UI, discovery on real LANs and devices pending)
 - [x] Merge rules and `RemoteApplier` (pure Dart): symmetric merge, conflict
       copies, delete-vs-edit, per-field metadata, clock-skew guard.
       Verified: 25 tests incl. randomised 3-device convergence (8 seeds).
-- [ ] Device identity/pairing (QR, key exchange), encrypted transport, batch
-      protocol (see D13), peer high-water marks, sync status UI, discovery.
+- [x] Device identity, peers table (5-device cap), Noise-style handshake with
+      directional keys and per-frame counters, one-time-code pairing,
+      session protocol (cursors, atomic apply, hash-checked images), TCP
+      transport, `SyncService` with back-off and UDP discovery.
+      Verified: 17 channel security tests, 19 session tests (incl. connection
+      cut at every frame, hostile peers), 12 service tests over real sockets.
+- [ ] Sync UI, QR scanning (Android camera: unverified), discovery on a real
+      LAN (unverified), Tailscale (unverified: not installed), two real devices.
 - Accept: two in-process peers converge under reordering, duplication and
   disconnects; concurrent edits produce a conflict copy on both sides;
   purge/trash rules hold; tampered or replayed frames are rejected; two real
@@ -96,3 +101,5 @@ reviewed the diff.
 | 2026-11-17 | Editor session + screen | `flutter analyze && flutter test` | no issues; 85 tests pass (property tests for checklist projection; widget tests tick/restore/undo-delete/toolbar/trash) |
 | 2026-11-17 | Sync merge + convergence | `flutter test test/sync` | 25 pass; 3 devices, skewed clocks, dup/drop/reorder, 8 seeds converge |
 | 2026-11-17 | Linux release smoke | `flutter build linux --release`; run 8 s with `NOTES_DATA_DIR` | builds, starts, creates encrypted `notes.db` (header not plaintext) |
+| 2026-11-17 | Legacy importer/export/markdown merged | `flutter analyze && flutter test` on main | no issues; 198 pass, 1 skipped (private-backup test, no file present) |
+| 2026-11-17 | Sync stack | `flutter test test/sync` | 81 pass: secure channel, session fault injection, loopback pairing + sync |

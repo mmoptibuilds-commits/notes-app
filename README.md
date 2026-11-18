@@ -52,3 +52,5 @@ flutter build linux --release
 - [Build and development instructions](CLAUDE.md)
 
 Latest source snapshots and release notes are on the [Releases](https://github.com/mmoptibuilds-commits/notes-app/releases) page.
+
+[![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)

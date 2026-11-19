@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and earlier (API 30-): Auto Backup rules, used with
+  android:fullBackupContent.
+
+  Nothing of this app is backed up. The notes database is encrypted with a key
+  that lives in the Android Keystore; the Keystore is bound to the device and is
+  never restored. A restored database without its key cannot be opened. The
+  user's recoverable copy is the in-app export. Keep in step with
+  data_extraction_rules.xml (test/android/backup_config_test.dart checks both).
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>

@@ -193,7 +193,7 @@ class UpdaterPlugin private constructor(private val context: Context) :
                 if (sessionId >= 0) {
                     try {
                         installer.abandonSession(sessionId)
-                    } catch (_: Exception) {
+                    } catch (ignored: Exception) {
                     }
                 }
                 main.post {

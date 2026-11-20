@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import '../../app.dart';
 import '../../data/app_settings.dart';
 import '../../data/note_repository.dart' show NoteSort;
+import '../help/help_screen.dart';
+import '../help/help_shortcuts.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 import 'open_source_licenses.dart';
@@ -283,6 +285,17 @@ class EditorSection extends StatelessWidget {
   }
 }
 
+/// Shows the open-source licence page, with the bundled font notices added.
+Future<void> _openLicences(BuildContext context) async {
+  await registerBundledFontLicenses();
+  if (!context.mounted) return;
+  showLicensePage(
+    context: context,
+    applicationName: 'Notes',
+    applicationVersion: appVersionText,
+  );
+}
+
 class AboutSection extends StatelessWidget {
   const AboutSection({super.key});
 
@@ -290,9 +303,26 @@ class AboutSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     final dir = AppScope.of(context).dataDir;
+    final chevron = Icon(Icons.chevron_right_rounded, color: p.textFaint);
     return SettingsSection(
       title: 'About',
       rows: [
+        SettingsRow(
+          title: 'Help',
+          subtitle: 'Setup, sync, backups, pairing and troubleshooting',
+          semanticLabel: 'Help',
+          minimumHeight: 30,
+          trailing: chevron,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => HelpScreen(
+                shortcuts: kHelpShortcuts,
+                appVersion: appVersionText,
+                onOpenLicences: () => _openLicences(context),
+              ),
+            ),
+          ),
+        ),
         SettingsRow(
           title: 'Notes',
           trailing: Text(
@@ -304,16 +334,8 @@ class AboutSection extends StatelessWidget {
           title: 'Open-source licences',
           semanticLabel: 'Open-source licences',
           minimumHeight: 30,
-          trailing: Icon(Icons.chevron_right_rounded, color: p.textFaint),
-          onTap: () async {
-            await registerBundledFontLicenses();
-            if (!context.mounted) return;
-            showLicensePage(
-              context: context,
-              applicationName: 'Notes',
-              applicationVersion: appVersionText,
-            );
-          },
+          trailing: chevron,
+          onTap: () => _openLicences(context),
         ),
         if (dir.isNotEmpty)
           SettingsRow(

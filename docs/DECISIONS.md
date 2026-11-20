@@ -165,3 +165,43 @@ incorrect. Keep the existing extraction XML unchanged. The app disables backup
 with `allowBackup=false`; its cloud-backup and device-transfer sections each
 exclude every data domain. `test/android/backup_config_test.dart` checks these
 protections and confirms no cross-platform-transfer section is declared.
+
+## D18. In-app update checks, and what authenticates an update
+- **Source and channel.** Updates come from the public GitHub Releases API for
+  `mmoptibuilds-commits/notes-app` (`releases/latest`, which excludes drafts and
+  pre-releases). A 404 means "no stable release published" and is never shown as
+  "up to date". Only HTTPS, bounded response sizes, ETag-conditional requests,
+  no token, no HTML scraping, a generic User-Agent.
+- **Automatic checks are on by default, opt-out in Settings.** At most one
+  request per 24 hours, about 30 s after the first frame, never in a
+  `NOTES_DATA_DIR` development instance, never blocking startup, never
+  installing anything. The only information that leaves the device is what any
+  HTTPS request reveals (IP address, a generic User-Agent). This is a deliberate
+  exception to "no network unless syncing"; the Updates screen says so and the
+  switch turns it off. Bookkeeping uses `AppSettings.writeSilently` so a check
+  does not rebuild the app or re-run settings listeners.
+- **One signed manifest per release** (`notes-manifest.json` plus a detached
+  Ed25519 signature) binds app id, channel, version, build number, expiry, and per
+  artifact the platform, architecture, exact filename, SHA-256 and size. The
+  signature is verified over the raw manifest bytes before parsing, against keys
+  pinned in the app (`lib/update/pinned_keys.dart`). No downgrade, no replay of a
+  lower manifest, no unsigned fallback on Linux.
+- **No production signing key exists yet.** It must be generated offline by the
+  owner; only the public key is committed. Until then Linux self-update is
+  blocked by design and the app only reports that a release exists.
+- **Android authenticity rests on the APK signing certificate.** The downloaded
+  APK must carry the pinned release certificate (`tool/release_cert_sha256.txt`),
+  the package id `com.mmoptibuilds.notes` and a higher versionCode; the OS
+  installer enforces the same and asks the user. Installation uses a
+  `PackageInstaller` session with user action required (never silent, no
+  FileProvider, so the database directory cannot be exposed). The manifest
+  signature is additionally required whenever a key is pinned. A Google Play
+  distribution would have to use Play's own updates instead.
+- **Linux replacement is done by a helper after the app exits**, user-scoped
+  only, into `~/.local/opt/notes` with a same-filesystem staging directory, a
+  retained `install.previous`, and a lock. The helper never touches the data
+  directory, keyring, backups or pairing. Rollback is automatic only when the swap
+  itself fails: once a newer build has migrated the database, an older build
+  refuses it (`DatabaseTooNewException`), so a later manual rollback is unsafe
+  across schema changes.
+- **No new dependency**: the existing `cryptography` package provides Ed25519.

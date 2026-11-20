@@ -28,12 +28,10 @@ pre-release with no assets.
 
 ## Next actions
 
-1. Add the verified public signing-certificate fingerprint at
-   `tool/release_cert_sha256.txt`; it is currently absent.
-2. Complete Android and Linux release checks in [RELEASE.md](RELEASE.md).
-3. Provision an offline production signing key for update manifests
+1. Complete Android and Linux release checks in [RELEASE.md](RELEASE.md).
+2. Provision an offline production signing key for update manifests
    ([UPDATES.md](UPDATES.md)); until then Linux self-update stays blocked.
-4. Obtain written upstream permission with publication and distribution scope
+3. Obtain written upstream permission with publication and distribution scope
    settled before any public release.
 
 ## Acceptance matrix

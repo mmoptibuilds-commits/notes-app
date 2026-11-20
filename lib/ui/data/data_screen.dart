@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -9,6 +10,7 @@ import '../../importer/atomic_export.dart';
 import '../../importer/legacy_backup.dart';
 import '../../importer/notes_export.dart';
 import '../../importer/notes_restore.dart';
+import '../../platform/save_file.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 
@@ -217,29 +219,49 @@ class _DataScreenState extends State<DataScreen> {
     final stamp = DateTime.now().toIso8601String().substring(0, 10);
     final name = 'notes-export-$stamp.json';
     File? target;
-    if (widget.pickSaveFile != null) {
-      target = await widget.pickSaveFile!(name);
-    } else {
-      final loc = await getSaveLocation(
-        suggestedName: name,
-        acceptedTypeGroups: const [
-          XTypeGroup(label: 'JSON', extensions: ['json']),
-        ],
-      );
-      if (loc != null) {
-        final uri = Uri.tryParse(loc.path);
-        target = uri?.scheme == 'file' ? File.fromUri(uri!) : File(loc.path);
+    final viaPicker = widget.pickSaveFile == null && usesNativeSavePicker;
+    try {
+      if (viaPicker) {
+        // Android: the system "create document" picker; nothing to resolve here.
+      } else if (widget.pickSaveFile != null) {
+        target = await widget.pickSaveFile!(name);
+      } else {
+        final loc = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'JSON', extensions: ['json']),
+          ],
+        );
+        if (loc != null) {
+          final uri = Uri.tryParse(loc.path);
+          target = uri?.scheme == 'file' ? File.fromUri(uri!) : File(loc.path);
+        }
       }
+    } on Object catch (e) {
+      _say('The export could not start: $e');
+      return;
     }
-    if (target == null || !mounted) return;
+    if ((target == null && !viaPicker) || !mounted) return;
     setState(() => _busy = true);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       final json = exportAll(app.notes);
-      await writeExportAtomically(target, json);
-      _say(
-        'Exported ${app.notes.counts().active + app.notes.counts().archived + app.notes.counts().trash} notes.',
-      );
+      final count =
+          app.notes.counts().active +
+          app.notes.counts().archived +
+          app.notes.counts().trash;
+      if (viaPicker) {
+        final saved = await saveBytesWithPicker(
+          name: name,
+          mime: 'application/json',
+          bytes: Uint8List.fromList(utf8.encode(json)),
+        );
+        if (saved == null) return; // cancelled in the picker
+        _say('Exported $count notes to $saved.');
+      } else {
+        await writeExportAtomically(target!, json);
+        _say('Exported $count notes.');
+      }
     } on Object catch (e) {
       _say('The export failed: $e');
     } finally {

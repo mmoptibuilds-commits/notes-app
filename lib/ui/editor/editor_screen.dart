@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:file_selector/file_selector.dart';
+
+import '../../platform/save_file.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
@@ -125,14 +128,23 @@ class _EditorScreenState extends State<EditorScreen>
         .replaceAll(RegExp(r'[^\p{L}\p{N} _.-]', unicode: true), '')
         .trim();
     final name = '${safe.isEmpty ? 'note' : safe}.md';
-    final loc = await getSaveLocation(
-      suggestedName: name,
-      acceptedTypeGroups: const [
-        XTypeGroup(label: 'Markdown', extensions: ['md']),
-      ],
-    );
-    if (loc == null) return;
     try {
+      if (usesNativeSavePicker) {
+        final saved = await saveBytesWithPicker(
+          name: name,
+          mime: 'text/markdown',
+          bytes: Uint8List.fromList(utf8.encode(_markdown())),
+        );
+        if (saved != null && mounted) _toast('Saved $saved');
+        return;
+      }
+      final loc = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'Markdown', extensions: ['md']),
+        ],
+      );
+      if (loc == null) return;
       await XFile.fromData(
         Uint8List.fromList(utf8.encode(_markdown())),
         mimeType: 'text/markdown',

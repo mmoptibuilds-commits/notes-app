@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/app.dart';
 import 'package:notes/doc/delta_text.dart';
@@ -197,5 +199,77 @@ void main() {
     expect(find.text('Restore finished'), findsOneWidget);
     expect(s.notes.getRecord(original.id)!.title, 'Restored note');
     expect(s.notes.getNote(original.id)!.body, original.body);
+  });
+
+  // file_selector has no save dialog on Android (getSaveLocation throws
+  // UnimplementedError there); the export must go through the native picker.
+  group('on Android the export uses the system save picker', () {
+    const channel = MethodChannel('com.mmoptibuilds.notes/save');
+
+    Future<AppServices> setUp(
+      WidgetTester tester,
+      Future<Object?> Function(MethodCall) handler,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, handler);
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      final s = AppServices.inMemory(clock: () => 1700000000000);
+      addTearDown(s.close);
+      s.notes.createNote(
+        id: 'android-export-note',
+        title: 'Exported on Android',
+        body: bodyFromPlainText('synthetic body'),
+      );
+      await pumpData(tester, s, const DataScreen());
+      return s;
+    }
+
+    testWidgets('saves a parseable export and reports the file name', (
+      tester,
+    ) async {
+      MethodCall? call;
+      await setUp(tester, (c) async {
+        call = c;
+        return 'notes-export.json';
+      });
+      await tester.tap(find.text('Export all notes'));
+      await tester.pumpAndSettle();
+
+      expect(call!.method, 'saveFile');
+      final args = call!.arguments as Map;
+      expect(args['name'], matches(RegExp(r'^notes-export-.*\.json$')));
+      expect(args['mime'], 'application/json');
+      final parsed = parseExport(utf8.decode(args['bytes'] as Uint8List));
+      expect(parsed.notes.single.id, 'android-export-note');
+      expect(
+        find.textContaining('Exported 1 notes to notes-export.json'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('cancelling the picker says nothing and changes nothing', (
+      tester,
+    ) async {
+      await setUp(tester, (c) async => null);
+      await tester.tap(find.text('Export all notes'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Exported'), findsNothing);
+      expect(find.textContaining('failed'), findsNothing);
+    });
+
+    testWidgets('a picker failure is reported to the user', (tester) async {
+      await setUp(tester, (c) async {
+        throw PlatformException(code: 'write_failed', message: 'disk full');
+      });
+      await tester.tap(find.text('Export all notes'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('The export failed'), findsOneWidget);
+      expect(find.textContaining('disk full'), findsOneWidget);
+    });
   });
 }

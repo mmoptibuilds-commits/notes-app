@@ -7,6 +7,7 @@ import '../settings/settings_widgets.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
+import '../widgets/touch.dart';
 
 /// Release notes are shown as plain text, at most this long.
 const kMaxNotesShown = 1500;
@@ -161,6 +162,10 @@ class _Body extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      style: IconButton.styleFrom(
+                        minimumSize: Size.square(hitSize(context)),
+                        visualDensity: VisualDensity.standard,
+                      ),
                       tooltip: 'Dismiss',
                       icon: const Icon(Icons.close_rounded, size: 18),
                       onPressed: controller.dismissOutcome,
@@ -314,7 +319,7 @@ class _StatusCard extends StatelessWidget {
                 last == null
                     ? 'Not checked yet'
                     : 'Last checked: ${_ago(last, now)}',
-                style: TextStyle(fontSize: 12, color: p.textFaint),
+                style: TextStyle(fontSize: 12, color: p.textMuted),
               ),
             ],
           ),
@@ -439,6 +444,16 @@ class _StatusCard extends StatelessWidget {
     _ => b.message,
   };
 
+  ButtonStyle _filled(BuildContext context) => FilledButton.styleFrom(
+    minimumSize: Size(64, hitSize(context)),
+    visualDensity: VisualDensity.standard,
+  );
+
+  ButtonStyle _outlined(BuildContext context) => OutlinedButton.styleFrom(
+    minimumSize: Size(64, hitSize(context)),
+    visualDensity: VisualDensity.standard,
+  );
+
   bool _restarting(UpdateStatus s) =>
       s is UpdateInstallationHandedToOs && s.willRestart;
 
@@ -447,23 +462,37 @@ class _StatusCard extends StatelessWidget {
     Widget check(String label, {bool primary = false}) {
       final onPressed = c.busy || _restarting(s) ? null : () => c.check();
       return primary
-          ? FilledButton(onPressed: onPressed, child: Text(label))
-          : OutlinedButton(onPressed: onPressed, child: Text(label));
+          ? FilledButton(
+              style: _filled(context),
+              onPressed: onPressed,
+              child: Text(label),
+            )
+          : OutlinedButton(
+              style: _outlined(context),
+              onPressed: onPressed,
+              child: Text(label),
+            );
     }
 
     return switch (s) {
       UpdateAvailable() => [
-        FilledButton(onPressed: c.download, child: const Text('Download')),
+        FilledButton(
+          style: _filled(context),
+          onPressed: c.download,
+          child: const Text('Download'),
+        ),
         check('Check again'),
       ],
       UpdateDownloading() => [
         OutlinedButton(
+          style: _outlined(context),
           onPressed: c.cancelDownload,
           child: const Text('Cancel'),
         ),
       ],
       UpdateReadyToInstall(:final candidate) => [
         FilledButton(
+          style: _filled(context),
           onPressed: () => _confirmInstall(context, candidate),
           child: const Text('Install…'),
         ),
@@ -475,13 +504,18 @@ class _StatusCard extends StatelessWidget {
             ? const []
             : [
                 FilledButton(
+                  style: _filled(context),
                   onPressed: () => _confirmInstall(context, candidate),
                   child: const Text('Install again'),
                 ),
                 check('Check again'),
               ],
       UpdateFailed(candidate: != null) => [
-        FilledButton(onPressed: c.download, child: const Text('Retry')),
+        FilledButton(
+          style: _filled(context),
+          onPressed: c.download,
+          child: const Text('Retry'),
+        ),
         check('Check again'),
       ],
       UpdateOffline() ||
@@ -492,10 +526,12 @@ class _StatusCard extends StatelessWidget {
           when block.kind == BlockKind.installPermission =>
         [
           FilledButton(
+            style: _filled(context),
             onPressed: c.openInstallSettings,
             child: const Text('Open Android settings'),
           ),
           OutlinedButton(
+            style: _outlined(context),
             onPressed: candidate == null ? null : c.install,
             child: const Text('Try again'),
           ),

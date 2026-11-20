@@ -9,36 +9,69 @@ device-to-device sync is optional.
 - [Android arm64 APK](https://github.com/mmoptibuilds-commits/notes-app/releases)
 - [Linux x64 archive](https://github.com/mmoptibuilds-commits/notes-app/releases)
 
-You need Android 7.0 or later (in-app updates need Android 9 or later), or a Linux x64 desktop with GTK 3 and GLib runtime
-libraries. Download the release archive, then verify it **before** extracting or
-running anything from it. The checksum file only detects a damaged download:
-it comes from the same place as the archive, so it cannot prove the archive is
-genuine. The signed manifest can, and the verifier below hashes the archive
-itself and compares it with the signed manifest. It uses Dart and a source
-checkout of this project:
+[![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
+
+No stable release has been published yet. `v1.0.0-preview.1` is a pre-release,
+and the Orion Store listing offers a download only once a stable release exists.
+
+You need Android 7.0 or later (in-app updates need Android 9 or later), or a
+Linux x64 desktop with GTK 3 and GLib runtime libraries.
+
+### Verify a Linux download
+
+Verify the archive **before** extracting or running anything from it. You need
+`openssl` 3.0 or later, `sha256sum`, `sed` and `base64`, which most
+distributions install by default (check with `openssl version`). You do not
+need Dart, Flutter or a copy of this repository.
+
+The `.sha256` file beside the archive only detects a damaged download: it comes
+from the same place as the archive, so it cannot prove the archive is genuine.
+The signed manifest can. Download `notes-manifest.json`,
+`notes-manifest.json.sig` and the archive from the same release, save the
+release public key shown in [Release signing key](#release-signing-key) as
+`notes-release.pem`, and run, with the release's version in place of `1.0.0`:
 
 ```sh
-sha256sum -c notes-1.0.1-linux-x64.tar.gz.sha256     # damaged download?
-dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json \
-  --artifact notes-1.0.1-linux-x64.tar.gz notes-manifest.json notes-manifest.json.sig
+sed -n 's/.*"signature":"\([^"]*\)".*/\1/p' notes-manifest.json.sig | base64 -d > notes-manifest.sig.bin
+openssl pkeyutl -verify -pubin -inkey notes-release.pem -rawin -in notes-manifest.json -sigfile notes-manifest.sig.bin
+grep -q "\"filename\":\"notes-1.0.0-linux-x64.tar.gz\",\"platform\":\"linux\",\"sha256\":\"$(sha256sum notes-1.0.0-linux-x64.tar.gz | cut -d' ' -f1)\"" notes-manifest.json && echo "archive matches the signed manifest"
 ```
 
-Until the owner publishes a signing key in `tool/release_signing_pubkeys.json`
-the second command cannot succeed, so releases cannot yet be verified this way;
-see [docs/UPDATES.md](docs/UPDATES.md).
+Continue only if the second command prints `Signature Verified Successfully`
+and the third prints `archive matches the signed manifest`. Anything else means
+the download is damaged or not genuine: delete it. This manual check covers the
+signature and the archive hash; the in-app updater also checks the manifest's
+expiry date and release version.
 
-Extract the Linux archive and run `install.sh`; launch Notes from the app menu
-or run `notes`. To upgrade, install a newer archive over the managed install,
-or use the in-app update when Linux updating is enabled. Remove the program with
+### Release signing key
+
+No production release signing key has been published yet, so releases cannot
+be verified this way yet. When it is published, its PEM text and SHA-256
+fingerprint will appear here and in `tool/release_signing_pubkeys.json`.
+Compare the fingerprint with a second source you trust before relying on it.
+See [docs/UPDATES.md](docs/UPDATES.md).
+
+### Install on Linux
+
+Extract the verified archive and run `./install.sh` from the extracted folder.
+It installs for your user only, under `~/.local` (no root). Launch Notes from
+the app menu or run `notes`. To upgrade, install a newer archive the same way
+(the previous program files are kept as `~/.local/opt/notes.previous`), or use
+the in-app update once Linux updating is enabled. Remove the program with
 `uninstall.sh`. Your encrypted notes database and keyring entry stay in place
-when installing, upgrading, or removing program files.
+when installing, upgrading or removing program files.
 
 If Notes will not start, install your distribution's GTK 3 and GLib runtime
 packages. Sync uses TCP port 47380 and UDP port 47381; allow those ports on the
 local network when pairing. On Wayland, screen scaling and clipboard behaviour
-depend on the compositor; XWayland may be needed on older desktops. The stable
-channel currently has no published stable release; the preview release is not
-offered as a stable update.
+depend on the compositor; XWayland may be needed on older desktops.
+
+### Install on Android
+
+Download the APK on the phone and open it; Android asks you to allow installs
+from that app first. Official APKs are signed with the project's release
+certificate (SHA-256 in [docs/RELEASE.md](docs/RELEASE.md)), and Android only
+updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
@@ -46,8 +79,7 @@ The automated suite has over 1,200 tests and passes in GitHub Actions. On
 2026-11-20 the signed APK was installed in place on a Nothing Phone 2 (arm64,
 Android 16) with existing notes intact, paired with the Linux app by QR code,
 and synced both ways automatically. Tailscale has not been checked. No stable
-release has been published yet; `v1.0.0-preview.1` is a pre-release. See the
-[verification plan](docs/PLAN.md).
+release has been published yet. See the [verification plan](docs/PLAN.md).
 
 ## Screenshots
 
@@ -60,14 +92,17 @@ release has been published yet; `v1.0.0-preview.1` is a pre-release. See the
 
 ## Features
 
-- Encrypted local notes with rich text, checklists, folders, search, and
-  configurable appearance.
-- Import of legacy Notebook backup JSON. The real backup was checked by
-  counts only: 44 notes imported, 0 failures.
-- Android JSON export through the system save picker and import from a
-  content URI. Notes' own JSON exports can be restored with a preview,
-  confirmation, a pre-restore snapshot, and one database transaction.
-- Markdown export and optional direct device-to-device sync.
+- **Local-first storage:** notes saved in an encrypted local SQLite database; no account required.
+- **Rich text editing:** headings, lists, checklists, blockquotes, code blocks, links and inline formatting.
+- **Organized library:** folders, search, grid/masonry/list layouts, sorting and preview controls.
+- **Appearance:** AMOLED, charcoal and light themes; adjustable typography and animation preferences.
+- **Import and export:** legacy Notebook backup JSON import (the owner's real
+  backup was checked by counts only: 44 notes imported, 0 failures); Android
+  JSON export through the system save picker; Notes' own JSON exports restore
+  with a preview, confirmation, a pre-restore snapshot and one database
+  transaction; Markdown note export.
+- **Device sync:** optional direct device-to-device pairing by QR code and
+  encrypted sync on the local network.
 
 ## Platforms
 
@@ -90,7 +125,10 @@ flutter build linux --release
 ```
 
 An Android release build requires the existing signing configuration at
-`android/key.properties`; release builds fail when it is missing. See
+`android/key.properties`; release builds fail when it is missing. Official
+update-compatible releases must be built with the project's existing private
+signing key, which is kept outside this repository. A locally built APK signed
+with a different key cannot update an existing installation. See
 [third-party notices](docs/THIRD_PARTY_LICENSES.md) before redistributing.
 
 ## Project documentation

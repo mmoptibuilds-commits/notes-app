@@ -5,6 +5,7 @@ import '../../data/app_settings.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
+import '../widgets/touch.dart';
 import '../toolbar_item_info.dart';
 
 /// Choose which editor toolbar buttons show and in what order.
@@ -74,6 +75,10 @@ class _ToolbarSettingsScreenState extends State<ToolbarSettingsScreen> {
           title: const Text('Toolbar'),
           actions: [
             TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
+              ),
               onPressed: _reset,
               child: const Text('Reset to default'),
             ),

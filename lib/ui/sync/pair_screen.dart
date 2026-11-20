@@ -10,6 +10,7 @@ import '../../sync/pairing.dart';
 import '../../sync/sync_service.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_guards.dart';
+import '../widgets/touch.dart';
 import '../theme/app_theme.dart';
 
 /// Pair another device: show a code for it to scan, or scan / paste its code.
@@ -185,6 +186,10 @@ class _ShowCodeState extends State<_ShowCode> {
               ),
             ),
             TextButton.icon(
+              style: TextButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
+              ),
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: text));
                 if (context.mounted) {
@@ -267,6 +272,10 @@ class _EnterCodeState extends State<_EnterCode> {
         Row(
           children: [
             TextButton.icon(
+              style: TextButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
+              ),
               onPressed: _busy
                   ? null
                   : () async {
@@ -278,6 +287,10 @@ class _EnterCodeState extends State<_EnterCode> {
             ),
             const Spacer(),
             FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
+              ),
               onPressed: _busy ? null : _go,
               child: _busy
                   ? const SizedBox(

@@ -1,6 +1,7 @@
 import '../../data/app_settings.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
+import 'touch.dart';
 
 /// Maps the user's animation setting onto route/menu animation styles, so
 /// "off" really means nothing slides, fades or scales.
@@ -43,12 +44,18 @@ Future<bool> confirmDialog(
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(ctx),
+            visualDensity: touchVisualDensity(ctx),
+          ),
           onPressed: () => Navigator.pop(ctx, false),
           child: const Text('Cancel'),
         ),
         TextButton(
           style: TextButton.styleFrom(
             foregroundColor: destructive ? p.danger : p.accent,
+            minimumSize: touchButtonMinimumSize(ctx),
+            visualDensity: touchVisualDensity(ctx),
           ),
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(confirmLabel),
@@ -133,10 +140,21 @@ class _PromptDialogState extends State<_PromptDialog> {
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(context),
+            visualDensity: touchVisualDensity(context),
+          ),
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        TextButton(onPressed: _submit, child: Text(widget.confirmLabel)),
+        TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(context),
+            visualDensity: touchVisualDensity(context),
+          ),
+          onPressed: _submit,
+          child: Text(widget.confirmLabel),
+        ),
       ],
     );
   }

@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import '../../app.dart';
 import '../../data/app_settings.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
+import '../widgets/touch.dart';
 
 /// Rebuilds [builder] whenever a setting changes.
 class SettingsBuilder extends StatelessWidget {
@@ -119,10 +122,15 @@ class SettingsRow extends StatelessWidget {
         if (trailing != null) ...[const SizedBox(width: 12), trailing!],
       ],
     );
+    // 9 dp padding above and below: on phones the row reaches the 48 dp
+    // touch target.
+    final rowMin = isTouchPlatform(context)
+        ? math.max(minimumHeight, touchTarget - 18)
+        : minimumHeight;
     final body = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: minimumHeight),
+        constraints: BoxConstraints(minHeight: rowMin),
         child: below == null
             ? head
             : Column(
@@ -186,7 +194,7 @@ class Segmented<T> extends StatelessWidget {
     final p = AppPalette.of(context);
     final motion = AppMotion.of(context);
     return Container(
-      height: 40,
+      height: hitSize(context, desktop: 40),
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: p.background,
@@ -262,7 +270,7 @@ class MenuRow<T> extends StatelessWidget {
         for (final v in values)
           PopupMenuItem<T>(
             value: v,
-            height: 42,
+            height: hitSize(context, desktop: 42),
             child: Row(
               children: [
                 SizedBox(
@@ -390,7 +398,7 @@ class SliderRow extends StatelessWidget {
           showValueIndicator: ShowValueIndicator.never,
         ),
         child: SizedBox(
-          height: 32,
+          height: hitSize(context, desktop: 32),
           child: Slider(
             value: value.clamp(min, max),
             min: min,

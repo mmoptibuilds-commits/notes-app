@@ -4,7 +4,11 @@ import '../../sync/sync_service.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
+import '../widgets/touch.dart';
 import 'pair_screen.dart';
+
+/// Narrowest window that puts the two sync buttons side by side.
+const _sideBySideMinWidth = 400.0;
 
 /// Paired devices, sync status and pairing.
 class SyncScreen extends StatelessWidget {
@@ -54,10 +58,12 @@ class _Body extends StatelessWidget {
         _Card(
           children: [
             ListTile(
+              visualDensity: touchVisualDensity(context),
               title: const Text('This device'),
               subtitle: Text(settings.deviceName),
               trailing: IconButton(
                 tooltip: 'Rename this device',
+                visualDensity: touchVisualDensity(context),
                 icon: const Icon(Icons.edit_outlined, size: 20),
                 onPressed: () async {
                   final v = await _ask(
@@ -75,38 +81,56 @@ class _Body extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: peers.isEmpty || sync.syncing
-                    ? null
-                    : () => _syncAll(context),
-                icon: sync.syncing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.sync_rounded, size: 18),
-                label: Text(sync.syncing ? 'Syncing…' : 'Sync now'),
+        LayoutBuilder(
+          builder: (context, cons) {
+            final syncNow = FilledButton.icon(
+              style: FilledButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: peers.length >= maxDevices - 1
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const PairScreen(),
-                        ),
+              onPressed: peers.isEmpty || sync.syncing
+                  ? null
+                  : () => _syncAll(context),
+              icon: sync.syncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync_rounded, size: 18),
+              label: Text(sync.syncing ? 'Syncing…' : 'Sync now'),
+            );
+            final pair = OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: touchButtonMinimumSize(context),
+                visualDensity: touchVisualDensity(context),
+              ),
+              onPressed: peers.length >= maxDevices - 1
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PairScreen(),
                       ),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Pair a device'),
-              ),
-            ),
-          ],
+                    ),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Pair a device'),
+            );
+            // Side by side only where both labels fit on one line; on narrow
+            // windows each button takes the full width instead of wrapping.
+            if (cons.maxWidth < _sideBySideMinWidth) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [syncNow, const SizedBox(height: 8), pair],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: syncNow),
+                const SizedBox(width: 8),
+                Expanded(child: pair),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 16),
         Padding(
@@ -325,10 +349,18 @@ Future<String?> _ask(BuildContext context, String title, String initial) {
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(context),
+            visualDensity: touchVisualDensity(context),
+          ),
           onPressed: () => Navigator.pop(d),
           child: const Text('Cancel'),
         ),
         TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(context),
+            visualDensity: touchVisualDensity(context),
+          ),
           onPressed: () => Navigator.pop(d, c.text),
           child: const Text('Save'),
         ),

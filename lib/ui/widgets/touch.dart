@@ -14,3 +14,18 @@ bool isTouchPlatform(BuildContext context) {
 /// [desktop] size with a mouse.
 double hitSize(BuildContext context, {double desktop = 40}) =>
     isTouchPlatform(context) ? touchTarget : desktop;
+
+/// Minimum button size: [hitSize] tall, so a button keeps its touch height
+/// on phones even where a theme density would shrink it. Width is at least
+/// [width] (the Material minimum), and labels may still grow the button.
+Size touchButtonMinimumSize(
+  BuildContext context, {
+  double width = 64,
+  double desktop = 40,
+}) => Size(width, hitSize(context, desktop: desktop));
+
+/// Density for a button on a touch platform. The app theme is compact, which
+/// shrinks buttons by 8 dp and would undo [touchButtonMinimumSize]; phones
+/// get standard density. Desktop keeps the theme's density (null).
+VisualDensity? touchVisualDensity(BuildContext context) =>
+    isTouchPlatform(context) ? VisualDensity.standard : null;

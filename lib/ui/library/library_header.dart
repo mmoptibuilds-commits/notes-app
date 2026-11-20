@@ -1,5 +1,6 @@
 import '../material.dart';
 import '../theme/app_theme.dart';
+import '../widgets/menus.dart';
 import '../widgets/touch.dart';
 
 /// Square icon button: a 48 dp touch target on Android, 40 with a mouse.
@@ -147,39 +148,70 @@ class SelectionBar extends StatelessWidget {
         color: p.raised,
         border: Border(bottom: BorderSide(color: p.cardBorder)),
       ),
-      child: Row(
-        children: [
-          HeaderIconButton(
-            icon: Icons.close_rounded,
-            tooltip: 'Clear selection',
-            onPressed: onClose,
-          ),
-          Expanded(
-            child: Text(
-              '$count selected',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: p.text,
+      child: LayoutBuilder(
+        builder: (context, cons) {
+          // Each icon takes a hit size; the count needs room to read.
+          final hit = hitSize(context, desktop: 40);
+          final inlineNeeds = (actions.length + 2) * hit + _countMinWidth;
+          final barWidth = cons.maxWidth;
+          final inline = barWidth >= inlineNeeds;
+          return Row(
+            children: [
+              HeaderIconButton(
+                icon: Icons.close_rounded,
+                tooltip: 'Clear selection',
+                onPressed: onClose,
               ),
-            ),
-          ),
-          HeaderIconButton(
-            icon: Icons.select_all_rounded,
-            tooltip: 'Select all',
-            onPressed: onSelectAll,
-          ),
-          for (final a in actions)
-            HeaderIconButton(
-              icon: a.icon,
-              tooltip: a.tooltip,
-              onPressed: a.onTap,
-              color: a.danger ? p.danger : null,
-            ),
-        ],
+              Expanded(
+                child: Text(
+                  '$count selected',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: p.text,
+                  ),
+                ),
+              ),
+              HeaderIconButton(
+                icon: Icons.select_all_rounded,
+                tooltip: 'Select all',
+                onPressed: onSelectAll,
+              ),
+              if (inline)
+                for (final a in actions)
+                  HeaderIconButton(
+                    icon: a.icon,
+                    tooltip: a.tooltip,
+                    onPressed: a.onTap,
+                    color: a.danger ? p.danger : null,
+                  )
+              else
+                // Narrow windows: the actions move into one menu, so the
+                // count stays readable and every action stays reachable.
+                PopupMenuButton<int>(
+                  tooltip: 'Selection actions',
+                  icon: Icon(Icons.more_vert_rounded, color: p.text),
+                  onSelected: (i) => actions[i].onTap(),
+                  itemBuilder: (context) => [
+                    for (var i = 0; i < actions.length; i++)
+                      menuItem(
+                        context,
+                        i,
+                        actions[i].tooltip,
+                        icon: actions[i].icon,
+                        danger: actions[i].danger,
+                      ),
+                  ],
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
+
+/// Room the selection count needs (e.g. "12 selected") beside the icons.
+const _countMinWidth = 104.0;

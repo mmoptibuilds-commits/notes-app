@@ -55,7 +55,7 @@ run. No release has been published; tag `v1.0.0-preview.1` has no assets.
 
 ## Release candidate
 
-Candidate stable version: `1.0.0+20261120` (Android versionCode `20261120`).
+Candidate stable version: `1.0.0+20261121` (Android versionCode `20261121`).
 The only known prior installed/distributed code is `1`, from the preview build;
 `.audit-input/known-codes.txt` was absent, so no other phone code was available
 to check. The date-based code advances Android's update ordering with ample

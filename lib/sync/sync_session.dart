@@ -256,7 +256,12 @@ class SyncSession {
           f = FolderRecord.fromJson(json);
         } on Object catch (e) {
           outcome.invalidRows++;
-          peers.quarantine(peerId, 'folder', '$e', jsonEncode(json));
+          peers.quarantine(
+            peerId,
+            'folder',
+            _quarantineReason(e),
+            jsonEncode(json),
+          );
           continue;
         }
         _count(_applier.applyFolder(f));
@@ -271,7 +276,12 @@ class SyncSession {
           // One unreadable row must not block every later sync, and must not
           // vanish either: it is kept aside for inspection.
           outcome.invalidRows++;
-          peers.quarantine(peerId, 'note', '$e', jsonEncode(json));
+          peers.quarantine(
+            peerId,
+            'note',
+            _quarantineReason(e),
+            jsonEncode(json),
+          );
           continue;
         }
         final res = _applier.applyNote(n);
@@ -287,51 +297,75 @@ class SyncSession {
   }
 
   /// Rechecks retained rows on each completed session. A later app version
-  /// may understand a row that an earlier parser had to quarantine.
+  /// may understand a row that an earlier parser had to quarantine. Work is
+  /// capped per session and resumes at the next retained row on the next run.
   void _reingestQuarantine(String peerId) {
-    var afterId = 0;
-    while (true) {
-      final page = peers.quarantinePage(peerId, afterId: afterId);
-      if (page.isEmpty) return;
-      for (final row in page) {
-        afterId = row.id;
-        FolderRecord? folder;
-        NoteRecord? note;
-        try {
-          final decoded = jsonDecode(row.raw);
-          if (decoded is! Map) continue;
-          final json = Map<String, Object?>.from(decoded);
-          if (row.kind == 'folder') {
-            folder = FolderRecord.fromJson(json);
-          } else if (row.kind == 'note') {
-            _validateVersionVector(json);
-            note = NoteRecord.fromJson(json);
-            if (!note.purged) decodeOps(note.body);
-          } else {
-            continue;
-          }
-        } on Object {
-          // Keep rows that this parser still cannot understand for a later
-          // version or manual recovery.
-          continue;
-        }
+    final db = repo.db;
+    final cursorKey = quarantineRetryCursorMetaKey(peerId);
+    var afterId = int.tryParse(db.getMeta(cursorKey) ?? '') ?? 0;
+    if (afterId < 0) afterId = 0;
+    var wrapped = afterId == 0;
+    var attempted = 0;
+    var retryBytes = 0;
 
-        try {
-          if (folder != null) {
-            _count(_applier.applyFolder(folder));
-          } else if (note != null) {
-            final result = _applier.applyNote(note);
-            _count(result);
-            if (result.conflictCopyId != null) outcome.conflictCopies++;
-          }
-        } on ClockSkewException {
-          // A parseable future-clock row remains recoverable, but must not
-          // prevent this session from applying other rows.
+    while (attempted < maxQuarantineRetriesPerSession) {
+      // One raw row at a time keeps retries bounded even when upgrading a
+      // database whose quarantine was filled by an older unbounded version.
+      final page = peers.quarantinePage(peerId, afterId: afterId, limit: 1);
+      if (page.isEmpty) {
+        if (wrapped) break;
+        afterId = 0;
+        wrapped = true;
+        continue;
+      }
+      final row = page.single;
+      if (attempted > 0 &&
+          row.rawBytes > maxQuarantineRetryBytesPerSession - retryBytes) {
+        // Leave this row for the next session, where it gets a fresh byte
+        // budget and cannot be starved by the rows before it.
+        break;
+      }
+      afterId = row.id;
+      attempted++;
+      retryBytes += row.rawBytes;
+
+      FolderRecord? folder;
+      NoteRecord? note;
+      try {
+        final decoded = jsonDecode(row.raw);
+        if (decoded is! Map) continue;
+        final json = Map<String, Object?>.from(decoded);
+        if (row.kind == 'folder') {
+          folder = FolderRecord.fromJson(json);
+        } else if (row.kind == 'note') {
+          _validateVersionVector(json);
+          note = NoteRecord.fromJson(json);
+          if (!note.purged) decodeOps(note.body);
+        } else {
           continue;
         }
-        peers.resolveQuarantine(row.id);
+      } on Object {
+        // Keep rows that this parser still cannot understand for a later
+        // version or manual recovery.
+        continue;
       }
+
+      try {
+        if (folder != null) {
+          _count(_applier.applyFolder(folder));
+        } else if (note != null) {
+          final result = _applier.applyNote(note);
+          _count(result);
+          if (result.conflictCopyId != null) outcome.conflictCopies++;
+        }
+      } on ClockSkewException {
+        // A parseable future-clock row remains recoverable, but must not
+        // prevent this session from applying other rows.
+        continue;
+      }
+      peers.resolveQuarantine(row.id);
     }
+    db.setMeta(cursorKey, '$afterId');
   }
 
   /// VersionVector drops non-positive values when constructed. Reject
@@ -347,6 +381,15 @@ class SyncSession {
         );
       }
     }
+  }
+
+  String _quarantineReason(Object error) {
+    // FormatException.toString() can include source text. Keep only its short
+    // message so a very large malformed row is not duplicated in metadata.
+    final message = error is FormatException ? error.message : '$error';
+    return message.length <= maxQuarantineReasonChars
+        ? message
+        : message.substring(0, maxQuarantineReasonChars);
   }
 
   void _count(ApplyResult res) {
@@ -489,6 +532,7 @@ class _Received {
 String describeSyncError(Object e) {
   if (e is SyncTimeoutException) return e.toString();
   if (e is ClockSkewException) return e.toString();
+  if (e is QuarantineStorageLimitException) return e.toString();
   if (e is HandshakeException) return e.message;
   if (e is TransportClosed) return 'The connection was lost.';
   if (e is ChannelIntegrityException) {

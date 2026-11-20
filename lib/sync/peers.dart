@@ -10,6 +10,19 @@ import '../data/app_database.dart';
 /// Most devices that may sync together, this one included.
 const maxDevices = 5;
 
+/// Bounds recoverable rows retained from peers. If a batch would exceed
+/// either limit, its transaction fails and the sender keeps the batch.
+const maxQuarantineRows = 500;
+const maxQuarantineBytes = 8 * 1024 * 1024;
+const maxQuarantineReasonChars = 512;
+
+/// Bounds parser retries in one completed sync transaction.
+const maxQuarantineRetriesPerSession = 100;
+const maxQuarantineRetryBytesPerSession = 8 * 1024 * 1024;
+
+String quarantineRetryCursorMetaKey(String peerId) =>
+    'quarantine_retry_cursor_$peerId';
+
 /// This device's long-term X25519 key pair. The private half lives only in
 /// the encrypted database and is never sent anywhere.
 class DeviceIdentity {
@@ -76,11 +89,19 @@ class QuarantinedRow {
     required this.id,
     required this.kind,
     required this.raw,
+    required this.rawBytes,
   });
 
   final int id;
   final String kind;
   final String raw;
+  final int rawBytes;
+}
+
+class QuarantineStorageLimitException implements Exception {
+  @override
+  String toString() =>
+      'Quarantine storage limit reached; this batch was not applied or acknowledged.';
 }
 
 class PairingLimitException implements Exception {
@@ -155,8 +176,12 @@ class PeerStore {
 
   /// Un-pairs a device. It can no longer connect; notes already exchanged
   /// stay on both sides.
-  void remove(String id) =>
-      db.transaction(() => db.execute('DELETE FROM peers WHERE id = ?', [id]));
+  void remove(String id) => db.transaction(() {
+    db.execute('DELETE FROM peers WHERE id = ?', [id]);
+    db.execute('DELETE FROM local_meta WHERE key = ?', [
+      quarantineRetryCursorMetaKey(id),
+    ]);
+  });
 
   void rename(String id, String name) => db.transaction(
     () => db.execute('UPDATE peers SET name = ? WHERE id = ?', [name, id]),
@@ -215,10 +240,36 @@ class PeerStore {
 
   /// Keeps a row from [id] that could not be applied, for inspection.
   void quarantine(String id, String kind, String reason, String raw) {
+    // Exact repeats are already safely retained. Avoid using a schema change
+    // just to deduplicate the same authenticated row on a later session.
+    if (db.select(
+      'SELECT 1 FROM quarantine WHERE peer_id = ? AND kind = ? AND raw = ? LIMIT 1',
+      [id, kind, raw],
+    ).isNotEmpty) {
+      return;
+    }
+
+    final stats = db
+        .select(
+          'SELECT count(*) AS n, '
+          'coalesce(sum(length(CAST(raw AS BLOB))), 0) AS bytes '
+          'FROM quarantine',
+        )
+        .first;
+    final count = stats['n'] as int;
+    final bytes = stats['bytes'] as int;
+    final rawBytes = utf8.encode(raw).length;
+    if (count >= maxQuarantineRows || rawBytes > maxQuarantineBytes - bytes) {
+      throw QuarantineStorageLimitException();
+    }
+    final boundedReason = reason.length <= maxQuarantineReasonChars
+        ? reason
+        : reason.substring(0, maxQuarantineReasonChars);
+
     db.execute(
       'INSERT INTO quarantine(peer_id, kind, received_at, reason, raw) '
       'VALUES (?, ?, ?, ?, ?)',
-      [id, kind, _now(), reason, raw],
+      [id, kind, _now(), boundedReason, raw],
     );
   }
 
@@ -229,7 +280,8 @@ class PeerStore {
     int limit = 100,
   }) => [
     for (final r in db.select(
-      'SELECT id, kind, raw FROM quarantine '
+      'SELECT id, kind, raw, length(CAST(raw AS BLOB)) AS raw_bytes '
+      'FROM quarantine '
       'WHERE peer_id = ? AND id > ? ORDER BY id LIMIT ?',
       [peerId, afterId, limit],
     ))
@@ -237,6 +289,7 @@ class PeerStore {
         id: r['id'] as int,
         kind: r['kind'] as String,
         raw: r['raw'] as String,
+        rawBytes: r['raw_bytes'] as int,
       ),
   ];
 
@@ -246,6 +299,15 @@ class PeerStore {
 
   int quarantined() =>
       db.select('SELECT count(*) AS n FROM quarantine').first['n'] as int;
+
+  int quarantinedBytes() =>
+      db
+              .select(
+                'SELECT coalesce(sum(length(CAST(raw AS BLOB))), 0) AS n '
+                'FROM quarantine',
+              )
+              .first['n']
+          as int;
 
   /// Local changes this peer has not confirmed yet (rows above its cursor).
   int pendingFor(String id) {

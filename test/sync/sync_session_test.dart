@@ -356,18 +356,21 @@ void main() {
       // parser and now readable by this version. A's cursor prevents B from
       // sending them again, so recovery must come from quarantine itself.
       a.peers.quarantine(b.id, 'note', 'old parser', noteJson);
+      // Exact duplicate raw content is retained only once.
       a.peers.quarantine(b.id, 'note', 'duplicate old parser row', noteJson);
       a.peers.quarantine(b.id, 'note', 'old parser', tombstoneJson);
       a.peers.setReceived(b.id, b.db.currentSeq);
     });
+    expect(a.peers.quarantined(), 2);
     b.db.transaction(() => b.peers.advance(a.id, sent: b.db.currentSeq));
 
     final (firstA, firstB) = await syncPair(a, b);
     expect(ok(firstB).sentRows, 0);
     expect(ok(firstA).created, 2);
-    expect(ok(firstA).unchanged, 1);
+    expect(ok(firstA).unchanged, 0);
     expect(a.repo.getRecord(note.id), isNotNull);
     expect(a.repo.getRecord(tombstone.id)!.purged, isTrue);
+    expect(a.repo.getNote(tombstone.id), isNull);
     expect(a.peers.quarantined(), 0);
 
     final saved = a.repo.getRecord(note.id)!.toJson();
@@ -554,6 +557,36 @@ void main() {
         'max': 0,
       });
       await ms.expect('hello');
+    }
+
+    Future<void> completeBatch(
+      MessageStream ms, {
+      required List<Map<String, Object?>> rows,
+      required int upTo,
+      Object? from = 0,
+    }) async {
+      await hello(ms, from: from);
+      if (rows.isNotEmpty) {
+        await ms.send({'t': 'rows', 'k': 'notes', 'rows': rows});
+      }
+      await ms.send({'t': 'done', 'upTo': upTo, 'count': rows.length});
+
+      // The receiver may send its own rows before `done`; their contents are
+      // unrelated to the incoming rows under test here.
+      while (true) {
+        final message = await ms.receive();
+        if (message['t'] == 'done') break;
+        expect(message['t'], 'rows');
+      }
+      final applied = await ms.expect('applied');
+      expect(applied['upTo'], upTo);
+      await ms.send({'t': 'applied', 'upTo': 0});
+      await ms.expect('need');
+      await ms.send({'t': 'need', 'hashes': <Object>[]});
+      await ms.send({'t': 'blobsdone'});
+      await ms.expect('blobsdone');
+      await ms.expect('bye');
+      await ms.send({'t': 'bye'});
     }
 
     test(
@@ -792,88 +825,268 @@ void main() {
       },
     );
 
-    test('unreadable rows are acknowledged while quarantine retains every full raw row', () async {
-      const badCount = 501;
-      final sourceIds = [
-        for (var i = 0; i < badCount; i++) 'unreadable-$i',
-        'over-limit',
-      ];
-      final rows = <Map<String, Object?>>[];
-      for (var i = 0; i < badCount; i++) {
-        final note = b.repo.createNote(
-          id: sourceIds[i],
-          title: 'source $i',
-          body: body('valid source row $i'),
+    test(
+      'the same rejected row sent in many sessions is retained once',
+      () async {
+        final source = b.repo.createNote(
+          id: 'repeated-unreadable',
+          title: 'source',
+          body: body('valid at sender'),
         );
-        rows.add(
-          b.repo.getRecord(note.id)!.toJson()..['body'] = 'not a delta $i',
-        );
-      }
-      final largeSource = b.repo.createNote(
-        id: 'over-limit',
-        title: 'large source',
-        body: body('valid large source row'),
-      );
-      rows.add(
-        b.repo.getRecord(largeSource.id)!.toJson()..['body'] = 'x' * 2000001,
-      );
+        final bad = b.repo.getRecord(source.id)!.toJson()
+          ..['body'] = 'not a delta';
+        final raw = jsonEncode(bad);
 
-      final result = await against((ms) async {
-        await hello(ms);
-        await ms.send({'t': 'rows', 'k': 'notes', 'rows': rows});
-        await ms.send({'t': 'done', 'upTo': rows.length, 'count': rows.length});
-        await ms.expect('done');
-        final applied = await ms.expect('applied');
+        for (var i = 0; i < 12; i++) {
+          final result = await against((ms) async {
+            await completeBatch(ms, rows: [bad], upTo: 1);
+          });
+          expect(ok(result).invalidRows, 1);
+          expect(a.peers.get(b.id)!.recvCursor, 1);
+          expect(a.peers.quarantined(), 1);
+          expect(a.peers.quarantinedBytes(), utf8.encode(raw).length);
+        }
+        expect(b.repo.getRecord(source.id), isNotNull);
+      },
+    );
+
+    test(
+      'many distinct rejected rows fail atomically at the row limit',
+      () async {
+        final source = b.repo.createNote(
+          id: 'distinct-template',
+          title: 'source',
+          body: body('valid at sender'),
+        );
+        final template = b.repo.getRecord(source.id)!.toJson();
+        final rows = [
+          for (var i = 0; i <= maxQuarantineRows; i++)
+            Map<String, Object?>.from(template)
+              ..['id'] = 'distinct-unreadable-$i'
+              ..['body'] = 'not a delta $i',
+        ];
+        var sawApplied = false;
+        final result = await against((ms) async {
+          await hello(ms);
+          await ms.send({'t': 'rows', 'k': 'notes', 'rows': rows});
+          await ms.send({
+            't': 'done',
+            'upTo': rows.length,
+            'count': rows.length,
+          });
+          while (true) {
+            final message = await ms.receive();
+            if (message['t'] == 'done') break;
+            expect(message['t'], 'rows');
+          }
+          try {
+            await ms.expect('applied');
+            sawApplied = true;
+          } on Object {
+            // The receiver must close without acknowledging a failed batch.
+          }
+        });
+
+        expect(result, isA<QuarantineStorageLimitException>());
+        expect(sawApplied, isFalse);
+        expect(a.peers.get(b.id)!.recvCursor, 0);
+        expect(a.peers.quarantined(), 0);
+        expect(a.peers.quarantinedBytes(), 0);
+        expect(a.repo.getRecord('distinct-unreadable-0'), isNull);
+        expect(b.repo.getRecord(source.id), isNotNull);
+      },
+    );
+
+    test(
+      'large quarantine rows stay whole and byte overflow is not acknowledged',
+      () async {
+        final source = b.repo.createNote(
+          id: 'large-template',
+          title: 'source',
+          body: body('valid at sender'),
+        );
+        final template = b.repo.getRecord(source.id)!.toJson();
+        final large = Map<String, Object?>.from(template)
+          ..['id'] = 'large-unreadable'
+          ..['body'] = 'x' * 2000001;
+        final largeRaw = jsonEncode(large);
+        final first = await against((ms) async {
+          await completeBatch(ms, rows: [large], upTo: 1);
+        });
+        expect(ok(first).invalidRows, 1);
         expect(
-          applied['upTo'],
-          rows.length,
-          reason: 'the entire batch, including invalid rows, is acknowledged',
+          a.db.select('SELECT raw FROM quarantine').single['raw'],
+          largeRaw,
         );
-        await ms.send({'t': 'applied', 'upTo': 0});
-        await ms.expect('need');
-        await ms.send({'t': 'need', 'hashes': <Object>[]});
-        await ms.send({'t': 'blobsdone'});
-        await ms.expect('blobsdone');
-        await ms.send({'t': 'bye'});
+        expect(a.peers.quarantinedBytes(), utf8.encode(largeRaw).length);
+        expect(a.peers.get(b.id)!.recvCursor, 1);
+
+        final tooLarge = Map<String, Object?>.from(template)
+          ..['id'] = 'over-quarantine-byte-limit'
+          ..['body'] = 'y' * (7 * 1024 * 1024);
+        var sawApplied = false;
+        final second = await against((ms) async {
+          await hello(ms, from: 1);
+          await ms.send({
+            't': 'rows',
+            'k': 'notes',
+            'rows': [tooLarge],
+          });
+          await ms.send({'t': 'done', 'upTo': 2, 'count': 1});
+          while (true) {
+            final message = await ms.receive();
+            if (message['t'] == 'done') break;
+            expect(message['t'], 'rows');
+          }
+          try {
+            await ms.expect('applied');
+            sawApplied = true;
+          } on Object {
+            // The new row must remain with the sender when retention is full.
+          }
+        });
+
+        expect(second, isA<QuarantineStorageLimitException>());
+        expect(sawApplied, isFalse);
+        expect(a.peers.get(b.id)!.recvCursor, 1);
+        expect(a.peers.quarantined(), 1);
+        expect(a.peers.quarantinedBytes(), utf8.encode(largeRaw).length);
+        expect(a.repo.getRecord('over-quarantine-byte-limit'), isNull);
+      },
+    );
+
+    test(
+      'quarantine retry work is bounded and resumes at the next row',
+      () async {
+        final source = b.repo.createNote(
+          id: 'retry-after-budget',
+          title: 'recoverable later',
+          body: body('now readable'),
+        );
+        final raw = jsonEncode(b.repo.getRecord(source.id)!.toJson());
+        a.db.transaction(() {
+          for (var i = 0; i < maxQuarantineRetriesPerSession; i++) {
+            a.peers.quarantine(b.id, 'note', 'old parser', 'not-json-$i');
+          }
+          a.peers.quarantine(b.id, 'note', 'new parser can read this', raw);
+        });
+
+        final first = await against((ms) async {
+          await completeBatch(ms, rows: [], upTo: 0);
+        });
+        ok(first);
+        expect(a.repo.getRecord(source.id), isNull);
+        expect(
+          a.db.getMeta(quarantineRetryCursorMetaKey(b.id)),
+          '$maxQuarantineRetriesPerSession',
+        );
+        expect(a.peers.quarantined(), maxQuarantineRetriesPerSession + 1);
+
+        final second = await against((ms) async {
+          await completeBatch(ms, rows: [], upTo: 0);
+        });
+        expect(ok(second).created, 1);
+        expect(a.repo.getRecord(source.id), isNotNull);
+        expect(a.peers.quarantined(), maxQuarantineRetriesPerSession);
+      },
+    );
+
+    test(
+      'a failed quarantine insert rolls back applied rows and the cursor',
+      () async {
+        final good = b.repo.createNote(
+          id: 'must-roll-back-with-quarantine',
+          title: 'good row',
+          body: body('synthetic'),
+        );
+        final bad = b.repo.getRecord(good.id)!.toJson()
+          ..['id'] = 'cannot-be-quarantined'
+          ..['body'] = 'not a delta';
+        a.db.execute('''
+        CREATE TRIGGER reject_quarantine BEFORE INSERT ON quarantine
+        BEGIN SELECT RAISE(ABORT, 'synthetic storage full'); END
+      ''');
+        var sawApplied = false;
+        final result = await against((ms) async {
+          await hello(ms);
+          await ms.send({
+            't': 'rows',
+            'k': 'notes',
+            'rows': [b.repo.getRecord(good.id)!.toJson(), bad],
+          });
+          await ms.send({'t': 'done', 'upTo': 2, 'count': 2});
+          while (true) {
+            final message = await ms.receive();
+            if (message['t'] == 'done') break;
+            expect(message['t'], 'rows');
+          }
+          try {
+            await ms.expect('applied');
+            sawApplied = true;
+          } on Object {
+            // The failed insert ends the session before its applied response.
+          }
+        });
+
+        expect(result, isNot(isA<SyncOutcome>()));
+        expect(sawApplied, isFalse);
+        expect(a.repo.getRecord(good.id), isNull);
+        expect(a.peers.quarantined(), 0);
+        expect(a.peers.get(b.id)!.recvCursor, 0);
+      },
+    );
+
+    test('a recovered quarantined purge stays a tombstone', () async {
+      final note = b.repo.createNote(
+        id: 'purge-recovered-from-quarantine',
+        title: 'active before purge',
+        body: body('must not return'),
+      );
+      await syncPair(a, b);
+      expect(a.repo.getNote(note.id), isNotNull);
+
+      b.repo.purge([note.id]);
+      final purge = b.repo.getRecord(note.id)!.toJson();
+      final malformed = Map<String, Object?>.from(purge)
+        ..['purged'] = 'not a boolean';
+      final upTo = b.db.currentSeq;
+      final first = await against((ms) async {
+        await completeBatch(
+          ms,
+          rows: [malformed],
+          upTo: upTo,
+          from: a.db.currentSeq,
+        );
       });
+      expect(ok(first).invalidRows, 1);
+      expect(a.repo.getNote(note.id), isNotNull);
+      expect(a.peers.quarantined(), 1);
+      expect(a.peers.get(b.id)!.recvCursor, upTo);
 
-      expect(ok(result).invalidRows, rows.length);
-      expect(a.peers.get(b.id)!.recvCursor, rows.length);
-      expect(a.peers.quarantined(), rows.length);
-      final quarantined = a.db
-          .select('SELECT raw FROM quarantine')
-          .map((row) => row['raw'] as String)
-          .toList();
-      final quarantinedIds = <String>{};
-      for (final raw in quarantined) {
-        final match = RegExp(r'"id":"([^"]+)"').firstMatch(raw);
-        if (match != null) quarantinedIds.add(match.group(1)!);
-      }
-      expect(quarantinedIds.length, rows.length);
-      expect(quarantinedIds.contains('unreadable-0'), isTrue);
-      expect(quarantinedIds.contains('unreadable-1'), isTrue);
-      expect(quarantinedIds.contains('unreadable-2'), isTrue);
-      expect(quarantinedIds.contains('unreadable-500'), isTrue);
-      expect(quarantinedIds.contains('over-limit'), isTrue);
-      final oversizedRaw = quarantined.singleWhere(
-        (raw) => raw.contains('over-limit'),
-      );
-      expect(oversizedRaw, jsonEncode(rows.last));
-      expect(oversizedRaw.length, greaterThan(2000000));
-      expect(
-        sourceIds.every((id) => b.repo.getRecord(id) != null),
-        isTrue,
-        reason: 'the sending device retains its authoritative source rows',
-      );
+      final rawPurge = jsonEncode(purge);
+      a.db.execute('UPDATE quarantine SET raw = ? WHERE peer_id = ?', [
+        rawPurge,
+        b.id,
+      ]);
+      final recovery = await against((ms) async {
+        await completeBatch(ms, rows: [], upTo: upTo, from: a.db.currentSeq);
+      });
+      ok(recovery);
+      expect(a.repo.getRecord(note.id)!.purged, isTrue);
+      expect(a.repo.getNote(note.id), isNull);
+      expect(a.peers.quarantined(), 0);
 
-      final (retryA, _) = await syncPair(a, b);
-      expect(ok(retryA).invalidRows, 0);
-      expect(
-        a.peers.quarantined(),
-        rows.length,
-        reason:
-            'retrying still-unreadable rows neither drops nor duplicates them',
-      );
+      final repeated = await against((ms) async {
+        await completeBatch(
+          ms,
+          rows: [purge],
+          upTo: upTo,
+          from: a.db.currentSeq,
+        );
+      });
+      expect(ok(repeated).unchanged, 1);
+      expect(a.repo.getRecord(note.id)!.purged, isTrue);
+      expect(a.repo.getNote(note.id), isNull);
     });
 
     test('a record claiming a clock far in the future aborts the session with nothing applied', () async {
@@ -1018,6 +1231,10 @@ void main() {
     expect(
       describeSyncError(SyncProtocolException('x')),
       contains('unexpected'),
+    );
+    expect(
+      describeSyncError(QuarantineStorageLimitException()),
+      contains('not applied or acknowledged'),
     );
     expect(shouldDial('0000000000000001', '0000000000000002'), isTrue);
     expect(shouldDial('0000000000000002', '0000000000000001'), isFalse);

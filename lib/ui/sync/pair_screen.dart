@@ -9,6 +9,7 @@ import '../../app.dart';
 import '../../sync/pairing.dart';
 import '../../sync/sync_service.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 
 /// Pair another device: show a code for it to scan, or scan / paste its code.
@@ -18,31 +19,33 @@ class PairScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canScan = Platform.isAndroid;
-    return DefaultTabController(
-      length: canScan ? 3 : 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Pair a device'),
-          bottom: TabBar(
-            tabs: [
-              const Tab(text: 'Show code'),
-              if (canScan) const Tab(text: 'Scan code'),
-              const Tab(text: 'Enter code'),
-            ],
-          ),
-        ),
-        body: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: TabBarView(
-              // Swiping would fight the camera view.
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                const _ShowCode(),
-                if (canScan) const _ScanCode(),
-                const _EnterCode(),
+    return backOnEscape(
+      child: DefaultTabController(
+        length: canScan ? 3 : 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Pair a device'),
+            bottom: TabBar(
+              tabs: [
+                const Tab(text: 'Show code'),
+                if (canScan) const Tab(text: 'Scan code'),
+                const Tab(text: 'Enter code'),
               ],
+            ),
+          ),
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: TabBarView(
+                // Swiping would fight the camera view.
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  const _ShowCode(),
+                  if (canScan) const _ScanCode(),
+                  const _EnterCode(),
+                ],
+              ),
             ),
           ),
         ),

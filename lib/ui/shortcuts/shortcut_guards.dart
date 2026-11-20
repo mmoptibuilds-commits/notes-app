@@ -140,6 +140,17 @@ void escapeOrLeave(BuildContext context) {
   Navigator.of(context).maybePop();
 }
 
+/// A pushed screen whose Escape goes back one level (leaving a focused text
+/// field first). For screens with no other shortcuts.
+Widget backOnEscape({required Widget child}) => Builder(
+  builder: (context) => shortcutScope(
+    scopes: const {ShortcutScope.global},
+    autofocus: true,
+    handlers: {ShortcutId.escape: () => escapeOrLeave(context)},
+    child: child,
+  ),
+);
+
 /// Binds every implemented definition in [scopes] that has a handler in
 /// [handlers]. Screens pass their own scope plus [ShortcutScope.global].
 ///
@@ -148,8 +159,8 @@ void escapeOrLeave(BuildContext context) {
 /// while focus is at or below this node. A text field that is clicked away
 /// from unfocuses itself, which drops focus to the route's own scope, above
 /// these shortcuts; without help every shortcut would then be dead until the
-/// user clicked into something. After each pointer release the scope takes
-/// focus back when (and only when) nothing is focused. [focusNode] lets a
+/// user clicked into something. The scope listens to its route's focus scope
+/// and takes focus back whenever that bare scope becomes the primary focus. [focusNode] lets a
 /// screen use its own node (the library's root node); [autofocus] claims
 /// focus when the screen first appears.
 Widget shortcutScope({
@@ -193,29 +204,44 @@ class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
       widget.focusNode ??
       (_own ??= FocusNode(debugLabel: _scopeNodeLabel, skipTraversal: true));
 
+  FocusScopeNode? _routeScope;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The route's own focus scope is a ChangeNotifier. It becomes the primary
+    // focus exactly when focus is stranded above these shortcuts: a text field
+    // unfocused itself on a click, a popup, dialog or sheet closed and handed
+    // focus back to a bare scope, or the screen opened with nothing focused.
+    final scope = FocusScope.of(context);
+    if (scope != _routeScope) {
+      _routeScope?.removeListener(_onRouteScopeChanged);
+      _routeScope = scope..addListener(_onRouteScopeChanged);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    // A screen that appears with nothing focused (an editor opened by a click,
-    // say) would otherwise leave focus on the bare route scope.
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _reclaimFocusIfStranded(),
-    );
+    // Covers a screen that is already stranded when it first appears.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onRouteScopeChanged());
   }
 
   @override
   void dispose() {
+    _routeScope?.removeListener(_onRouteScopeChanged);
     _own?.dispose();
     super.dispose();
   }
 
-  /// Focus left on a bare route scope (a click on background, or a text field
-  /// that unfocused itself) means nothing below it can see key events.
-  void _reclaimFocusIfStranded() {
+  void _onRouteScopeChanged() {
     scheduleMicrotask(() {
       if (!mounted) return;
       final primary = FocusManager.instance.primaryFocus;
-      if (primary != null && primary is! FocusScopeNode) return;
+      final stranded =
+          primary == null ||
+          (primary is FocusScopeNode && primary == _routeScope);
+      if (!stranded) return;
       final route = ModalRoute.of(context);
       if (route != null && !route.isCurrent) return;
       _node.requestFocus();
@@ -246,11 +272,7 @@ class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
         child: Focus(
           focusNode: _node,
           autofocus: widget.autofocus,
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerUp: (_) => _reclaimFocusIfStranded(),
-            child: widget.child,
-          ),
+          child: widget.child,
         ),
       ),
     );

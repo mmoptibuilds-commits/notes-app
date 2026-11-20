@@ -2,6 +2,7 @@ import '../../app.dart';
 import '../../sync/peers.dart';
 import '../../sync/sync_service.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import 'pair_screen.dart';
 
@@ -13,24 +14,26 @@ class SyncScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final sync = app.sync;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Sync')),
-      body: sync == null
-          ? const Center(child: Text('Sync is not available.'))
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 640),
-                child: ListenableBuilder(
-                  listenable: Listenable.merge([
-                    sync,
-                    app.notes.changes,
-                    app.settings,
-                  ]),
-                  builder: (context, _) => _Body(sync: sync),
+    return backOnEscape(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Sync')),
+        body: sync == null
+            ? const Center(child: Text('Sync is not available.'))
+            : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: ListenableBuilder(
+                    listenable: Listenable.merge([
+                      sync,
+                      app.notes.changes,
+                      app.settings,
+                    ]),
+                    builder: (context, _) => _Body(sync: sync),
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }

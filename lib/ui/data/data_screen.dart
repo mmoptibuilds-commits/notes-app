@@ -12,6 +12,7 @@ import '../../importer/notes_export.dart';
 import '../../importer/notes_restore.dart';
 import '../../platform/save_file.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 
 /// Import a legacy backup or this app's export, undo legacy imports, export.
@@ -320,67 +321,69 @@ class _DataScreenState extends State<DataScreen> {
     final app = AppScope.of(context);
     final p = AppPalette.of(context);
     final batches = LegacyBackupImporter(app.notes).batches();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Import and export')),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
-            children: [
-              if (_busy) const LinearProgressIndicator(),
-              _Group(
-                title: 'Import',
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.file_open_outlined),
-                    title: const Text('Import a backup or Notes export'),
-                    subtitle: const Text(
-                      'Choose a Notebook backup from the old app or a Notes '
-                      'export. You see what it contains before anything changes.',
-                    ),
-                    onTap: _busy ? null : _import,
-                  ),
-                ],
-              ),
-              if (batches.isNotEmpty)
+    return backOnEscape(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Import and export')),
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
+              children: [
+                if (_busy) const LinearProgressIndicator(),
                 _Group(
-                  title: 'Past imports',
+                  title: 'Import',
                   children: [
-                    for (final b in batches)
-                      ListTile(
-                        title: Text(b.sourceName ?? 'Backup'),
-                        subtitle: Text(
-                          '${DateTime.fromMillisecondsSinceEpoch(b.startedAt).toString().substring(0, 16)}'
-                          '${b.report == null ? '' : ' · ${b.report!.sourceNotes} notes'}'
-                          '${b.isRolledBack ? ' · undone' : ''}',
-                          style: TextStyle(color: p.textMuted, fontSize: 12),
-                        ),
-                        trailing: b.isRolledBack
-                            ? null
-                            : TextButton(
-                                onPressed: _busy ? null : () => _rollback(b),
-                                child: const Text('Undo'),
-                              ),
+                    ListTile(
+                      leading: const Icon(Icons.file_open_outlined),
+                      title: const Text('Import a backup or Notes export'),
+                      subtitle: const Text(
+                        'Choose a Notebook backup from the old app or a Notes '
+                        'export. You see what it contains before anything changes.',
                       ),
+                      onTap: _busy ? null : _import,
+                    ),
                   ],
                 ),
-              _Group(
-                title: 'Export',
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.file_download_outlined),
-                    title: const Text('Export all notes'),
-                    subtitle: const Text(
-                      'Saves every note, folder and image, including Trash, '
-                      'as one JSON file. The file is not encrypted.',
-                    ),
-                    onTap: _busy ? null : _export,
+                if (batches.isNotEmpty)
+                  _Group(
+                    title: 'Past imports',
+                    children: [
+                      for (final b in batches)
+                        ListTile(
+                          title: Text(b.sourceName ?? 'Backup'),
+                          subtitle: Text(
+                            '${DateTime.fromMillisecondsSinceEpoch(b.startedAt).toString().substring(0, 16)}'
+                            '${b.report == null ? '' : ' · ${b.report!.sourceNotes} notes'}'
+                            '${b.isRolledBack ? ' · undone' : ''}',
+                            style: TextStyle(color: p.textMuted, fontSize: 12),
+                          ),
+                          trailing: b.isRolledBack
+                              ? null
+                              : TextButton(
+                                  onPressed: _busy ? null : () => _rollback(b),
+                                  child: const Text('Undo'),
+                                ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
-            ],
+                _Group(
+                  title: 'Export',
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.file_download_outlined),
+                      title: const Text('Export all notes'),
+                      subtitle: const Text(
+                        'Saves every note, folder and image, including Trash, '
+                        'as one JSON file. The file is not encrypted.',
+                      ),
+                      onTap: _busy ? null : _export,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

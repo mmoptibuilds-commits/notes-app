@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import '../../app.dart';
 import '../../data/app_settings.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import '../toolbar_item_info.dart';
 
@@ -67,110 +68,116 @@ class _ToolbarSettingsScreenState extends State<ToolbarSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Toolbar'),
-        actions: [
-          TextButton(onPressed: _reset, child: const Text('Reset to default')),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, cons) {
-          final side = math.max(12.0, (cons.maxWidth - 640) / 2);
-          return Column(
-            children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(side + 4, 4, side + 4, 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Drag to reorder. Switch buttons off to hide them.',
-                    style: TextStyle(fontSize: 12.5, color: p.textMuted),
+    return backOnEscape(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Toolbar'),
+          actions: [
+            TextButton(
+              onPressed: _reset,
+              child: const Text('Reset to default'),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: LayoutBuilder(
+          builder: (context, cons) {
+            final side = math.max(12.0, (cons.maxWidth - 640) / 2);
+            return Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(side + 4, 4, side + 4, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Drag to reorder. Switch buttons off to hide them.',
+                      style: TextStyle(fontSize: 12.5, color: p.textMuted),
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: ReorderableListView.builder(
-                  padding: EdgeInsets.fromLTRB(side, 0, side, 32),
-                  buildDefaultDragHandles: false,
-                  itemCount: _order.length,
-                  onReorderItem: _reorder,
-                  proxyDecorator: (child, _, _) =>
-                      Material(color: Colors.transparent, child: child),
-                  itemBuilder: (context, i) {
-                    final t = _order[i];
-                    final on = _enabled.contains(t);
-                    return Padding(
-                      key: ValueKey(t),
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Container(
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: p.card,
-                          borderRadius: BorderRadius.circular(
-                            AppMetrics.controlRadius + 2,
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: EdgeInsets.fromLTRB(side, 0, side, 32),
+                    buildDefaultDragHandles: false,
+                    itemCount: _order.length,
+                    onReorderItem: _reorder,
+                    proxyDecorator: (child, _, _) =>
+                        Material(color: Colors.transparent, child: child),
+                    itemBuilder: (context, i) {
+                      final t = _order[i];
+                      final on = _enabled.contains(t);
+                      return Padding(
+                        key: ValueKey(t),
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Container(
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: p.card,
+                            borderRadius: BorderRadius.circular(
+                              AppMetrics.controlRadius + 2,
+                            ),
+                            border: Border.all(color: p.cardBorder),
                           ),
-                          border: Border.all(color: p.cardBorder),
+                          child: Row(
+                            children: [
+                              ReorderableDragStartListener(
+                                index: i,
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 52,
+                                  child: Icon(
+                                    Icons.drag_indicator_rounded,
+                                    color: p.textFaint,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                t.icon,
+                                size: 20,
+                                color: on ? p.text : p.textFaint,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  t.label,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: on ? p.text : p.textMuted,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                height: 28,
+                                child: FittedBox(
+                                  child: Switch(
+                                    value: on,
+                                    onChanged: (v) => _toggle(t, v),
+                                    activeThumbColor: p.onAccent,
+                                    activeTrackColor: p.accent,
+                                    inactiveThumbColor: p.textMuted,
+                                    inactiveTrackColor: p.background,
+                                    trackOutlineColor:
+                                        WidgetStateProperty.resolveWith(
+                                          (s) =>
+                                              s.contains(WidgetState.selected)
+                                              ? p.accent
+                                              : p.cardBorder,
+                                        ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            ReorderableDragStartListener(
-                              index: i,
-                              child: SizedBox(
-                                width: 44,
-                                height: 52,
-                                child: Icon(
-                                  Icons.drag_indicator_rounded,
-                                  color: p.textFaint,
-                                ),
-                              ),
-                            ),
-                            Icon(
-                              t.icon,
-                              size: 20,
-                              color: on ? p.text : p.textFaint,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                t.label,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: on ? p.text : p.textMuted,
-                                ),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 28,
-                              child: FittedBox(
-                                child: Switch(
-                                  value: on,
-                                  onChanged: (v) => _toggle(t, v),
-                                  activeThumbColor: p.onAccent,
-                                  activeTrackColor: p.accent,
-                                  inactiveThumbColor: p.textMuted,
-                                  inactiveTrackColor: p.background,
-                                  trackOutlineColor:
-                                      WidgetStateProperty.resolveWith(
-                                        (s) => s.contains(WidgetState.selected)
-                                            ? p.accent
-                                            : p.cardBorder,
-                                      ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }

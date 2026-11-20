@@ -11,6 +11,8 @@ import '../../data/note_repository.dart';
 import '../editor/editor_screen.dart';
 import '../material.dart';
 import '../settings/settings_screen.dart';
+import '../shortcuts/shortcut_defs.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/format.dart';
@@ -441,60 +443,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   // ------------------------------------------------------------- keyboard
 
-  bool get _typing =>
-      FocusManager.instance.primaryFocus?.context
-          ?.findAncestorWidgetOfExactType<EditableText>() !=
-      null;
-
-  KeyEventResult _onKey(FocusNode node, KeyEvent e) {
-    if (e is! KeyDownEvent) return KeyEventResult.ignored;
-    final k = e.logicalKey;
-    final hw = HardwareKeyboard.instance;
-    final ctrl = hw.isControlPressed || hw.isMetaPressed;
-    if (ctrl && k == LogicalKeyboardKey.keyN) {
-      _newNote();
-      return KeyEventResult.handled;
-    }
-    if (ctrl && k == LogicalKeyboardKey.keyF) {
-      _focusSearch();
-      return KeyEventResult.handled;
-    }
-    if (k == LogicalKeyboardKey.escape) {
-      if (_hasSearch) {
+  void _escape() {
+    switch (resolveEscape(
+      popupOpen: false,
+      hasSearch: _hasSearch,
+      selecting: _c.selecting,
+      searchFocused: _searchFocus.hasFocus,
+      canGoBack: false,
+    )) {
+      case EscapeOutcome.clearSearch:
         _closeSearch();
-        return KeyEventResult.handled;
-      }
-      if (_c.selecting) {
+      case EscapeOutcome.clearSelection:
         _c.clearSelection();
-        return KeyEventResult.handled;
-      }
-      if (_searchFocus.hasFocus) {
+      case EscapeOutcome.unfocusSearch:
         _rootFocus.requestFocus();
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
+      case EscapeOutcome.closePopup:
+      case EscapeOutcome.back:
+      case EscapeOutcome.unhandled:
+        break;
     }
-    if (_typing) return KeyEventResult.ignored;
-    if (k == LogicalKeyboardKey.slash && !ctrl) {
-      _focusSearch();
-      return KeyEventResult.handled;
-    }
-    if (ctrl && k == LogicalKeyboardKey.keyA) {
-      _c.selectAll();
-      return KeyEventResult.handled;
-    }
-    if (k == LogicalKeyboardKey.delete && _c.selecting) {
-      _apply(_c.scope == NoteScope.trash ? 'purge' : 'trash', _c.selectedNotes);
-      return KeyEventResult.handled;
-    }
-    if (hw.isAltPressed && k == LogicalKeyboardKey.arrowLeft) {
-      if (_c.scope != NoteScope.active) {
-        _go(NoteScope.active);
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
   }
+
+  Map<ShortcutId, VoidCallback> get _shortcutHandlers => {
+    ShortcutId.newNote: _newNote,
+    ShortcutId.focusSearch: _focusSearch,
+    ShortcutId.slashSearch: _focusSearch,
+    ShortcutId.selectAll: _c.selectAll,
+    ShortcutId.trashSelected: () {
+      if (_c.selecting) {
+        _apply(
+          _c.scope == NoteScope.trash ? 'purge' : 'trash',
+          _c.selectedNotes,
+        );
+      }
+    },
+    ShortcutId.backToAllNotes: () {
+      if (_c.scope != NoteScope.active) _go(NoteScope.active);
+    },
+    ShortcutId.openSettings: _openSettings,
+    ShortcutId.openHelp: () => openHelp(context),
+    ShortcutId.escape: _escape,
+  };
 
   // ---------------------------------------------------------------- build
 
@@ -508,31 +497,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _unwind();
       },
-      child: Focus(
-        focusNode: _rootFocus,
-        autofocus: true,
-        onKeyEvent: _onKey,
-        child: Listener(
-          onPointerDown: (e) {
-            if (e.kind == PointerDeviceKind.mouse &&
-                e.buttons == kBackMouseButton) {
-              _unwind();
-            }
-          },
-          child: Scaffold(
-            backgroundColor: p.background,
-            floatingActionButton: c.scope == NoteScope.active && !c.selecting
-                ? FloatingActionButton(
-                    tooltip: 'New note',
-                    onPressed: _newNote,
-                    child: const Icon(Icons.add_rounded, size: 26),
-                  )
-                : null,
-            body: SafeArea(
-              bottom: false,
-              child: LayoutBuilder(
-                builder: (context, cons) =>
-                    _buildContent(context, cons.maxWidth),
+      child: shortcutScope(
+        scopes: const {ShortcutScope.library, ShortcutScope.global},
+        handlers: _shortcutHandlers,
+        child: Focus(
+          focusNode: _rootFocus,
+          autofocus: true,
+          child: Listener(
+            onPointerDown: (e) {
+              if (e.kind == PointerDeviceKind.mouse &&
+                  e.buttons == kBackMouseButton) {
+                _unwind();
+              }
+            },
+            child: Scaffold(
+              backgroundColor: p.background,
+              floatingActionButton: c.scope == NoteScope.active && !c.selecting
+                  ? FloatingActionButton(
+                      tooltip: 'New note',
+                      onPressed: _newNote,
+                      child: const Icon(Icons.add_rounded, size: 26),
+                    )
+                  : null,
+              body: SafeArea(
+                bottom: false,
+                child: LayoutBuilder(
+                  builder: (context, cons) =>
+                      _buildContent(context, cons.maxWidth),
+                ),
               ),
             ),
           ),

@@ -296,6 +296,18 @@ Future<void> _openLicences(BuildContext context) async {
   );
 }
 
+/// Opens the Help screen, with the shortcut list taken from the shared
+/// definitions. Used by Settings and by the F1 shortcut.
+Future<void> openHelp(BuildContext context) => Navigator.of(context).push(
+  MaterialPageRoute<void>(
+    builder: (_) => HelpScreen(
+      shortcuts: helpShortcuts(),
+      appVersion: appVersionText,
+      onOpenLicences: () => _openLicences(context),
+    ),
+  ),
+);
+
 class AboutSection extends StatelessWidget {
   const AboutSection({super.key});
 
@@ -313,15 +325,7 @@ class AboutSection extends StatelessWidget {
           semanticLabel: 'Help',
           minimumHeight: 30,
           trailing: chevron,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => HelpScreen(
-                shortcuts: kHelpShortcuts,
-                appVersion: appVersionText,
-                onOpenLicences: () => _openLicences(context),
-              ),
-            ),
-          ),
+          onTap: () => openHelp(context),
         ),
         SettingsRow(
           title: 'Notes',

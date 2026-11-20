@@ -3,8 +3,8 @@ import '../theme/app_theme.dart';
 import 'welcome_points.dart';
 
 /// The one-screen introduction shown on first run. It only reports what the
-/// person chose; the caller decides what happens, and it writes the
-/// "onboarding done" flag itself. It never creates sample notes.
+/// person chose; the caller decides what happens and marks the introduction
+/// done. It never creates sample notes.
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({
     super.key,

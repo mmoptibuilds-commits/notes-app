@@ -10,6 +10,8 @@ import 'package:flutter_quill/flutter_quill.dart';
 import '../../app.dart';
 import '../../platform/bootstrap.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_defs.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import '../widgets/touch.dart';
 import '../../doc/checklist_projection.dart' show bodyFromDelta;
@@ -386,142 +388,146 @@ class _EditorScreenState extends State<EditorScreen>
               bottom: !wide,
             ),
     );
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.of(context).maybePop(),
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            tooltip: 'Back',
-            style: tap,
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
-          title: ListenableBuilder(
-            listenable: session,
-            builder: (context, _) => session.status == SaveStatus.failed
-                ? Text(
-                    'Not saved yet, retrying…',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    // Two lines at most must fit the 52 dp bar.
-                    textScaler: MediaQuery.textScalerOf(context)
-                        .clamp(maxScaleFactor: 1.3),
-                    style: TextStyle(color: p.danger, fontSize: 13),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          actions: [
-            IconButton(
-              tooltip: 'Copy note',
+    return shortcutScope(
+      scopes: const {ShortcutScope.editor},
+      handlers: {ShortcutId.saveNow: session.flush},
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.of(context).maybePop(),
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              tooltip: 'Back',
               style: tap,
-              icon: const Icon(Icons.copy_rounded),
-              onPressed: _copy,
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.of(context).maybePop(),
             ),
-            ListenableBuilder(
-              listenable: Listenable.merge([app.notes.changes, session]),
-              builder: (context, _) {
-                final pinned = session.stored?.pinned ?? false;
-                return IconButton(
-                  tooltip: pinned ? 'Unpin' : 'Pin',
-                  style: tap,
-                  icon: Icon(
-                    pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                    color: pinned ? p.accent : null,
-                  ),
-                  onPressed: session.readOnly
-                      ? null
-                      : () => session.setPinned(!pinned),
-                );
-              },
-            ),
-            PopupMenuButton<String>(
-              tooltip: 'More',
-              style: tap,
-              onSelected: (v) {
-                switch (v) {
-                  case 'archive':
-                    final archived = session.stored?.archived ?? false;
-                    session.setArchived(!archived);
-                    Navigator.of(context).pop();
-                  case 'folder':
-                    _moveToFolder();
-                  case 'trash':
-                    _trash();
-                  case 'copy-md':
-                    _copyMarkdown();
-                  case 'save-md':
-                    _saveMarkdown();
-                }
-              },
-              itemBuilder: (context) {
-                final archived = session.stored?.archived ?? false;
-                return [
-                  const PopupMenuItem(
-                    value: 'copy-md',
-                    child: Text('Copy as Markdown'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'save-md',
-                    child: Text('Save as Markdown file…'),
-                  ),
-                  if (!session.readOnly) ...[
-                    PopupMenuItem(
-                      value: 'folder',
-                      child: const Text('Move to folder…'),
-                    ),
-                    PopupMenuItem(
-                      value: 'archive',
-                      child: Text(archived ? 'Unarchive' : 'Archive'),
-                    ),
-                    PopupMenuItem(
-                      value: 'trash',
-                      child: Text(
-                        'Move to Trash',
-                        style: TextStyle(color: p.danger),
-                      ),
-                    ),
-                  ],
-                ];
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            ListenableBuilder(
+            title: ListenableBuilder(
               listenable: session,
-              builder: (context, _) {
-                if (session.loadError != null) {
-                  return _Banner(text: session.loadError!);
-                }
-                if (session.readOnly) {
-                  return _Banner(
-                    text: 'This note is in Trash',
-                    actions: [
-                      TextButton(
-                        onPressed: session.restoreFromTrash,
-                        child: const Text('Restore'),
+              builder: (context, _) => session.status == SaveStatus.failed
+                  ? Text(
+                      'Not saved yet, retrying…',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      // Two lines at most must fit the 52 dp bar.
+                      textScaler: MediaQuery.textScalerOf(context)
+                          .clamp(maxScaleFactor: 1.3),
+                      style: TextStyle(color: p.danger, fontSize: 13),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Copy note',
+                style: tap,
+                icon: const Icon(Icons.copy_rounded),
+                onPressed: _copy,
+              ),
+              ListenableBuilder(
+                listenable: Listenable.merge([app.notes.changes, session]),
+                builder: (context, _) {
+                  final pinned = session.stored?.pinned ?? false;
+                  return IconButton(
+                    tooltip: pinned ? 'Unpin' : 'Pin',
+                    style: tap,
+                    icon: Icon(
+                      pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                      color: pinned ? p.accent : null,
+                    ),
+                    onPressed: session.readOnly
+                        ? null
+                        : () => session.setPinned(!pinned),
+                  );
+                },
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                style: tap,
+                onSelected: (v) {
+                  switch (v) {
+                    case 'archive':
+                      final archived = session.stored?.archived ?? false;
+                      session.setArchived(!archived);
+                      Navigator.of(context).pop();
+                    case 'folder':
+                      _moveToFolder();
+                    case 'trash':
+                      _trash();
+                    case 'copy-md':
+                      _copyMarkdown();
+                    case 'save-md':
+                      _saveMarkdown();
+                  }
+                },
+                itemBuilder: (context) {
+                  final archived = session.stored?.archived ?? false;
+                  return [
+                    const PopupMenuItem(
+                      value: 'copy-md',
+                      child: Text('Copy as Markdown'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'save-md',
+                      child: Text('Save as Markdown file…'),
+                    ),
+                    if (!session.readOnly) ...[
+                      PopupMenuItem(
+                        value: 'folder',
+                        child: const Text('Move to folder…'),
                       ),
-                      TextButton(
-                        onPressed: _deleteForever,
+                      PopupMenuItem(
+                        value: 'archive',
+                        child: Text(archived ? 'Unarchive' : 'Archive'),
+                      ),
+                      PopupMenuItem(
+                        value: 'trash',
                         child: Text(
-                          'Delete forever',
+                          'Move to Trash',
                           style: TextStyle(color: p.danger),
                         ),
                       ),
                     ],
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
-            if (wide) toolbar,
-            Expanded(child: _page(context, app, isNew)),
-            if (!wide) toolbar,
-          ],
+                  ];
+                },
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              ListenableBuilder(
+                listenable: session,
+                builder: (context, _) {
+                  if (session.loadError != null) {
+                    return _Banner(text: session.loadError!);
+                  }
+                  if (session.readOnly) {
+                    return _Banner(
+                      text: 'This note is in Trash',
+                      actions: [
+                        TextButton(
+                          onPressed: session.restoreFromTrash,
+                          child: const Text('Restore'),
+                        ),
+                        TextButton(
+                          onPressed: _deleteForever,
+                          child: Text(
+                            'Delete forever',
+                            style: TextStyle(color: p.danger),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+              if (wide) toolbar,
+              Expanded(child: _page(context, app, isNew)),
+              if (!wide) toolbar,
+            ],
+          ),
         ),
       ),
     );

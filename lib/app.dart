@@ -1,6 +1,9 @@
 import 'platform/bootstrap.dart';
+import 'ui/data/data_screen.dart';
+import 'ui/editor/editor_screen.dart';
 import 'ui/library/library_screen.dart';
 import 'ui/material.dart';
+import 'ui/onboarding/onboarding_screen.dart';
 import 'ui/theme/app_theme.dart';
 
 /// Gives every widget access to the app's services:
@@ -32,6 +35,12 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // A database that already holds anything (an import, a restore, a paired
+    // device) never needs the introduction, whatever the flag says.
+    final settings = services.settings;
+    if (settings.onboardingPending && settings.hasUserData) {
+      settings.completeOnboarding();
+    }
     final sync = services.sync;
     if (sync == null) return;
     WidgetsBinding.instance.addObserver(this);
@@ -93,10 +102,41 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
               ),
               child: child!,
             ),
-            home: const LibraryScreen(),
+            home: const _Root(),
           );
         },
       ),
+    );
+  }
+}
+
+/// The first screen: the one-time introduction on a genuinely new install,
+/// the library otherwise. Any choice on the introduction marks it done, so it
+/// is shown once; it never creates sample notes.
+class _Root extends StatelessWidget {
+  const _Root();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppScope.of(context).settings;
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) {
+        if (!settings.onboardingPending) return const LibraryScreen();
+        return OnboardingScreen(
+          onCreateNote: () {
+            settings.completeOnboarding();
+            openEditor(context);
+          },
+          onImport: () {
+            settings.completeOnboarding();
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute<void>(builder: (_) => const DataScreen()));
+          },
+          onSkip: settings.completeOnboarding,
+        );
+      },
     );
   }
 }

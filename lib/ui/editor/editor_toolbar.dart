@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../data/app_settings.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 import '../toolbar_item_info.dart';
+import '../widgets/touch.dart';
 
 /// The formatting bar above the keyboard. Which buttons appear, and in what
 /// order, comes from the user's toolbar setting.
@@ -26,14 +26,10 @@ class EditorToolbar extends StatelessWidget {
   /// Whether the bar sits at the bottom edge (true) or under the app bar.
   final bool bottom;
 
-  static bool get _touch =>
-      defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS;
-
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    final size = _touch ? 44.0 : 36.0;
+    final size = hitSize(context, desktop: 36);
     return Container(
       decoration: BoxDecoration(
         color: p.raised,

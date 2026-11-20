@@ -1,6 +1,7 @@
 import '../material.dart';
 import '../theme/app_theme.dart';
 import 'dialogs.dart';
+import 'touch.dart';
 
 /// One compact menu entry: optional icon (or a check mark), label, and an
 /// optional faint trailing text such as a count.
@@ -18,7 +19,7 @@ PopupMenuItem<T> menuItem<T>(
   final color = danger ? p.danger : p.text;
   return PopupMenuItem<T>(
     value: value,
-    height: 42,
+    height: hitSize(context, desktop: 42),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [

@@ -11,6 +11,7 @@ import '../../app.dart';
 import '../../platform/bootstrap.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
+import '../widgets/touch.dart';
 import '../../doc/checklist_projection.dart' show bodyFromDelta;
 import '../../doc/markdown.dart';
 import 'completed_section.dart';
@@ -369,6 +370,10 @@ class _EditorScreenState extends State<EditorScreen>
     // On a wide window the bar sits under the app bar, near the text; on a
     // phone it rides above the keyboard.
     final wide = MediaQuery.sizeOf(context).width > 640;
+    // Theme density makes app bar buttons 40 dp; a finger needs 48.
+    final tap = isTouchPlatform(context)
+        ? IconButton.styleFrom(minimumSize: const Size.square(touchTarget))
+        : null;
     final toolbar = ListenableBuilder(
       listenable: Listenable.merge([session, app.settings]),
       builder: (context, _) => session.readOnly
@@ -390,6 +395,7 @@ class _EditorScreenState extends State<EditorScreen>
         appBar: AppBar(
           leading: IconButton(
             tooltip: 'Back',
+            style: tap,
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () => Navigator.of(context).maybePop(),
           ),
@@ -398,6 +404,11 @@ class _EditorScreenState extends State<EditorScreen>
             builder: (context, _) => session.status == SaveStatus.failed
                 ? Text(
                     'Not saved yet, retrying…',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    // Two lines at most must fit the 52 dp bar.
+                    textScaler: MediaQuery.textScalerOf(context)
+                        .clamp(maxScaleFactor: 1.3),
                     style: TextStyle(color: p.danger, fontSize: 13),
                   )
                 : const SizedBox.shrink(),
@@ -405,6 +416,7 @@ class _EditorScreenState extends State<EditorScreen>
           actions: [
             IconButton(
               tooltip: 'Copy note',
+              style: tap,
               icon: const Icon(Icons.copy_rounded),
               onPressed: _copy,
             ),
@@ -414,6 +426,7 @@ class _EditorScreenState extends State<EditorScreen>
                 final pinned = session.stored?.pinned ?? false;
                 return IconButton(
                   tooltip: pinned ? 'Unpin' : 'Pin',
+                  style: tap,
                   icon: Icon(
                     pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
                     color: pinned ? p.accent : null,
@@ -426,6 +439,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
             PopupMenuButton<String>(
               tooltip: 'More',
+              style: tap,
               onSelected: (v) {
                 switch (v) {
                   case 'archive':
@@ -656,15 +670,24 @@ class _Banner extends StatelessWidget {
         color: p.card,
         border: Border(bottom: BorderSide(color: p.cardBorder)),
       ),
-      child: Row(
+      // One line when it fits; at large text sizes or on a narrow window the
+      // actions drop below the text instead of overflowing.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
             child: Text(
               text,
               style: TextStyle(color: p.textMuted, fontSize: 13),
             ),
           ),
-          ...actions,
+          if (actions.isNotEmpty)
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: actions,
+            ),
         ],
       ),
     );

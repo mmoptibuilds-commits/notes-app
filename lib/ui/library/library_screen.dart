@@ -15,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/format.dart';
 import '../widgets/menus.dart';
+import '../widgets/touch.dart';
 import 'folder_strip.dart';
 import 'library_controller.dart';
 import 'library_header.dart';
@@ -590,7 +591,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ) {
     final p = AppPalette.of(context);
     final c = _c;
-    final btn = wide ? 40.0 : 44.0;
+    final btn = hitSize(context);
     if (c.selecting) return _buildSelectionBar(inset);
 
     final menu = _OverflowMenu(
@@ -644,6 +645,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 _title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+                // The title lives in a fixed 56 dp bar: past this scale it
+                // would be clipped, and a heading needs no more than that.
+                textScaler: MediaQuery.textScalerOf(context)
+                    .clamp(maxScaleFactor: 1.5),
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,

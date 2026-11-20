@@ -3,6 +3,7 @@ import '../../data/note_repository.dart' show SearchHit;
 import '../material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/format.dart';
+import '../widgets/touch.dart';
 import 'library_controller.dart';
 
 /// Shared callbacks of a library item.
@@ -134,6 +135,7 @@ class _Tag extends StatelessWidget {
     child: Text(
       label,
       maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 10.5,
         height: 1.3,
@@ -348,7 +350,15 @@ class NoteCard extends StatelessWidget {
         mainAxisSize: fixedHeight ? MainAxisSize.max : MainAxisSize.min,
         children: [
           if (tags.isNotEmpty) ...[
-            Wrap(spacing: 4, children: tags),
+            // One row, never wrapped: the grid card height reserves one line.
+            Row(
+              children: [
+                for (var i = 0; i < tags.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 4),
+                  Flexible(child: tags[i]),
+                ],
+              ],
+            ),
             const SizedBox(height: 5),
           ],
           Padding(
@@ -436,65 +446,93 @@ class NoteRow extends StatelessWidget {
 
     final content = Padding(
       padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        parts.head,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: st.title,
-                      ),
-                    ),
-                    for (final t in tags) ...[const SizedBox(width: 6), t],
-                  ],
-                ),
-                if (showBody) ...[
-                  const SizedBox(height: 2),
-                  Text.rich(
-                    hasSnippet
-                        ? snippetSpan(item.snippet, st.body, st.match)
-                        : previewSpan(firstBodyLine, st.body, p),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Padding(
-            padding: EdgeInsets.only(right: selected ? 24 : 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+      // A one-line row still has to be a comfortable touch target.
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: hitSize(context, desktop: 0) - 18,
+        ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (n.pinned) ...[
-                      Icon(Icons.push_pin_rounded, size: 12, color: p.accent),
-                      const SizedBox(width: 3),
+                    LayoutBuilder(
+                      builder: (context, box) => Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              parts.head,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: st.title,
+                            ),
+                          ),
+                          // Tags give way before the title does, but never take
+                          // more than their share of a narrow row.
+                          for (final t in tags) ...[
+                            const SizedBox(width: 6),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: box.maxWidth * 0.45,
+                              ),
+                              child: t,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (showBody) ...[
+                      const SizedBox(height: 2),
+                      Text.rich(
+                        hasSnippet
+                            ? snippetSpan(item.snippet, st.body, st.match)
+                            : previewSpan(firstBodyLine, st.body, p),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
-                    Text(date, style: st.meta),
                   ],
                 ),
-                if (n.tasksTotal > 0) ...[
-                  const SizedBox(height: 1),
-                  Text('${n.tasksDone}/${n.tasksTotal}', style: st.progress),
-                ],
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              Padding(
+                padding: EdgeInsets.only(right: selected ? 24 : 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (n.pinned) ...[
+                          Icon(
+                            Icons.push_pin_rounded,
+                            size: 12,
+                            color: p.accent,
+                          ),
+                          const SizedBox(width: 3),
+                        ],
+                        Text(date, style: st.meta),
+                      ],
+                    ),
+                    if (n.tasksTotal > 0) ...[
+                      const SizedBox(height: 1),
+                      Text(
+                        '${n.tasksDone}/${n.tasksTotal}',
+                        style: st.progress,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
 

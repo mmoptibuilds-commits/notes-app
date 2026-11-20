@@ -1,6 +1,22 @@
+import 'dart:math' as math;
+
 import '../../data/models.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
+import '../widgets/touch.dart';
+
+const _chipFontSize = 13.0;
+const _chipLineHeight = 1.2;
+
+/// Height of a chip: 30 dp, growing with the text so large interface text is
+/// never clipped.
+double chipHeight(TextScaler scaler) =>
+    math.max(30, scaler.scale(_chipFontSize) * _chipLineHeight + 12);
+
+/// Height of the strip: the chip plus room to tap it, never under 44 dp (48 on
+/// touch platforms).
+double stripHeight(BuildContext context, TextScaler scaler) =>
+    math.max(hitSize(context, desktop: 44), chipHeight(scaler) + 14);
 
 /// Compact horizontally scrollable row of folder chips.
 class FolderStrip extends StatelessWidget {
@@ -60,8 +76,9 @@ class FolderStrip extends StatelessWidget {
         ),
       _Chip(icon: Icons.add_rounded, tooltip: 'New folder', onTap: onNew),
     ];
+    final scaler = MediaQuery.textScalerOf(context);
     return SizedBox(
-      height: 44,
+      height: stripHeight(context, scaler),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: inset),
@@ -135,7 +152,8 @@ class _ChipState extends State<_Chip> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: _chipFontSize,
+                  height: _chipLineHeight,
                   fontWeight: widget.selected
                       ? FontWeight.w600
                       : FontWeight.w500,
@@ -160,7 +178,7 @@ class _ChipState extends State<_Chip> {
 
     final chip = AnimatedContainer(
       duration: motion.fast,
-      height: 30,
+      height: chipHeight(MediaQuery.textScalerOf(context)),
       padding: EdgeInsets.symmetric(horizontal: widget.icon != null ? 8 : 12),
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -188,7 +206,11 @@ class _ChipState extends State<_Chip> {
       onFocusChange: (f) => setState(() => _focus = f),
       overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       splashFactory: NoSplash.splashFactory,
-      child: SizedBox(height: 44, child: Center(child: chip)),
+      child: SizedBox(
+        width: widget.icon == null ? null : hitSize(context, desktop: 36),
+        height: stripHeight(context, MediaQuery.textScalerOf(context)),
+        child: Center(child: chip),
+      ),
     );
     return widget.tooltip == null
         ? target

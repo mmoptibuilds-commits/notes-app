@@ -449,7 +449,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       hasSearch: _hasSearch,
       selecting: _c.selecting,
       searchFocused: _searchFocus.hasFocus,
-      canGoBack: false,
+      canGoBack: _c.scope != NoteScope.active,
     )) {
       case EscapeOutcome.clearSearch:
         _closeSearch();
@@ -457,8 +457,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _c.clearSelection();
       case EscapeOutcome.unfocusSearch:
         _rootFocus.requestFocus();
-      case EscapeOutcome.closePopup:
       case EscapeOutcome.back:
+        _go(NoteScope.active);
+      case EscapeOutcome.closePopup:
       case EscapeOutcome.unhandled:
         break;
     }

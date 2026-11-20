@@ -572,6 +572,17 @@ void main() {
       expect(find.textContaining('selected'), findsNothing);
     });
 
+    testWidgets('Esc leaves Trash and returns to all notes', (tester) async {
+      final s = seedLibrary();
+      addTearDown(s.services.close);
+      s.services.notes.trash([s.ids['short']!]);
+      await pumpLibrary(tester, s, size: desktop);
+      await menuTap(tester, 'Trash');
+      expect(find.byType(FloatingActionButton), findsNothing);
+      await chord(tester, LogicalKeyboardKey.escape);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+    });
+
     testWidgets('Ctrl+A selects all and Delete trashes them', (tester) async {
       final s = seedLibrary();
       addTearDown(s.services.close);

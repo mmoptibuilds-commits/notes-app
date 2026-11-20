@@ -41,12 +41,19 @@ const _words = [
 ///
 /// The root must be empty. [forceEmptyTemp] permits replacement of generated
 /// dataset directories only when [root] is beneath the system temp directory.
-void seedLibrary(Directory root, {bool forceEmptyTemp = false}) {
+void seedLibrary(
+  Directory root, {
+  bool forceEmptyTemp = false,
+  String? dataDirOverride,
+}) {
   final rootPath = _canonical(root.path);
-  final configuredDataDir = Platform.environment['NOTES_DATA_DIR'];
+  final configuredDataDir =
+      dataDirOverride ?? Platform.environment['NOTES_DATA_DIR'];
   if (configuredDataDir != null) {
     final dataPath = _canonical(configuredDataDir);
-    if (rootPath == dataPath || p.isWithin(dataPath, rootPath)) {
+    if (rootPath == dataPath ||
+        p.isWithin(dataPath, rootPath) ||
+        p.isWithin(rootPath, dataPath)) {
       throw ArgumentError('Refusing to seed inside NOTES_DATA_DIR.');
     }
   }

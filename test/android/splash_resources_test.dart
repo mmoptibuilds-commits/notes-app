@@ -120,9 +120,11 @@ void main() {
         '@mipmap/ic_launcher_foreground',
         reason: dir,
       );
+      // postSplashScreenTheme belongs to androidx.core:core-splashscreen, not
+      // the framework; aapt2 rejects it. The manifest selects NormalTheme.
       expect(
-        launch['android:postSplashScreenTheme'],
-        '@style/NormalTheme',
+        launch.containsKey('android:postSplashScreenTheme'),
+        isFalse,
         reason: dir,
       );
       expect(

@@ -11,7 +11,7 @@ From the repository root:
 
 ```sh
 data_dir="$(mktemp -d)"
-dart tool/perf/seed_library.dart --dir "$data_dir"
+NOTES_PERF_SEED_DIR="$data_dir" flutter test test/perf/seed_datasets_test.dart
 ```
 
 This writes four independent SQLite databases under `empty/`, `50/`, `500/`,

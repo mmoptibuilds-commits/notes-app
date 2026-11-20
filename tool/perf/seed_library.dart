@@ -188,7 +188,7 @@ Future<void> main(List<String> args) async {
       force = true;
     } else {
       stderr.writeln(
-        'Usage: dart tool/perf/seed_library.dart --dir <empty-directory> [--force-empty-temp]',
+        'Seeding runs through the Flutter test runner: NOTES_PERF_SEED_DIR=<empty-directory> flutter test test/perf/seed_datasets_test.dart',
       );
       exitCode = 2;
       return;
@@ -196,7 +196,7 @@ Future<void> main(List<String> args) async {
   }
   if (path == null) {
     stderr.writeln(
-      'Usage: dart tool/perf/seed_library.dart --dir <empty-directory> [--force-empty-temp]',
+      'Seeding runs through the Flutter test runner: NOTES_PERF_SEED_DIR=<empty-directory> flutter test test/perf/seed_datasets_test.dart',
     );
     exitCode = 2;
     return;

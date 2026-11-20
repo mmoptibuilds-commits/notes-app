@@ -2,12 +2,11 @@
 <resources>
     <!-- Android 12 and later: the system draws the splash itself, on the black
          background, with the launcher icon. No fixed delay: the system removes
-         it when the first Flutter frame is drawn. Then NormalTheme takes over. -->
+         it when the first Flutter frame is drawn. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/splash_background</item>
-        <item name="android:postSplashScreenTheme">@style/NormalTheme</item>
     </style>
 </resources>

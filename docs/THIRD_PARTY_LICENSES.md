@@ -1,12 +1,14 @@
 # Third-party licences
 
-This inventory covers the 112 hosted packages in `pubspec.lock` plus the five
-Flutter SDK packages recorded there (117 packages total). The SDK package
-licence is identified as Flutter’s BSD-3-Clause licence as specified by the
-release audit scope. Hosted-package classifications were made by reading the
-actual staged `LICENSE` text under `.audit-input/licenses/<package>-<version>/`,
-not by trusting package metadata. “Direct” means listed in `pubspec.yaml`;
-“transitive” means resolved through another dependency.
+This inventory records the prior audit of the 112 hosted packages in
+`pubspec.lock` plus the five Flutter SDK packages recorded there (117 packages
+total). The SDK package licence is identified as Flutter’s BSD-3-Clause
+licence as specified by that audit. The prior hosted-package classifications
+were based on staged `LICENSE` text under
+`.audit-input/licenses/<package>-<version>/`, not package metadata. That
+staging directory was absent in this worktree, so the package classifications
+were not independently rechecked here. “Direct” means listed in
+`pubspec.yaml`; “transitive” means resolved through another dependency.
 
 `*` means the licence has redistribution conditions: include the copyright and
 licence terms and preserve required notices/disclaimers in source/binary
@@ -142,6 +144,20 @@ licence text was identified in these package inputs.
   each have a corresponding OFL licence text beside the font files in
   `assets/fonts/`. These texts identify the SIL Open Font License 1.1 (OFL-1.1).
   Keep the licence texts with redistributions of the fonts.
+- The four bundled font licence files have a copyright notice and the OFL 1.1
+  text. Inter's notice now says `(c) 2016 The Inter Project Authors`, matching
+  the staged official Inter licence and font name-table metadata; it previously
+  said 2020. The OFL includes the standard Reserved Font Name restriction, but
+  the Inter licence names no specific Reserved Font Name. Notes uses the
+  unmodified family name `Inter`.
+- `tool/package_linux.sh` copies the four font licence files into the Linux
+  release directory. No in-app licences page was found. The Android app
+  bundles the font files but does not declare these text files as assets, so
+  the Android APK does not currently provide a demonstrated, user-viewable
+  copy of the font notices. Add an in-app or packaged notice before Android
+  redistribution; this documentation cannot satisfy the APK's notice duty.
+- The Linux package copies font OFL texts, but does not currently include this
+  package inventory or all third-party package licence/NOTICE texts.
 - `assets/icon/icon_512.png` and `assets/icon/icon_1024.png` have no source or
   licence documentation in the repository. Their provenance/licence is
   undocumented here.

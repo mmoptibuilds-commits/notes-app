@@ -1,137 +1,74 @@
 # Plan
 
-Status words: **done** (implemented and verified, evidence listed),
-**partial**, **not started**, **blocked** (says on what).
-Update this file at every checkpoint. Evidence means a command and its result.
+Status words: **verified** means supported by an automated test or a recorded
+run; **unverified** means the check has not been done. Current verification
+facts below were supplied by the integrator on 2026-11-20.
 
 ## Current position
 
-All feature milestones are implemented on `main` and covered by automated
-tests (333 pass, 1 skipped). What remains is verification that needs things
-this machine does not have: the Android toolchain, a phone, a second device,
-the user's real backup, and reference screenshots. See the acceptance matrix.
+The current suite reports 387 passed and 1 skipped; the skip reason was not
+provided in the current verification report. A real backup import was
+separately checked by counts only: 44 notes, 0 failures; no note content was
+recorded.
 
-**Next actions**
-1. Phone: install `build/app/outputs/flutter-apk/app-release.apk` (arm64, signed)
-   on the Nothing Phone (2) beside the legacy app; verify QR scan, sync with the
-   Linux build, arm64 SQLite, performance. (APK builds; emulator run done.)
-2. Private import verification: user drops the backup in `private/`, run
-   `flutter test test/private` (prints counts/hashes only).
-3. Compare UI to the user's reference screenshots once provided.
-4. Review findings of the second independent review (importer, checklist
-   projection, editor session) when it lands; fix what holds up.
-5. Release builds measurement on devices (startup, memory, scroll, typing).
+Android export uses the system save picker (`ACTION_CREATE_DOCUMENT`), and
+imports can read a content URI. Restoring Notes' own JSON export includes a
+preview, confirmation, pre-restore database snapshot, and one transaction.
+Sync collision handling and quarantine retry are implemented.
 
-## Waiting on the user
+An Android x86_64 emulator running Android 15 and Linux sync were verified.
+Linux sync paired by entering a code and covered conflicts and deletions, with
+476-note convergence. Android QR scanning, arm64 phone use, and an in-place
+APK upgrade remain unverified. Tailscale has not been checked. Release builds
+now fail when Android signing configuration is absent. CI exists but has not
+run. No release has been published; tag `v1.0.0-preview.1` has no assets.
 
-- Approve Android SDK licence acceptance (needed for any APK build).
-- Real backup file and reference screenshots into `private/`.
-- Phone connected over USB with debugging on (real-device checks).
-- Written scope of the upstream author's permission (before publishing).
+## Next actions
 
-## Milestones
+1. Add the verified public signing-certificate fingerprint at
+   `tool/release_cert_sha256.txt`; it is currently absent.
+2. Complete Android and Linux release checks in [RELEASE.md](RELEASE.md).
+3. Verify Android QR scanning, an arm64 phone, and an in-place APK update.
+4. Run CI once and review its result.
+5. Obtain written upstream permission with publication and distribution scope
+   settled before any public release.
 
-### 1. Environment and foundation — done
-- [x] Flutter 3.50.0, cmake, ninja installed; `flutter doctor` green for Linux.
-- [x] Project created in place; `flutter build linux --release` succeeds.
-- [x] Encrypted SQLite + FTS5 verified by test on Linux.
-- [x] Harness docs.
-- [ ] Android SDK + JDK 17 (blocked: licence approval).
+## Acceptance matrix
 
-### 2. Database, note model, CRUD — partial
-- [x] Schema v1 with sync metadata, migration runner, upgrade test harness.
-- [x] `NoteRepository`: create, save content, pin, archive, move, trash,
-      restore, purge, folders, search, attachments, conflict copies.
-- [x] Encrypted open; wrong or missing key refused without touching the file.
-- [ ] Key in the platform keystore; refuse to start if the key is missing.
-- Accept: create → edit → close DB → reopen returns identical content;
-  killed mid-transaction leaves the previous state.
-
-### 3. Library, editor, themes — partial
-- [x] Editor screen, toolbar (user-configurable), completed section, autosave (done, widget-tested).
-- [ ] Library + settings screens (worker `a08f7a73b3e20d67e`, interrupted).
-- Known limitation: checking or restoring a checklist item clears the editor's undo
-  history (undo across a moved line would act on shifted text).
-- Accept: three themes, three layouts, fonts, text size, animation level;
-  new note opens instantly; autosave; restart keeps content; library scroll
-  position restored; screenshots reviewed against references.
-
-### 4. Checklists, formatting, folders, search, navigation — not started
-- Accept: completed-section projection round-trips byte-identically;
-  restore/delete/bulk actions; opening a note writes nothing; search over a
-  large synthetic library stays fast (measured).
-
-### 5. Legacy import/export — not started
-- Accept: synthetic fixture imports fully; re-import adds nothing; modified
-  note is not overwritten; rollback works; interrupted import leaves no
-  partial state; private run matches 84 records (42 active, 2 archived,
-  40 deleted) by count and hash.
-
-### 6. Pairing and sync — partial (engine done; UI, discovery on real LANs and devices pending)
-- [x] Merge rules and `RemoteApplier` (pure Dart): symmetric merge, conflict
-      copies, delete-vs-edit, per-field metadata, clock-skew guard.
-      Verified: 25 tests incl. randomised 3-device convergence (8 seeds).
-- [x] Device identity, peers table (5-device cap), Noise-style handshake with
-      directional keys and per-frame counters, one-time-code pairing,
-      session protocol (cursors, atomic apply, hash-checked images), TCP
-      transport, `SyncService` with back-off and UDP discovery.
-      Verified: 17 channel security tests, 19 session tests (incl. connection
-      cut at every frame, hostile peers), 12 service tests over real sockets.
-- [ ] Sync UI, QR scanning (Android camera: unverified), discovery on a real
-      LAN (unverified), Tailscale (unverified: not installed), two real devices.
-- Accept: two in-process peers converge under reordering, duplication and
-  disconnects; concurrent edits produce a conflict copy on both sides;
-  purge/trash rules hold; tampered or replayed frames are rejected; two real
-  devices sync both ways.
-
-### 7. Packaging and release validation — not started
-- Accept: signed release APK installs beside the legacy app and upgrades
-  without data loss; Linux bundle with desktop entry; measured startup,
-  memory, scroll, search and typing figures recorded here.
-
-## Acceptance matrix (the brief's critical tests)
-
-Legend: **verified** = automated test or measured run, evidence named;
-**unverified** = not done, reason given.
-
-| Acceptance test | Status | Evidence / gap |
+| Check | Status | Evidence or remaining gap |
 |---|---|---|
-| Create, edit, autosave, restart, reopen a note | verified (Linux, real encrypted DB + key file) | `test/e2e/persistence_test.dart` |
-| Preserve rich-text formatting and checklist states | verified | persistence test; `test/ui/editor/*` |
-| Import all existing note records without silent data loss | verified on a synthetic backup shaped like the real one (84 = 42/2/40); **unverified on the real file** | `test/importer/`; `test/private/` skips until `private/*.json` exists |
-| Reimport the same backup without duplication | verified (synthetic) | importer + data screen tests |
-| Library scroll position after long lists and notes | verified in widget tests (80–5,000 notes, all layouts); **unverified on a device** | `test/ui/library/` |
-| Completed checklist items move to a collapsible section, restore correctly | verified | property tests, session + widget tests |
-| Edit and search long notes without lag | search verified (VM timings: 2 ms in a 1.15 MB note); **typing latency in a long document in release: unverified** | `test/perf/` |
-| Continue working offline | verified by design/tests (everything local; failed sync leaves data) | `test/sync/sync_service_test.dart` |
-| Synchronise bidirectionally between real devices | verified over loopback sockets; **real devices unverified** | sync tests |
-| Preserve concurrent edits and deleted-note states | verified (randomised 3-device convergence, conflict copies, trash/purge rules) | `test/sync/merge_test.dart` |
-| Recover from interrupted saves, failed sync, interrupted imports | verified (cut at every frame; killed-transaction test; import rollback on error) | sync/data/importer tests |
-| Update the APK and Linux app without losing data | Linux verified (installer upgrade keeps data; v1→v2→v3 migration with backup); **APK in-place update unverified** | `tool/package_linux.sh`, e2e tests |
-| Run on target Android and Linux | Linux release builds and runs (keyring path verified); Android: signed release APK builds and runs on an emulator; **no phone yet** | verification log |
-| Android encrypted SQLite | verified on x86_64 emulator (Android 15): DB opens, note survives force-stop; **arm64 on a phone unverified** (arm64 APK built, `libsqlite3mc.so` present) | adb screencaps, logs clean |
-| Tailscale reachability | **unverified** (not installed); works as an ordinary address by design | |
-| Visual quality vs. references | widget-render screenshots reviewed; **references not provided; real-window capture blocked by GNOME** | `build/screens/` |
+| Automated tests | Verified | Integrator report: 387 passed, 1 skipped |
+| Legacy backup import | Verified | Real backup: 44 notes, 0 failures; counts only |
+| Notes JSON export and restore | Verified | Android system save picker; content URI import; restore preview, confirmation, snapshot, transaction |
+| Android app launch and persistence | Verified | x86_64 Android 15 emulator |
+| Android QR pairing | Unverified | Not tested |
+| Android arm64 phone | Unverified | Not tested |
+| APK in-place upgrade | Unverified | Not tested |
+| Linux app and keyring | Verified | Linux release app and keyring persistence |
+| Linux device sync | Verified | Code entry, conflicts, deletions, and 476-note convergence |
+| Sync collision and quarantine retry | Implemented | Included in the current sync code; CI has not run |
+| Tailscale | Unverified | Not tested |
+| Linux package | Verified | `tool/package_linux.sh`; deterministic archive and checksum were checked previously |
+| Android release signing guard | Verified | Release tasks fail without signing configuration |
+| CI workflow | Unverified | Workflow is present; it has never run |
+| Public release | Not published | `v1.0.0-preview.1` tag has no release assets |
 
-## Verification log
+## Release candidate
 
-| Date | What | Command | Result |
-|---|---|---|---|
-| 2026-11-17 | Linux toolchain | `flutter doctor -v` | Linux toolchain ✓, Android ✗ (no SDK) |
-| 2026-11-17 | Encrypted DB + FTS5 | `flutter test test/spike/sqlite_spike_test.dart` | pass; SQLite 3.54.0, cipher chacha20, fts5 true |
-| 2026-11-17 | Linux release build, path with space | `flutter build linux --release` | built `bundle/notes`, `libsqlite3mc.so` bundled |
-| 2026-11-17 | Core + data layer | `flutter analyze && flutter test` | no issues; 41 tests pass |
-| 2026-11-17 | Editor session + screen | `flutter analyze && flutter test` | no issues; 85 tests pass (property tests for checklist projection; widget tests tick/restore/undo-delete/toolbar/trash) |
-| 2026-11-17 | Sync merge + convergence | `flutter test test/sync` | 25 pass; 3 devices, skewed clocks, dup/drop/reorder, 8 seeds converge |
-| 2026-11-17 | Linux release smoke | `flutter build linux --release`; run 8 s with `NOTES_DATA_DIR` | builds, starts, creates encrypted `notes.db` (header not plaintext) |
-| 2026-11-17 | Legacy importer/export/markdown merged | `flutter analyze && flutter test` on main | no issues; 198 pass, 1 skipped (private-backup test, no file present) |
-| 2026-11-17 | Sync stack | `flutter test test/sync` | 81 pass: secure channel, session fault injection, loopback pairing + sync |
-| 2026-11-17 | Data-layer timings (Dart VM/JIT via `flutter test test/perf`, encrypted DB, NOT release) | 5,000 notes × ~1.5 KB | create all 2.7 s (one transaction); list all 66 ms; search 54–62 ms for words matching every note (200 hits + 60 snippets), 0.5 ms for none; counts 38 ms; small-note save 0.56 ms |
-| 2026-11-17 | Long note (VM) | one 1.15 MB note | create 62 ms, digest 17 ms, save 90 ms, search 2 ms. Found and fixed: SQLite `snippet()` took 2,419 ms on it; snippets are now built in Dart from a 150-char window |
-| 2026-11-17 | Independent review (Codex gpt-6-luna) of lib/sync → fixes | `flutter test` | 7 findings: 6 fixed with tests (incl. one real cursor bug), 1 accepted with reasoning (D15); 333 pass, 1 skipped |
-| 2026-11-17 | Release run, real keyring (data dir redirected, test entry removed after) | `notes` with `XDG_DATA_HOME`, run twice | first run stored the key in the GNOME keyring and created an encrypted DB; second run read it back and opened (sync port listening) |
-| 2026-11-17 | Release process sample | `ps` ~18 s after launch, 84 notes, Linux | ~175 MB RSS, ~2% CPU averaged incl. startup (single sample, not a benchmark) |
-| 2026-11-17 | Linux packaging | `tool/package_linux.sh`; install/upgrade/uninstall in a fake HOME; rebuild | upgrade kept the data marker; uninstall kept data; identical archive checksum on rebuild |
-| 2026-11-17 | Android toolchain + APK | SDK/JDK 21 installed (licences accepted with user's yes); `flutter build apk --release --target-platform android-arm64` | 41.0 MB; signer SHA-256 3A:17:30:A6… matches `~/.notes-signing`; package `com.mmoptibuilds.notes`; CAMERA/INTERNET perms. First attempt failed under JDK 17 (AGP lint needs 21), fixed by toolchain, no check disabled |
-| 2026-11-17 | Android emulator (Pixel 7 profile, Android 15 x86_64, KVM) | x64 release APK; typed a note, `force-stop`, relaunch | app starts, note persisted, no exceptions in logcat |
-| 2026-11-17 | Second independent review | Codex gpt-6-luna on projection/session/importer | 1 real data-loss bug fixed (text dropped when editor closes during failing save), 1 accepted (D16); 339 pass, 1 skipped |
+Candidate stable version: `1.0.0+20261120` (Android versionCode `20261120`).
+The only known prior installed/distributed code is `1`, from the preview build;
+`.audit-input/known-codes.txt` was absent, so no other phone code was available
+to check. The date-based code advances Android's update ordering with ample
+headroom. Keep the Linux package version at `1.0.0`; it is derived from the
+same `pubspec.yaml` version name.
+
+## Verification record
+
+| Date | Check | Result |
+|---|---|---|
+| 2026-11-20 | Current automated suite | 387 passed, 1 skipped (integrator report) |
+| 2026-11-20 | Real backup import | 44 notes, 0 failures; content not recorded |
+| 2026-11-20 | Android export and restore | System save picker and content URI import; app JSON restore with preview, confirmation, snapshot, transaction |
+| 2026-11-20 | Android emulator | x86_64, Android 15; emulator verification complete |
+| 2026-11-20 | Linux sync | Code entry pairing, conflicts, deletions, 476-note convergence |
+| 2026-11-20 | Release setup | Android release tasks blocked without signing configuration; CI not yet run |

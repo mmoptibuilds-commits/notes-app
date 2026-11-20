@@ -1,8 +1,19 @@
 # Notes
 
-An offline-first notes app for **Android and Linux**, built with Flutter. Notes stay on-device by default, with optional direct device-to-device sync.
+Notes is an offline-first personal notes app for Android and native Linux,
+built with Flutter. Notes are stored locally in an encrypted SQLite database;
+device-to-device sync is optional.
 
-> **Early preview.** The Android app launches on a real device and the core editor, data layer, and sync engine have automated test coverage. Real-device pairing/sync, complete import verification, and in-place update testing are not yet confirmed. See [the development plan](docs/PLAN.md).
+## Status
+
+The current implementation has 387 automated tests passing and 1 skipped
+(integrator report, 2026-11-20). Android was exercised
+on an x86_64 Android 15 emulator. Linux sync was verified end to end by
+pairing with a code, resolving conflicts and deletions, and converging 476
+notes. QR scanning, an arm64 phone, Android in-place upgrade, Tailscale, and
+the first CI run remain unverified. No release has been published; the
+`v1.0.0-preview.1` tag has no release assets. See the
+[verification plan](docs/PLAN.md).
 
 ## Screenshots
 
@@ -15,42 +26,44 @@ An offline-first notes app for **Android and Linux**, built with Flutter. Notes 
 
 ## Features
 
-- **Local-first storage:** notes saved in an encrypted local SQLite database; no account required.
-- **Rich text editing:** headings, lists, checklists, blockquotes, code blocks, links and inline formatting.
-- **Organized library:** folders, search, grid/masonry/list layouts, sorting and preview controls.
-- **Appearance:** AMOLED, charcoal and light themes; adjustable typography and animation preferences.
-- **Import and export:** legacy Notebook backup import, complete JSON export and Markdown note export.
-- **Device sync:** peer-to-peer pairing and encrypted sync support under development; actual cross-device behavior still needs device testing.
+- Encrypted local notes with rich text, checklists, folders, search, and
+  configurable appearance.
+- Import of legacy Notebook backup JSON. The real backup was checked by
+  counts only: 44 notes imported, 0 failures.
+- Android JSON export through the system save picker and import from a
+  content URI. Notes' own JSON exports can be restored with a preview,
+  confirmation, a pre-restore snapshot, and one database transaction.
+- Markdown export and optional direct device-to-device sync.
 
 ## Platforms
 
-| Platform | Status |
+| Platform | Verified |
 | --- | --- |
-| Android | Preview build; real-device launch verified |
-| Linux | Native Flutter build; local launch and keyring persistence verified |
+| Android | x86_64 Android 15 emulator; arm64 phone and in-place APK update pending |
+| Linux | Native app, keyring persistence, Linux packaging, and end-to-end sync |
 
 ## Build from source
 
-Requires Flutter and a supported Android or Linux toolchain. The full environment and verification steps are in [CLAUDE.md](CLAUDE.md).
+Requires Flutter 3.50.0 stable and JDK 21 for Android. The setup and release
+steps are in [CLAUDE.md](CLAUDE.md) and [RELEASE.md](docs/RELEASE.md).
 
 ```bash
 flutter pub get
+dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
 flutter test
-flutter build apk --release --target-platform android-arm64
-# Linux desktop build:
 flutter build linux --release
 ```
 
-**Android signing:** Official update-compatible releases must be built with the project's existing private signing key, which is intentionally kept outside this repository. A locally built APK without that key uses a different signing identity and may not update an existing installation.
+An Android release build requires the existing signing configuration at
+`android/key.properties`; release builds fail when it is missing. See
+[third-party notices](docs/THIRD_PARTY_LICENSES.md) before redistributing.
 
 ## Project documentation
 
 - [Product requirements](docs/PRODUCT.md)
 - [Implementation progress and verification](docs/PLAN.md)
 - [Architecture decisions](docs/DECISIONS.md)
-- [Build and development instructions](CLAUDE.md)
-
-Latest source snapshots and release notes are on the [Releases](https://github.com/mmoptibuilds-commits/notes-app/releases) page.
-
-[![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
+- [Provenance review](docs/PROVENANCE.md)
+- [Third-party licences](docs/THIRD_PARTY_LICENSES.md)
+- [Stable release procedure](docs/RELEASE.md)

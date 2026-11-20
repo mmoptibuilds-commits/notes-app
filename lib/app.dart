@@ -1,3 +1,6 @@
+import 'package:flutter_quill/flutter_quill.dart'
+    show FlutterQuillLocalizations;
+
 import 'platform/bootstrap.dart';
 import 'ui/data/data_screen.dart';
 import 'ui/editor/editor_screen.dart';
@@ -89,6 +92,9 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
           return MaterialApp(
             title: 'Notes',
             debugShowCheckedModeBanner: false,
+            // Quill's find dialog (Ctrl+F in the editor) throws without its
+            // localizations.
+            localizationsDelegates: const [FlutterQuillLocalizations.delegate],
             theme: buildTheme(s),
             themeAnimationDuration: AppMotion(s.animations).medium,
             builder: (context, child) => MediaQuery(

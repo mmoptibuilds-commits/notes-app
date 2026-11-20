@@ -6,6 +6,8 @@ import '../../data/note_repository.dart' show NoteSort;
 import '../help/help_screen.dart';
 import '../help/help_shortcuts.dart';
 import '../material.dart';
+import '../shortcuts/shortcut_defs.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import 'open_source_licenses.dart';
 import 'settings_widgets.dart';
@@ -32,19 +34,27 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppScope.of(context).settings;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: LayoutBuilder(
-        builder: (context, cons) {
-          final side = math.max(12.0, (cons.maxWidth - _pageMaxWidth) / 2);
-          return ListenableBuilder(
-            listenable: settings,
-            builder: (context, _) => ListView(
-              padding: EdgeInsets.fromLTRB(side, 0, side, 32),
-              children: settingsSections(),
-            ),
-          );
-        },
+    return shortcutScope(
+      scopes: const {ShortcutScope.global},
+      autofocus: true,
+      handlers: {
+        ShortcutId.escape: () => escapeOrLeave(context),
+        ShortcutId.openHelp: () => openHelp(context),
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: LayoutBuilder(
+          builder: (context, cons) {
+            final side = math.max(12.0, (cons.maxWidth - _pageMaxWidth) / 2);
+            return ListenableBuilder(
+              listenable: settings,
+              builder: (context, _) => ListView(
+                padding: EdgeInsets.fromLTRB(side, 0, side, 32),
+                children: settingsSections(),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

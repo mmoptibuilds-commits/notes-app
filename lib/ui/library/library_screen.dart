@@ -501,31 +501,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: shortcutScope(
         scopes: const {ShortcutScope.library, ShortcutScope.global},
         handlers: _shortcutHandlers,
-        child: Focus(
-          focusNode: _rootFocus,
-          autofocus: true,
-          child: Listener(
-            onPointerDown: (e) {
-              if (e.kind == PointerDeviceKind.mouse &&
-                  e.buttons == kBackMouseButton) {
-                _unwind();
-              }
-            },
-            child: Scaffold(
-              backgroundColor: p.background,
-              floatingActionButton: c.scope == NoteScope.active && !c.selecting
-                  ? FloatingActionButton(
-                      tooltip: 'New note',
-                      onPressed: _newNote,
-                      child: const Icon(Icons.add_rounded, size: 26),
-                    )
-                  : null,
-              body: SafeArea(
-                bottom: false,
-                child: LayoutBuilder(
-                  builder: (context, cons) =>
-                      _buildContent(context, cons.maxWidth),
-                ),
+        focusNode: _rootFocus,
+        autofocus: true,
+        child: Listener(
+          onPointerDown: (e) {
+            if (e.kind == PointerDeviceKind.mouse &&
+                e.buttons == kBackMouseButton) {
+              _unwind();
+            }
+          },
+          child: Scaffold(
+            backgroundColor: p.background,
+            floatingActionButton: c.scope == NoteScope.active && !c.selecting
+                ? FloatingActionButton(
+                    tooltip: 'New note',
+                    onPressed: _newNote,
+                    child: const Icon(Icons.add_rounded, size: 26),
+                  )
+                : null,
+            body: SafeArea(
+              bottom: false,
+              child: LayoutBuilder(
+                builder: (context, cons) =>
+                    _buildContent(context, cons.maxWidth),
               ),
             ),
           ),

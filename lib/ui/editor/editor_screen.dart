@@ -6,6 +6,11 @@ import '../../platform/save_file.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+// Not exported by flutter_quill; needed to override its Escape action (see
+// customActions below). Pinned by pubspec.lock and guarded by a test.
+// ignore: implementation_imports
+import 'package:flutter_quill/src/editor/raw_editor/keyboard_shortcuts/editor_keyboard_shortcut_actions.dart'
+    show HideSelectionToolbarIntent;
 
 import '../../app.dart';
 import '../../platform/bootstrap.dart';
@@ -389,145 +394,142 @@ class _EditorScreenState extends State<EditorScreen>
             ),
     );
     return shortcutScope(
-      scopes: const {ShortcutScope.editor},
-      handlers: {ShortcutId.saveNow: session.flush},
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape): () =>
-              Navigator.of(context).maybePop(),
-        },
-        child: Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              tooltip: 'Back',
+      scopes: const {ShortcutScope.editor, ShortcutScope.global},
+      handlers: {
+        ShortcutId.saveNow: session.flush,
+        ShortcutId.escape: () => Navigator.of(context).maybePop(),
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Back',
+            style: tap,
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+          title: ListenableBuilder(
+            listenable: session,
+            builder: (context, _) => session.status == SaveStatus.failed
+                ? Text(
+                    'Not saved yet, retrying…',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    // Two lines at most must fit the 52 dp bar.
+                    textScaler: MediaQuery.textScalerOf(context)
+                        .clamp(maxScaleFactor: 1.3),
+                    style: TextStyle(color: p.danger, fontSize: 13),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Copy note',
               style: tap,
-              icon: const Icon(Icons.arrow_back_rounded),
-              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.copy_rounded),
+              onPressed: _copy,
             ),
-            title: ListenableBuilder(
+            ListenableBuilder(
+              listenable: Listenable.merge([app.notes.changes, session]),
+              builder: (context, _) {
+                final pinned = session.stored?.pinned ?? false;
+                return IconButton(
+                  tooltip: pinned ? 'Unpin' : 'Pin',
+                  style: tap,
+                  icon: Icon(
+                    pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                    color: pinned ? p.accent : null,
+                  ),
+                  onPressed: session.readOnly
+                      ? null
+                      : () => session.setPinned(!pinned),
+                );
+              },
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              style: tap,
+              onSelected: (v) {
+                switch (v) {
+                  case 'archive':
+                    final archived = session.stored?.archived ?? false;
+                    session.setArchived(!archived);
+                    Navigator.of(context).pop();
+                  case 'folder':
+                    _moveToFolder();
+                  case 'trash':
+                    _trash();
+                  case 'copy-md':
+                    _copyMarkdown();
+                  case 'save-md':
+                    _saveMarkdown();
+                }
+              },
+              itemBuilder: (context) {
+                final archived = session.stored?.archived ?? false;
+                return [
+                  const PopupMenuItem(
+                    value: 'copy-md',
+                    child: Text('Copy as Markdown'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'save-md',
+                    child: Text('Save as Markdown file…'),
+                  ),
+                  if (!session.readOnly) ...[
+                    PopupMenuItem(
+                      value: 'folder',
+                      child: const Text('Move to folder…'),
+                    ),
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Text(archived ? 'Unarchive' : 'Archive'),
+                    ),
+                    PopupMenuItem(
+                      value: 'trash',
+                      child: Text(
+                        'Move to Trash',
+                        style: TextStyle(color: p.danger),
+                      ),
+                    ),
+                  ],
+                ];
+              },
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            ListenableBuilder(
               listenable: session,
-              builder: (context, _) => session.status == SaveStatus.failed
-                  ? Text(
-                      'Not saved yet, retrying…',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      // Two lines at most must fit the 52 dp bar.
-                      textScaler: MediaQuery.textScalerOf(context)
-                          .clamp(maxScaleFactor: 1.3),
-                      style: TextStyle(color: p.danger, fontSize: 13),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            actions: [
-              IconButton(
-                tooltip: 'Copy note',
-                style: tap,
-                icon: const Icon(Icons.copy_rounded),
-                onPressed: _copy,
-              ),
-              ListenableBuilder(
-                listenable: Listenable.merge([app.notes.changes, session]),
-                builder: (context, _) {
-                  final pinned = session.stored?.pinned ?? false;
-                  return IconButton(
-                    tooltip: pinned ? 'Unpin' : 'Pin',
-                    style: tap,
-                    icon: Icon(
-                      pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                      color: pinned ? p.accent : null,
-                    ),
-                    onPressed: session.readOnly
-                        ? null
-                        : () => session.setPinned(!pinned),
-                  );
-                },
-              ),
-              PopupMenuButton<String>(
-                tooltip: 'More',
-                style: tap,
-                onSelected: (v) {
-                  switch (v) {
-                    case 'archive':
-                      final archived = session.stored?.archived ?? false;
-                      session.setArchived(!archived);
-                      Navigator.of(context).pop();
-                    case 'folder':
-                      _moveToFolder();
-                    case 'trash':
-                      _trash();
-                    case 'copy-md':
-                      _copyMarkdown();
-                    case 'save-md':
-                      _saveMarkdown();
-                  }
-                },
-                itemBuilder: (context) {
-                  final archived = session.stored?.archived ?? false;
-                  return [
-                    const PopupMenuItem(
-                      value: 'copy-md',
-                      child: Text('Copy as Markdown'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'save-md',
-                      child: Text('Save as Markdown file…'),
-                    ),
-                    if (!session.readOnly) ...[
-                      PopupMenuItem(
-                        value: 'folder',
-                        child: const Text('Move to folder…'),
+              builder: (context, _) {
+                if (session.loadError != null) {
+                  return _Banner(text: session.loadError!);
+                }
+                if (session.readOnly) {
+                  return _Banner(
+                    text: 'This note is in Trash',
+                    actions: [
+                      TextButton(
+                        onPressed: session.restoreFromTrash,
+                        child: const Text('Restore'),
                       ),
-                      PopupMenuItem(
-                        value: 'archive',
-                        child: Text(archived ? 'Unarchive' : 'Archive'),
-                      ),
-                      PopupMenuItem(
-                        value: 'trash',
+                      TextButton(
+                        onPressed: _deleteForever,
                         child: Text(
-                          'Move to Trash',
+                          'Delete forever',
                           style: TextStyle(color: p.danger),
                         ),
                       ),
                     ],
-                  ];
-                },
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              ListenableBuilder(
-                listenable: session,
-                builder: (context, _) {
-                  if (session.loadError != null) {
-                    return _Banner(text: session.loadError!);
-                  }
-                  if (session.readOnly) {
-                    return _Banner(
-                      text: 'This note is in Trash',
-                      actions: [
-                        TextButton(
-                          onPressed: session.restoreFromTrash,
-                          child: const Text('Restore'),
-                        ),
-                        TextButton(
-                          onPressed: _deleteForever,
-                          child: Text(
-                            'Delete forever',
-                            style: TextStyle(color: p.danger),
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-                  return const SizedBox.shrink();
-                },
-              ),
-              if (wide) toolbar,
-              Expanded(child: _page(context, app, isNew)),
-              if (!wide) toolbar,
-            ],
-          ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            if (wide) toolbar,
+            Expanded(child: _page(context, app, isNew)),
+            if (!wide) toolbar,
+          ],
         ),
       ),
     );
@@ -596,6 +598,18 @@ class _EditorScreenState extends State<EditorScreen>
                       embedBuilders: [_images!],
                       unknownEmbedBuilder: const UnknownEmbedBuilder(),
                       requestKeyboardFocusOnCheckListChanged: false,
+                      // Quill binds Escape itself (to hide a selection toolbar)
+                      // and consumes it whenever the caret is valid, so the
+                      // screen's own Escape handler would never run. Its
+                      // custom shortcuts lose to the defaults for the same
+                      // key, but custom actions win, so the action behind
+                      // Quill's Escape is replaced: Escape leaves the note.
+                      customActions: {
+                        HideSelectionToolbarIntent:
+                            CallbackAction<HideSelectionToolbarIntent>(
+                              onInvoke: (_) => Navigator.of(context).maybePop(),
+                            ),
+                      },
                       textSelectionThemeData: TextSelectionThemeData(
                         cursorColor: p.accent,
                         selectionColor: p.accent.withValues(alpha: 0.3),

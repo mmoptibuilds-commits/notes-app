@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
@@ -117,34 +119,140 @@ class ScopedAction extends Action<Intent> {
   }
 }
 
+const _scopeNodeLabel = 'shortcut scope';
+
+/// Escape on a pushed screen: leaves a focused text field first (as Escape
+/// does in any text input), and only then goes back.
+void escapeOrLeave(BuildContext context) {
+  final primary = FocusManager.instance.primaryFocus;
+  if (primary?.context?.findAncestorWidgetOfExactType<EditableText>() != null) {
+    // Move focus to the screen's own shortcut node rather than dropping it to
+    // the bare route scope, or the next Escape would have nowhere to land.
+    for (final ancestor in primary!.ancestors) {
+      if (ancestor.debugLabel == _scopeNodeLabel) {
+        ancestor.requestFocus();
+        return;
+      }
+    }
+    primary.unfocus();
+    return;
+  }
+  Navigator.of(context).maybePop();
+}
+
 /// Binds every implemented definition in [scopes] that has a handler in
 /// [handlers]. Screens pass their own scope plus [ShortcutScope.global].
+///
+/// The scope owns a focus node inside the `Shortcuts` it creates. Flutter
+/// dispatches a key from the primary focus *upwards*, so shortcuts only work
+/// while focus is at or below this node. A text field that is clicked away
+/// from unfocuses itself, which drops focus to the route's own scope, above
+/// these shortcuts; without help every shortcut would then be dead until the
+/// user clicked into something. After each pointer release the scope takes
+/// focus back when (and only when) nothing is focused. [focusNode] lets a
+/// screen use its own node (the library's root node); [autofocus] claims
+/// focus when the screen first appears.
 Widget shortcutScope({
   required Set<ShortcutScope> scopes,
   required Map<ShortcutId, VoidCallback> handlers,
   required Widget child,
+  FocusNode? focusNode,
+  bool autofocus = false,
 }) {
-  return Builder(
-    builder: (context) {
-      final shortcuts = <ShortcutActivator, Intent>{};
-      final actions = <Type, Action<Intent>>{};
-      for (final def in kShortcutDefs) {
-        final handler = handlers[def.id];
-        if (!def.implemented || handler == null) continue;
-        if (!scopes.contains(def.scope)) continue;
-        for (final a in def.activators) {
-          shortcuts[a] = def.intent;
-        }
-        actions[def.intent.runtimeType] = ScopedAction(
-          def: def,
-          scopeContext: context,
-          onInvoke: handler,
-        );
-      }
-      return Shortcuts(
-        shortcuts: shortcuts,
-        child: Actions(actions: actions, child: child),
-      );
-    },
+  return _ShortcutScopeHost(
+    scopes: scopes,
+    handlers: handlers,
+    focusNode: focusNode,
+    autofocus: autofocus,
+    child: child,
   );
+}
+
+class _ShortcutScopeHost extends StatefulWidget {
+  const _ShortcutScopeHost({
+    required this.scopes,
+    required this.handlers,
+    required this.child,
+    required this.focusNode,
+    required this.autofocus,
+  });
+
+  final Set<ShortcutScope> scopes;
+  final Map<ShortcutId, VoidCallback> handlers;
+  final Widget child;
+  final FocusNode? focusNode;
+  final bool autofocus;
+
+  @override
+  State<_ShortcutScopeHost> createState() => _ShortcutScopeHostState();
+}
+
+class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
+  FocusNode? _own;
+  FocusNode get _node =>
+      widget.focusNode ??
+      (_own ??= FocusNode(debugLabel: _scopeNodeLabel, skipTraversal: true));
+
+  @override
+  void initState() {
+    super.initState();
+    // A screen that appears with nothing focused (an editor opened by a click,
+    // say) would otherwise leave focus on the bare route scope.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _reclaimFocusIfStranded(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _own?.dispose();
+    super.dispose();
+  }
+
+  /// Focus left on a bare route scope (a click on background, or a text field
+  /// that unfocused itself) means nothing below it can see key events.
+  void _reclaimFocusIfStranded() {
+    scheduleMicrotask(() {
+      if (!mounted) return;
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary != null && primary is! FocusScopeNode) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
+      _node.requestFocus();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shortcuts = <ShortcutActivator, Intent>{};
+    final actions = <Type, Action<Intent>>{};
+    for (final def in kShortcutDefs) {
+      final handler = widget.handlers[def.id];
+      if (!def.implemented || handler == null) continue;
+      if (!widget.scopes.contains(def.scope)) continue;
+      for (final a in def.activators) {
+        shortcuts[a] = def.intent;
+      }
+      actions[def.intent.runtimeType] = ScopedAction(
+        def: def,
+        scopeContext: context,
+        onInvoke: handler,
+      );
+    }
+    return Shortcuts(
+      shortcuts: shortcuts,
+      child: Actions(
+        actions: actions,
+        child: Focus(
+          focusNode: _node,
+          autofocus: widget.autofocus,
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerUp: (_) => _reclaimFocusIfStranded(),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
 }

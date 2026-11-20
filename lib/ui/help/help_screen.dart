@@ -1,5 +1,7 @@
 import '../material.dart';
 import '../onboarding/welcome_points.dart';
+import '../shortcuts/shortcut_defs.dart';
+import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import 'help_shortcut.dart';
 import 'help_topics.dart';
@@ -71,54 +73,59 @@ class _HelpScreenState extends State<HelpScreen> {
     final p = AppPalette.of(context);
     final topics = _visible;
     final searching = _query.trim().isNotEmpty;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Help')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: TextField(
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: InputDecoration(
-                    hintText: 'Search help',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+    return shortcutScope(
+      scopes: const {ShortcutScope.global},
+      autofocus: true,
+      handlers: {ShortcutId.escape: () => escapeOrLeave(context)},
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Help')),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: TextField(
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: InputDecoration(
+                      hintText: 'Search help',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: topics.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'No help topics match "${_query.trim()}".',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: p.textMuted),
-                          ),
-                        ),
-                      )
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
-                        children: [
-                          for (final t in topics)
-                            _TopicTile(
-                              key: ValueKey('${t.id}/$searching'),
-                              topic: t,
-                              expanded: searching,
-                              shortcuts: widget.shortcuts,
-                              appVersion: widget.appVersion,
-                              onOpenLicences: widget.onOpenLicences,
+                Expanded(
+                  child: topics.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'No help topics match "${_query.trim()}".',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: p.textMuted),
                             ),
-                        ],
-                      ),
-              ),
-            ],
+                          ),
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
+                          children: [
+                            for (final t in topics)
+                              _TopicTile(
+                                key: ValueKey('${t.id}/$searching'),
+                                topic: t,
+                                expanded: searching,
+                                shortcuts: widget.shortcuts,
+                                appVersion: widget.appVersion,
+                                onOpenLicences: widget.onOpenLicences,
+                              ),
+                          ],
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

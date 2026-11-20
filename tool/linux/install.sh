@@ -6,6 +6,7 @@ set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 prefix="${HOME}/.local"
 app="${prefix}/opt/notes"
+launcher="${prefix}/bin/notes"
 version="$(basename "${here}" | sed 's/^notes-//; s/-linux-x64$//')"
 case "${version}" in ''|*[!0-9A-Za-z.+_-]*) echo "Invalid package version" >&2; exit 10;; esac
 build=0
@@ -15,7 +16,6 @@ build=0
   [ -d "${here}/bundle/data" ] && [ -f "${here}/update/notes-update-helper" ] || {
     echo "Package is missing runtime files or updater helper" >&2; exit 10;
   }
-mkdir -p "${prefix}/opt" "${prefix}/bin" "${prefix}/share/applications" "${prefix}/share/icons/hicolor/512x512/apps"
 # A copy of Notes made by the first installer (before updates existed) has no
 # marker. It is adopted only if it plainly is a Notes install owned by this
 # user; anything else at this path is left alone.
@@ -23,6 +23,18 @@ legacy_notes_install() {
   [ -d "$1" ] && [ ! -L "$1" ] && [ -x "$1/notes" ] && [ -d "$1/lib" ] && \
     [ -d "$1/data/flutter_assets" ]
 }
+launcher_is_notes() {
+  [ -L "$1" ] || return 1
+  target="$(readlink "$1")"
+  case "${target}" in "${app}/"*) return 0;; esac
+  return 1
+}
+if [ -e "${launcher}" ] || [ -L "${launcher}" ]; then
+  launcher_is_notes "${launcher}" || {
+    echo "Refusing to replace ${launcher}: it is not a Notes launcher. Move or remove it, then run install.sh again." >&2; exit 10;
+  }
+fi
+mkdir -p "${prefix}/opt" "${prefix}/bin" "${prefix}/share/applications" "${prefix}/share/icons/hicolor/512x512/apps"
 if [ -e "${app}" ] || [ -L "${app}" ]; then
   [ ! -L "${app}" ] || { echo "Refusing to replace a symlink: ${app}" >&2; exit 10; }
   [ "$(stat -c %u "${app}")" = "$(id -u)" ] || { echo "Install is not owned by this user" >&2; exit 10; }
@@ -44,11 +56,19 @@ if [ -e "${app}" ]; then
   fi
   mv "${app}" "${previous}"
 fi
-mv "${staging}" "${app}"
+if ! mv "${staging}" "${app}"; then
+  if [ -e "${previous}" ]; then
+    mv "${previous}" "${app}" || { echo "Install failed and previous Notes install could not be restored: ${previous}" >&2; exit 10; }
+  fi
+  echo "Failed to move staged Notes program into place." >&2
+  exit 10
+fi
 trap - EXIT HUP INT TERM
-ln -sf "${app}/notes" "${prefix}/bin/notes"
+ln -sf "${app}/notes" "${launcher}"
 cp "${here}/com.mmoptibuilds.notes.desktop" "${prefix}/share/applications/"
 cp "${here}/notes.png" "${prefix}/share/icons/hicolor/512x512/apps/com.mmoptibuilds.notes.png"
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "${prefix}/share/applications" || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "${prefix}/share/icons/hicolor" || true
 echo "Notes installed. Start it from the app menu or run: notes"
+resolved_bin="$(command -v notes 2>/dev/null || true)"
+case "${resolved_bin}" in "${launcher}") :;; '') :;; *) echo "Warning: ${resolved_bin} appears earlier on PATH and may shadow ${launcher}." >&2;; esac

@@ -5,6 +5,9 @@ set -eu
 prefix="${HOME}/.local"
 app="${prefix}/opt/notes"
 previous="${prefix}/opt/notes.previous"
+launcher="${prefix}/bin/notes"
+desktop="${prefix}/share/applications/com.mmoptibuilds.notes.desktop"
+icon="${prefix}/share/icons/hicolor/512x512/apps/com.mmoptibuilds.notes.png"
 
 # Only ever remove something that is plainly an installed copy of Notes: made
 # by the installer (marker file) or by the first installer (the same layout),
@@ -13,6 +16,12 @@ is_notes_install() {
   [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %u "$1")" = "$(id -u)" ] || return 1
   [ -f "$1/.managed-install" ] && return 0
   [ -x "$1/notes" ] && [ -d "$1/lib" ] && [ -d "$1/data/flutter_assets" ]
+}
+launcher_is_notes() {
+  [ -L "$1" ] || return 1
+  target="$(readlink "$1")"
+  case "${target}" in "${app}/"*) return 0;; esac
+  return 1
 }
 
 if [ -e "${app}" ] || [ -L "${app}" ]; then
@@ -30,7 +39,9 @@ if [ -e "${previous}" ] || [ -L "${previous}" ]; then
     echo "Previous program directory was not removed because it is not a Notes install: ${previous}" >&2
   fi
 fi
-rm -f "${prefix}/bin/notes" \
-      "${prefix}/share/applications/com.mmoptibuilds.notes.desktop" \
-      "${prefix}/share/icons/hicolor/512x512/apps/com.mmoptibuilds.notes.png"
+if [ -e "${launcher}" ] || [ -L "${launcher}" ]; then
+  if launcher_is_notes "${launcher}"; then rm -f "${launcher}"; else echo "Not removed; launcher is not owned by Notes: ${launcher}" >&2; fi
+fi
+# The desktop file and icon are named by the Notes app id, so they are ours.
+rm -f "${desktop}" "${icon}"
 echo "Notes removed. Your notes were not deleted."

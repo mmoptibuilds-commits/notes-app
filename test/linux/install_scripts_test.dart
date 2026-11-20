@@ -220,7 +220,57 @@ void main() {
     expect(File('${target.path}/precious').readAsStringSync(), 'keep me');
   });
 
+  test(
+    'foreign launcher is refused before install changes and kept intact',
+    () async {
+      final launcher = File('${home.path}/.local/bin/notes')
+        ..createSync(recursive: true);
+      launcher.writeAsStringSync('keep foreign launcher');
+      final r = await Process.run(
+        '${package.path}/install.sh',
+        [],
+        environment: env(),
+      );
+      expect(r.exitCode, 10);
+      expect(r.stderr.toString(), contains(launcher.path));
+      expect(launcher.readAsStringSync(), 'keep foreign launcher');
+      expect(Directory('${home.path}/.local/opt').existsSync(), isFalse);
+    },
+  );
+
+  test('upgrade replaces its own Notes launcher symlink', () async {
+    final first = await Process.run(
+      '${package.path}/install.sh',
+      [],
+      environment: env(),
+    );
+    expect(first.exitCode, 0, reason: first.stderr.toString());
+    final launcher = Link('${home.path}/.local/bin/notes');
+    expect(launcher.targetSync(), '${home.path}/.local/opt/notes/notes');
+    final second = await Process.run(
+      '${package.path}/install.sh',
+      [],
+      environment: env(),
+    );
+    expect(second.exitCode, 0, reason: second.stderr.toString());
+    expect(launcher.targetSync(), '${home.path}/.local/opt/notes/notes');
+  });
+
   group('uninstall', () {
+    test('leaves a foreign launcher intact', () async {
+      legacyInstall();
+      final launcher = File('${home.path}/.local/bin/notes')
+        ..createSync(recursive: true);
+      launcher.writeAsStringSync('foreign');
+      final r = await Process.run(
+        '${package.path}/uninstall.sh',
+        [],
+        environment: env(),
+      );
+      expect(r.exitCode, 0);
+      expect(launcher.readAsStringSync(), 'foreign');
+      expect(r.stderr.toString(), contains(launcher.path));
+    });
     test(
       'refuses a directory that is not a Notes install, changing nothing',
       () async {

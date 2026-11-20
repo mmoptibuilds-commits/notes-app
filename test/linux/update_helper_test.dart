@@ -254,8 +254,14 @@ t.close()
   );
 
   test('process executing from install blocks replacement', () async {
-    File('/bin/sleep').copySync('${install.path}/notes');
-    final running = await Process.start('${install.path}/notes', ['10']);
+    // A real executable inside the install. A shell is used (not sleep): on
+    // some distributions sleep is a multi-call binary that exits when renamed.
+    File('/bin/sh').copySync('${install.path}/notes');
+    Process.runSync('chmod', ['+x', '${install.path}/notes']);
+    final running = await Process.start('${install.path}/notes', [
+      '-c',
+      'sleep 10; true',
+    ]);
     await Future<void>.delayed(const Duration(milliseconds: 150));
     final result = await run();
     running.kill();

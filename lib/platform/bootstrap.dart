@@ -12,10 +12,19 @@ import '../data/app_settings.dart';
 import '../data/note_repository.dart';
 import '../sync/peers.dart';
 import '../sync/sync_service.dart';
+import '../update/platform_installer.dart';
+import '../update/update_controller.dart';
 
 /// The long-lived objects of a running app.
 class AppServices {
-  AppServices(this.db, this.notes, this.settings, this.dataDir, {this.sync});
+  AppServices(
+    this.db,
+    this.notes,
+    this.settings,
+    this.dataDir, {
+    this.sync,
+    this.updates,
+  });
 
   final AppDatabase db;
   final NoteRepository notes;
@@ -23,6 +32,10 @@ class AppServices {
 
   /// Device sync. Null in tests that do not exercise it.
   final SyncService? sync;
+
+  /// Update checking and installation. Null in tests and on platforms without
+  /// self-update.
+  final UpdateController? updates;
 
   /// Directory holding the database and local backups.
   final String dataDir;
@@ -38,7 +51,19 @@ class AppServices {
     );
   }
 
+  /// Called by the Linux updater once its helper is running: closes the
+  /// database and sync cleanly and exits, so the helper (which waits for this
+  /// process) can replace the program files. User data is not touched.
+  Future<void> quitForUpdate() async {
+    // Let any debounced autosave or retry write finish first.
+    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    sync?.dispose();
+    db.close();
+    exit(0);
+  }
+
   void close() {
+    updates?.dispose();
     sync?.dispose();
     settings.dispose();
     db.close();
@@ -138,5 +163,20 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
     port: override == null ? defaultSyncPort : 0,
   );
   settings.addListener(() => sync.deviceName = settings.deviceName);
-  return AppServices(db, notes, settings, dir, sync: sync);
+  late final AppServices services;
+  final installer = createPlatformInstaller(
+    onQuit: () => services.quitForUpdate(),
+  );
+  final updates = installer == null
+      ? null
+      : UpdateController.forApp(settings: settings, installer: installer);
+  services = AppServices(
+    db,
+    notes,
+    settings,
+    dir,
+    sync: sync,
+    updates: updates,
+  );
+  return services;
 }

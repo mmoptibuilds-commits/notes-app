@@ -9,6 +9,7 @@ import '../help/help_shortcuts.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_defs.dart';
 import '../shortcuts/shortcut_guards.dart';
+import '../updates/updates_screen.dart';
 import '../theme/app_theme.dart';
 import 'open_source_licenses.dart';
 import 'settings_widgets.dart';
@@ -326,6 +327,22 @@ class AboutSection extends StatelessWidget {
           trailing: chevron,
           onTap: () => openHelp(context),
         ),
+        if (AppScope.of(context).updates != null)
+          SettingsRow(
+            title: 'App updates',
+            subtitle: 'Check for a newer version',
+            semanticLabel: 'App updates',
+            minimumHeight: 30,
+            trailing: chevron,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => UpdatesScreen(
+                  controller: AppScope.of(context).updates!,
+                  settings: AppScope.of(context).settings,
+                ),
+              ),
+            ),
+          ),
         SettingsRow(
           title: 'Notes',
           trailing: Text(

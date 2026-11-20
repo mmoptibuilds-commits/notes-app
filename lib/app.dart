@@ -44,6 +44,12 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
     if (settings.onboardingPending && settings.hasUserData) {
       settings.completeOnboarding();
     }
+    // One background update check, after the first frame (the controller adds
+    // its own 30 s delay, honours the opt-out and a 24 h limit, and never
+    // downloads or installs anything).
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => services.updates?.scheduleStartupCheck(),
+    );
     final sync = services.sync;
     if (sync == null) return;
     WidgetsBinding.instance.addObserver(this);

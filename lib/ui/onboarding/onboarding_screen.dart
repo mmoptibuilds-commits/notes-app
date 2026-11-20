@@ -45,33 +45,34 @@ class OnboardingScreen extends StatelessWidget {
                   const SizedBox(height: 22),
                   const WelcomeList(),
                   const SizedBox(height: 12),
-                  // Each button sits in a 48dp-high box so the touch target
-                  // holds at any text scale.
-                  SizedBox(
-                    height: 48,
-                    child: FilledButton(
-                      onPressed: onCreateNote,
-                      child: const Text('Create a note'),
+                  // Standard density keeps the 48dp minimum; the buttons grow
+                  // with text scale rather than clipping.
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(64, 48),
+                      visualDensity: VisualDensity.standard,
                     ),
+                    onPressed: onCreateNote,
+                    child: const Text('Create a note'),
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    height: 48,
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: p.cardBorder),
-                      ),
-                      onPressed: onImport,
-                      child: const Text('Import notes'),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(64, 48),
+                      visualDensity: VisualDensity.standard,
+                      side: BorderSide(color: p.cardBorder),
                     ),
+                    onPressed: onImport,
+                    child: const Text('Import notes'),
                   ),
                   const SizedBox(height: 4),
-                  SizedBox(
-                    height: 48,
-                    child: TextButton(
-                      onPressed: onSkip,
-                      child: const Text('Skip'),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 48),
+                      visualDensity: VisualDensity.standard,
                     ),
+                    onPressed: onSkip,
+                    child: const Text('Skip'),
                   ),
                 ],
               ),

@@ -192,6 +192,11 @@ void main() {
     await tester.tap(find.text('About and open-source licences'));
     await tester.pumpAndSettle();
     expect(find.text('Version 9.9.9'), findsOneWidget);
+    final button = find.ancestor(
+      of: find.text('Open-source licences'),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+    expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
     await tester.tap(find.text('Open-source licences'));
     expect(opened, 1);
   });

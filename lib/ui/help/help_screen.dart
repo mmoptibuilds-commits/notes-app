@@ -254,7 +254,8 @@ class _TopicBody extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 48),
+                  minimumSize: const Size(64, 48),
+                  visualDensity: VisualDensity.standard,
                   side: BorderSide(color: p.cardBorder),
                 ),
                 onPressed: onOpenLicences,

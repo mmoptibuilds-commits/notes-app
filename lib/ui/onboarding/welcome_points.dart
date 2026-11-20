@@ -19,7 +19,9 @@ const welcomePoints = <WelcomePoint>[
   WelcomePoint(
     icon: Icons.wifi_off_rounded,
     title: 'Works offline',
-    body: 'Everything in Notes works without a network connection.',
+    body:
+        'Writing, search, import and export need no network. Only syncing '
+        'between your own devices uses your local network.',
   ),
   WelcomePoint(
     icon: Icons.lock_outline_rounded,

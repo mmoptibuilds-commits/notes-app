@@ -154,8 +154,9 @@ const helpTopics = <HelpTopic>[
     id: 'offline',
     title: 'Offline behaviour and reconnection',
     bullets: [
-      'Notes works fully without a connection. Every note, folder and change '
-          'is kept on the device.',
+      'Writing, editing, search, folders, import and export all work without '
+          'a network connection. Every note, folder and change is kept on the '
+          'device.',
       'When another device cannot be reached, changes wait on this device '
           'until a sync can deliver them.',
       'While the device is offline, the Sync screen says: "No network '

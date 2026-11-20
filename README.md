@@ -4,6 +4,34 @@ Notes is an offline-first personal notes app for Android and native Linux,
 built with Flutter. Notes are stored locally in an encrypted SQLite database;
 device-to-device sync is optional.
 
+## Download
+
+- [Android arm64 APK](https://github.com/mmoptibuilds-commits/notes-app/releases/latest)
+- [Linux x64 archive](https://github.com/mmoptibuilds-commits/notes-app/releases/latest)
+
+You need Android 8 or later, or a Linux x64 desktop with GTK 3 and GLib runtime
+libraries. Download the release archive, then check its supplied checksum and
+signed manifest before installing. Manifest verification uses Dart and a
+source checkout of this project:
+
+```sh
+sha256sum -c notes-1.0.1-linux-x64.tar.gz.sha256
+dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json notes-manifest.json notes-manifest.json.sig
+```
+
+Extract the Linux archive and run `install.sh`; launch Notes from the app menu
+or run `notes`. To upgrade, install a newer archive over the managed install,
+or use the in-app update when Linux updating is enabled. Remove the program with
+`uninstall.sh`. Your encrypted notes database and keyring entry stay in place
+when installing, upgrading, or removing program files.
+
+If Notes will not start, install your distribution's GTK 3 and GLib runtime
+packages. Sync uses TCP port 47380 and UDP port 47381; allow those ports on the
+local network when pairing. On Wayland, screen scaling and clipboard behaviour
+depend on the compositor; XWayland may be needed on older desktops. The stable
+channel currently has no published stable release; the preview release is not
+offered as a stable update.
+
 ## Status
 
 The current implementation has 387 automated tests passing and 1 skipped

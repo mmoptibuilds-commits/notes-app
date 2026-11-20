@@ -175,7 +175,10 @@ class LinuxUpdateInstaller implements UpdateInstaller {
       await File(helperPath).copy(helper.path);
       // File.copy does not promise to keep the executable bit.
       await _chmod(helper.path);
-      await _launcher.startDetached(helper.path, [
+      // Run through the shell so a temp directory mounted noexec cannot stop
+      // the update (the copy's executable bit is then not needed at all).
+      await _launcher.startDetached('/bin/sh', [
+        helper.path,
         'apply',
         '--pid',
         '$_pid',

@@ -6,12 +6,33 @@ set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 prefix="${HOME}/.local"
 app="${prefix}/opt/notes"
-mkdir -p "${prefix}/bin" "${prefix}/share/applications" "${prefix}/share/icons/hicolor/512x512/apps"
-rm -rf "${app}.new"
-mkdir -p "${app}.new"
-cp -a "${here}/bundle/." "${app}.new/"
-rm -rf "${app}"
-mv "${app}.new" "${app}"
+version="$(basename "${here}" | sed 's/^notes-//; s/-linux-x64$//')"
+case "${version}" in ''|*[!0-9A-Za-z.+_-]*) echo "Invalid package version" >&2; exit 10;; esac
+[ -x "${here}/bundle/notes" ] && [ -d "${here}/bundle/lib" ] && \
+  [ -d "${here}/bundle/data" ] && [ -f "${here}/update/notes-update-helper" ] || {
+    echo "Package is missing runtime files or updater helper" >&2; exit 10;
+  }
+mkdir -p "${prefix}/opt" "${prefix}/bin" "${prefix}/share/applications" "${prefix}/share/icons/hicolor/512x512/apps"
+if [ -e "${app}" ]; then
+  [ -f "${app}/.managed-install" ] || { echo "Refusing to replace an unmanaged install: ${app}" >&2; exit 10; }
+  [ "$(stat -c %u "${app}")" = "$(id -u)" ] || { echo "Install is not owned by this user" >&2; exit 10; }
+fi
+staging="$(mktemp -d "${prefix}/opt/.notes-install-XXXXXX")"
+trap 'rm -rf "$staging"' EXIT HUP INT TERM
+cp -a "${here}/bundle/." "${staging}/"
+mkdir -p "${staging}/update"
+install -m 0755 "${here}/update/notes-update-helper" "${staging}/update/notes-update-helper"
+printf '{"schema":1,"version":"%s","installedAt":"%s"}\n' "${version}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${staging}/.managed-install"
+if [ -e "${app}" ]; then
+  previous="${app}.previous"
+  if [ -e "${previous}" ]; then
+    [ -f "${previous}/.managed-install" ] && [ "$(stat -c %u "${previous}")" = "$(id -u)" ] || { echo "Refusing unsafe previous install" >&2; exit 10; }
+    rm -rf "${previous}"
+  fi
+  mv "${app}" "${previous}"
+fi
+mv "${staging}" "${app}"
+trap - EXIT HUP INT TERM
 ln -sf "${app}/notes" "${prefix}/bin/notes"
 cp "${here}/com.mmoptibuilds.notes.desktop" "${prefix}/share/applications/"
 cp "${here}/notes.png" "${prefix}/share/icons/hicolor/512x512/apps/com.mmoptibuilds.notes.png"

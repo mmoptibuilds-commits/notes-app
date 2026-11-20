@@ -1,0 +1,165 @@
+#!/bin/sh
+# Local Linux updater. Requires GNU tar, flock, sha256sum, setsid (for relaunch).
+# It deliberately has no network or signature-verification code.
+set -eu
+umask 077
+
+usage() { echo 'usage: notes-update-helper apply --pid N --archive PATH --sha256 HEX --size BYTES --install DIR --state-dir DIR --version VER [--relaunch] | rollback --install DIR --state-dir DIR' >&2; exit 2; }
+refused() { echo "$*" >&2; exit 10; }
+verifyfail() { echo "$*" >&2; exit 11; }
+status_write() {
+  phase=$1; ok=$2; error=$3
+  tmp="${state_dir}/.update.json.$$"
+  printf '{"phase":"%s","fromVersion":"%s","toVersion":"%s","ok":%s,"error":"%s","time":"%s"}\n' \
+    "$phase" "$from_version" "$version" "$ok" "$error" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp"
+  mv -f "$tmp" "${state_dir}/update.json"
+}
+valid_path() { case "$1" in /*) return 0;; *) return 1;; esac; }
+inside() { case "$1/" in "$2/"*) return 0;; *) return 1;; esac; }
+valid_version() { printf '%s\n' "$1" | awk -F. 'NF == 3 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { valid=1 } END { exit !valid }'; }
+
+command_name=${1-}; [ -n "$command_name" ] || usage; shift
+pid= archive= sha= size= install_dir= state_dir= version= relaunch=no
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pid) [ "$#" -ge 2 ] || usage; pid=$2; shift 2;;
+    --archive) [ "$#" -ge 2 ] || usage; archive=$2; shift 2;;
+    --sha256) [ "$#" -ge 2 ] || usage; sha=$2; shift 2;;
+    --size) [ "$#" -ge 2 ] || usage; size=$2; shift 2;;
+    --install) [ "$#" -ge 2 ] || usage; install_dir=$2; shift 2;;
+    --state-dir) [ "$#" -ge 2 ] || usage; state_dir=$2; shift 2;;
+    --version) [ "$#" -ge 2 ] || usage; version=$2; shift 2;;
+    --relaunch) relaunch=yes; shift;;
+    *) usage;;
+  esac
+done
+valid_path "$install_dir" || usage
+[ -n "$state_dir" ] && valid_path "$state_dir" || usage
+[ "$install_dir" != / ] && [ "$install_dir" != "${HOME:-}" ] || refused 'Unsafe install path'
+[ "$state_dir" != / ] && [ "$state_dir" != "${HOME:-}" ] || refused 'Unsafe state directory'
+case "$install_dir" in /usr/*|/opt/*|/bin|/sbin|/lib*|/etc/*) refused 'Package-manager install path refused';; esac
+case "$state_dir" in /usr/*|/opt/*|/bin|/sbin|/lib*|/etc/*) refused 'Unsafe state directory';; esac
+if [ -e "$install_dir" ] && [ -L "$install_dir" ]; then refused 'Install path must not be a symlink'; fi
+mkdir -p "$state_dir"
+[ ! -L "$state_dir" ] || refused 'State directory must not be a symlink'
+[ "$(stat -c %u "$state_dir")" = "$(id -u)" ] || refused 'State directory is not owned by current user'
+chmod 700 "$state_dir"
+exec 9>"${state_dir}/lock"
+flock -n 9 || exit 12
+
+previous="${install_dir}.previous"
+parent=$(dirname "$install_dir")
+from_version=unknown
+
+recover() {
+  if [ -e "$previous" ] && [ ! -e "$install_dir" ]; then
+    [ -f "$previous/.managed-install" ] || refused 'Unsafe interrupted-swap recovery state'
+    [ "$(stat -c %u "$previous")" = "$(id -u)" ] || refused 'Interrupted install is not owned by current user'
+    mv "$previous" "$install_dir"
+    status_write failed false interrupted_swap_recovered
+  elif [ -e "$previous" ] && [ -e "$install_dir" ]; then
+    [ -f "$previous/.managed-install" ] || refused 'Unsafe previous install'
+    [ "$(stat -c %u "$previous")" = "$(id -u)" ] || refused 'Previous install is not owned by current user'
+  fi
+}
+recover
+[ -d "$install_dir" ] && [ -f "$install_dir/.managed-install" ] || refused 'Unmanaged install refused'
+[ "$(stat -c %u "$install_dir")" = "$(id -u)" ] || refused 'Install is not owned by current user'
+from_version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$install_dir/.managed-install" | head -n 1)
+valid_version "$from_version" || refused 'Invalid managed install version'
+
+if [ "$command_name" = rollback ]; then
+  [ -d "$previous" ] && [ -f "$previous/.managed-install" ] || refused 'No managed previous install to restore'
+  [ "$(stat -c %u "$previous")" = "$(id -u)" ] || refused 'Previous install is not owned by current user'
+  for exe in /proc/[0-9]*/exe; do
+    [ -e "$exe" ] || continue
+    target=$(readlink -f "$exe" 2>/dev/null || true)
+    [ -n "$target" ] || continue
+    inside "$target" "$install_dir" && refused 'An application process is still running'
+  done
+  current="${parent}/.notes-staging-rollback-$$"
+  [ ! -e "$current" ] || refused 'Rollback staging path already exists'
+  mv "$install_dir" "$current"
+  if mv "$previous" "$install_dir"; then rm -rf "$current"; else mv "$current" "$install_dir"; exit 14; fi
+  version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$install_dir/.managed-install" | head -n 1)
+  status_write done true ''
+  exit 0
+fi
+[ "$command_name" = apply ] || usage
+case "$pid" in ''|*[!0-9]*) usage;; esac
+case "$sha" in *[!0-9a-fA-F]*|'') usage;; esac
+[ "${#sha}" -eq 64 ] || usage
+case "$size" in ''|*[!0-9]*) usage;; esac
+valid_version "$version" || usage
+valid_path "$archive" || usage
+[ -f "$archive" ] || verifyfail 'Archive missing'
+oldver=$(printf '%s\n' "$from_version" | awk -F. '{printf "%d.%d.%d",$1,$2,$3}')
+newver=$(printf '%s\n' "$version" | awk -F. '{printf "%d.%d.%d",$1,$2,$3}')
+[ "$oldver" != "$newver" ] || refused 'Same-version update refused'
+if [ "$(printf '%s\n%s\n' "$oldver" "$newver" | sort -V | head -n 1)" = "$newver" ]; then refused 'Downgrade refused'; fi
+# Wait up to five minutes for the initiating app to exit.
+i=0
+while kill -0 "$pid" 2>/dev/null; do
+  [ "$i" -lt 300 ] || exit 13
+  sleep 1; i=$((i + 1))
+done
+actual_size=$(wc -c < "$archive" | tr -d ' ')
+[ "$actual_size" = "$size" ] || verifyfail 'Archive size mismatch'
+actual_sha=$(sha256sum "$archive" | awk '{print $1}')
+[ "$(printf '%s' "$actual_sha" | tr A-F a-f)" = "$(printf '%s' "$sha" | tr A-F a-f)" ] || verifyfail 'Archive checksum mismatch'
+status_write verified false ''
+
+# Accept only regular files and directories (GNU tar hides escaping hard-link
+# targets in its listing, so links of any kind are refused outright), reject
+# traversal, setuid/setgid, and malformed layout.
+tar -tzf "$archive" >/dev/null 2>&1 || verifyfail 'Corrupted archive'
+listing="${state_dir}/.tar-list.$$"
+trap 'rm -f "$listing"' EXIT HUP INT TERM
+tar -tvzf "$archive" > "$listing" || verifyfail 'Cannot list archive'
+awk '
+function unsafe(p, n,a,i) { if (p ~ /^\//) return 1; n=split(p,a,"/"); for(i=1;i<=n;i++) if(a[i]=="..") return 1; return 0 }
+{ line=$0; type=substr(line,1,1); if (line ~ /[sS]/ && substr(line,1,10) ~ /[sS]/) exit 1; if (type != "-" && type != "d") exit 1;
+  name=line; sub(/^([^ ]+[ ]+){5}/,"",name); if (type=="l" && name ~ / -> /) { split(name,x," -> "); target=x[2]; if (unsafe(x[1]) || unsafe(target) || target ~ /^\//) exit 1; name=x[1] }
+  if (type=="h" && name ~ / link to /) { split(name,x," link to "); target=x[2]; if (unsafe(x[1]) || unsafe(target) || target ~ /^\//) exit 1; name=x[1] }
+  if (unsafe(name)) exit 1; if (name ~ /(^|\/)bundle\/notes$/ && type=="-") notes=1; if (name ~ /(^|\/)bundle\/lib\/?$/) lib=1; if (name ~ /(^|\/)bundle\/data\/?$/) data=1
+} END { if (!notes || !lib || !data) exit 1 }
+' "$listing" || verifyfail 'Unsafe archive entries or unexpected layout'
+status_write staged false ''
+# Refuse to replace files while any process executes from the install tree.
+for exe in /proc/[0-9]*/exe; do
+  [ -e "$exe" ] || continue
+  target=$(readlink -f "$exe" 2>/dev/null || true)
+  [ -n "$target" ] || continue
+  inside "$target" "$install_dir" && refused 'An application process is still running'
+done
+unpack=$(mktemp -d "${parent}/.notes-unpack-XXXXXX")
+case "$unpack" in "$parent"/.notes-unpack-*) ;; *) refused 'Unsafe unpack path';; esac
+if ! tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$unpack"; then rm -rf "$unpack"; verifyfail 'Archive extraction failed'; fi
+archive_root="${unpack}/notes-${version}-linux-x64"
+[ -d "$archive_root/bundle" ] && [ -x "$archive_root/bundle/notes" ] && \
+  [ -d "$archive_root/bundle/lib" ] && [ -d "$archive_root/bundle/data" ] && \
+  [ -f "$archive_root/update/notes-update-helper" ] || { rm -rf "$unpack"; verifyfail 'Runtime files missing or package layout mismatch'; }
+stage=$(mktemp -d "${parent}/.notes-staging-XXXXXX")
+case "$stage" in "$parent"/.notes-staging-*) ;; *) refused 'Unsafe staging path';; esac
+cp -a "$archive_root/bundle/." "$stage/"
+mkdir -p "$stage/update"
+install -m 0755 "$archive_root/update/notes-update-helper" "$stage/update/notes-update-helper"
+rm -rf "$unpack"
+[ -x "$stage/notes" ] && [ -d "$stage/lib" ] && [ -d "$stage/data" ] || { rm -rf "$stage"; verifyfail 'Runtime files missing'; }
+printf '{"schema":1,"version":"%s","installedAt":"%s"}\n' "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stage/.managed-install"
+status_write swapping false ''
+if [ -e "$previous" ]; then
+  [ -f "$previous/.managed-install" ] && [ "$(stat -c %u "$previous")" = "$(id -u)" ] || { rm -rf "$stage"; refused 'Unsafe previous install'; }
+  rm -rf "$previous"
+fi
+if ! mv "$install_dir" "$previous"; then rm -rf "$stage"; status_write failed false first_rename_failed; exit 14; fi
+if ! mv "$stage" "$install_dir"; then
+  if mv "$previous" "$install_dir"; then status_write failed false second_rename_rolled_back; exit 14; fi
+  status_write failed false rollback_failed; exit 15
+fi
+status_write done true ''
+if [ "$relaunch" = yes ]; then
+  command -v setsid >/dev/null 2>&1 || exit 14
+  setsid "$install_dir/notes" >/dev/null 2>&1 </dev/null &
+fi
+exit 0

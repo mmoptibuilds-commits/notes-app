@@ -10,9 +10,11 @@ rm -rf "dist/${name}"
 mkdir -p "dist/${name}"
 cp -a build/linux/x64/release/bundle "dist/${name}/bundle"
 cp tool/linux/install.sh tool/linux/uninstall.sh tool/linux/com.mmoptibuilds.notes.desktop "dist/${name}/"
+mkdir -p "dist/${name}/update"
+cp tool/linux/notes-update-helper "dist/${name}/update/notes-update-helper"
 cp assets/icon/icon_512.png "dist/${name}/notes.png"
 cp assets/fonts/*-OFL.txt "dist/${name}/" 2>/dev/null || true
-chmod +x "dist/${name}/install.sh" "dist/${name}/uninstall.sh"
+chmod +x "dist/${name}/install.sh" "dist/${name}/uninstall.sh" "dist/${name}/update/notes-update-helper"
 # Fixed timestamps and ordering so the same sources give the same archive.
 (cd dist && tar --sort=name --mtime='2026-01-01 00:00:00' --owner=0 --group=0 --numeric-owner \
   -czf "${name}.tar.gz" "${name}")

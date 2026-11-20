@@ -205,11 +205,14 @@ void main() {
       expect(quits, 1);
 
       final s = launcher.started.single;
-      // A private copy, not the file inside the install being replaced.
-      expect(s.exe, isNot(startsWith(install.path)));
-      expect(File(s.exe).readAsStringSync(), '#!/bin/sh\n');
-      expect(s.exe, endsWith('/notes-update-helper'));
-      expect(s.args, [
+      // Started through the shell (works on a noexec temp dir), on a private
+      // copy rather than the file inside the install being replaced.
+      expect(s.exe, '/bin/sh');
+      final helperCopy = s.args.first;
+      expect(helperCopy, isNot(startsWith(install.path)));
+      expect(File(helperCopy).readAsStringSync(), '#!/bin/sh\n');
+      expect(helperCopy, endsWith('/notes-update-helper'));
+      expect(s.args.skip(1).toList(), [
         'apply',
         '--pid',
         '4242',
@@ -232,7 +235,7 @@ void main() {
         launcher.runs.every((c) => c[0] == 'chmod' && c[1] == '700'),
         isTrue,
       );
-      expect(launcher.runs.map((c) => c[2]), contains(s.exe));
+      expect(launcher.runs.map((c) => c[2]), contains(helperCopy));
       expect(Directory(i.stateDir).existsSync(), isTrue);
     });
 

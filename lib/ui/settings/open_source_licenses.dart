@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/app_version.dart';
+import '../material.dart';
+
 Future<void>? _fontLicensesRegistration;
 
 /// Adds bundled font notices to Flutter's built-in licence page once.
@@ -26,4 +29,16 @@ Future<void> _registerBundledFontLicenses() async {
       ),
     );
   }
+}
+
+/// Shows the open-source licence page, with the bundled font notices added.
+/// Used by Settings and Help.
+Future<void> openLicences(BuildContext context) async {
+  await registerBundledFontLicenses();
+  if (!context.mounted) return;
+  showLicensePage(
+    context: context,
+    applicationName: 'Notes',
+    applicationVersion: appVersionText,
+  );
 }

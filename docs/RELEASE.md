@@ -1,8 +1,8 @@
 # Stable release procedure
 
-Candidate version: `1.0.0+20261121` (versionName `1.0.0`, Android
-versionCode `20261121`; the owner's phone has the earlier candidate
-`20261120` installed, so this is the first code that updates it in place). The current previous-code file contains `1`, the
+Candidate version: `1.0.0+20261122` (versionName `1.0.0`, Android
+versionCode `20261122`; the owner's phone has the earlier candidate
+`20261120` installed, so this is the first code that updates it in place; the phone later received 20261121 (a different build), so the next candidate is 20261122). The current previous-code file contains `1`, the
 preview code. No `.audit-input/known-codes.txt` was available; check any
 additional installed versionCode before release. `tool/last_release_version_code.txt`
 must remain the previous distributed code until the next release cycle.
@@ -32,7 +32,7 @@ upstream permission scope before distributing anything.
 Change only the `version:` line in `pubspec.yaml` to the candidate version:
 
 ```sh
-sed -i 's/^version: .*/version: 1.0.0+20261121/' pubspec.yaml
+sed -i 's/^version: .*/version: 1.0.0+20261122/' pubspec.yaml
 dart tool/check_stable_version.dart --stable
 ```
 
@@ -69,7 +69,7 @@ The verifier calls Android SDK `apksigner verify --print-certs`, rejects a
 debug certificate, and checks the result against
 `tool/release_cert_sha256.txt`. It finds `apksigner` under the SDK named by
 `ANDROID_SDK_ROOT` or `ANDROID_HOME`. Confirm `apkanalyzer` reports
-`20261121` and the APK reports the expected package id,
+`20261122` and the APK reports the expected package id,
 `com.mmoptibuilds.notes`.
 
 ## 5. Package Linux and verify checksums

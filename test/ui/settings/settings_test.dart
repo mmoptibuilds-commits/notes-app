@@ -5,6 +5,7 @@ import 'package:notes/data/app_settings.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/material.dart';
+import 'package:notes/core/app_version.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
 import 'package:notes/ui/settings/settings_widgets.dart';
 import 'package:notes/ui/toolbar_item_info.dart';

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../../app.dart';
+import '../../core/app_version.dart';
 import '../../data/app_settings.dart';
 import '../../data/note_repository.dart' show NoteSort;
 import '../help/help_screen.dart';
@@ -17,7 +18,6 @@ import 'toolbar_settings_screen.dart';
 const _pageMaxWidth = 640.0;
 
 /// App version shown in About.
-const appVersionText = '1.0.0';
 
 /// The sections of the settings page, in order. Append new ones here.
 List<Widget> settingsSections() => const [
@@ -295,17 +295,6 @@ class EditorSection extends StatelessWidget {
   }
 }
 
-/// Shows the open-source licence page, with the bundled font notices added.
-Future<void> _openLicences(BuildContext context) async {
-  await registerBundledFontLicenses();
-  if (!context.mounted) return;
-  showLicensePage(
-    context: context,
-    applicationName: 'Notes',
-    applicationVersion: appVersionText,
-  );
-}
-
 /// Opens the Help screen, with the shortcut list taken from the shared
 /// definitions. Used by Settings and by the F1 shortcut.
 Future<void> openHelp(BuildContext context) => Navigator.of(context).push(
@@ -313,7 +302,7 @@ Future<void> openHelp(BuildContext context) => Navigator.of(context).push(
     builder: (_) => HelpScreen(
       shortcuts: helpShortcuts(),
       appVersion: appVersionText,
-      onOpenLicences: () => _openLicences(context),
+      onOpenLicences: () => openLicences(context),
     ),
   ),
 );
@@ -349,7 +338,7 @@ class AboutSection extends StatelessWidget {
           semanticLabel: 'Open-source licences',
           minimumHeight: 30,
           trailing: chevron,
-          onTap: () => _openLicences(context),
+          onTap: () => openLicences(context),
         ),
         if (dir.isNotEmpty)
           SettingsRow(

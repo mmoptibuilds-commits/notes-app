@@ -188,4 +188,17 @@ void main() {
       expect(shouldHandleShortcut(del, f()), isTrue);
     });
   });
+
+  test('no shortcut repeats while a key is held (no chained pops)', () {
+    for (final d in kShortcutDefs) {
+      for (final a in d.activators) {
+        final repeats = switch (a) {
+          SingleActivator() => a.includeRepeats,
+          CharacterActivator() => a.includeRepeats,
+          _ => false,
+        };
+        expect(repeats, isFalse, reason: '${d.id}');
+      }
+    }
+  });
 }

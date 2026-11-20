@@ -72,8 +72,12 @@ class ShortcutHelpEntry {
 }
 
 const _newNoteActivators = [
-  SingleActivator(LogicalKeyboardKey.keyN, control: true),
-  SingleActivator(LogicalKeyboardKey.keyN, meta: true),
+  SingleActivator(
+    LogicalKeyboardKey.keyN,
+    control: true,
+    includeRepeats: false,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyN, meta: true, includeRepeats: false),
 ];
 
 /// Every shortcut in the app. This list is the single source of truth.
@@ -89,8 +93,16 @@ final List<ShortcutDef> kShortcutDefs = [
     id: ShortcutId.focusSearch,
     scope: ShortcutScope.library,
     activators: [
-      SingleActivator(LogicalKeyboardKey.keyF, control: true),
-      SingleActivator(LogicalKeyboardKey.keyF, meta: true),
+      SingleActivator(
+        LogicalKeyboardKey.keyF,
+        control: true,
+        includeRepeats: false,
+      ),
+      SingleActivator(
+        LogicalKeyboardKey.keyF,
+        meta: true,
+        includeRepeats: false,
+      ),
     ],
     intent: const FocusSearchIntent(),
     description: 'Focus search',
@@ -100,7 +112,7 @@ final List<ShortcutDef> kShortcutDefs = [
     scope: ShortcutScope.library,
     // CharacterActivator, not SingleActivator(slash): '/' needs Shift on some
     // keyboard layouts. Kept separate from Ctrl+F because it is a bare key.
-    activators: [CharacterActivator('/')],
+    activators: [CharacterActivator('/', includeRepeats: false)],
     intent: const SlashSearchIntent(),
     description: 'Focus search (when not typing)',
     requiresNoTextFocus: true,
@@ -109,8 +121,16 @@ final List<ShortcutDef> kShortcutDefs = [
     id: ShortcutId.selectAll,
     scope: ShortcutScope.library,
     activators: [
-      SingleActivator(LogicalKeyboardKey.keyA, control: true),
-      SingleActivator(LogicalKeyboardKey.keyA, meta: true),
+      SingleActivator(
+        LogicalKeyboardKey.keyA,
+        control: true,
+        includeRepeats: false,
+      ),
+      SingleActivator(
+        LogicalKeyboardKey.keyA,
+        meta: true,
+        includeRepeats: false,
+      ),
     ],
     intent: const SelectAllNotesIntent(),
     description: 'Select all notes',
@@ -119,7 +139,9 @@ final List<ShortcutDef> kShortcutDefs = [
   ShortcutDef(
     id: ShortcutId.trashSelected,
     scope: ShortcutScope.library,
-    activators: [SingleActivator(LogicalKeyboardKey.delete)],
+    activators: [
+      SingleActivator(LogicalKeyboardKey.delete, includeRepeats: false),
+    ],
     intent: const TrashSelectedIntent(),
     description: 'Move selected notes to trash (purge in trash)',
     requiresNoTextFocus: true,
@@ -127,7 +149,13 @@ final List<ShortcutDef> kShortcutDefs = [
   ShortcutDef(
     id: ShortcutId.backToAllNotes,
     scope: ShortcutScope.library,
-    activators: [SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true)],
+    activators: [
+      SingleActivator(
+        LogicalKeyboardKey.arrowLeft,
+        alt: true,
+        includeRepeats: false,
+      ),
+    ],
     intent: const BackToAllNotesIntent(),
     description: 'Back to All notes',
     requiresNoTextFocus: true,
@@ -136,8 +164,16 @@ final List<ShortcutDef> kShortcutDefs = [
     id: ShortcutId.openSettings,
     scope: ShortcutScope.global,
     activators: [
-      SingleActivator(LogicalKeyboardKey.comma, control: true),
-      SingleActivator(LogicalKeyboardKey.comma, meta: true),
+      SingleActivator(
+        LogicalKeyboardKey.comma,
+        control: true,
+        includeRepeats: false,
+      ),
+      SingleActivator(
+        LogicalKeyboardKey.comma,
+        meta: true,
+        includeRepeats: false,
+      ),
     ],
     intent: const OpenSettingsIntent(),
     description: 'Open Settings',
@@ -145,14 +181,16 @@ final List<ShortcutDef> kShortcutDefs = [
   ShortcutDef(
     id: ShortcutId.openHelp,
     scope: ShortcutScope.global,
-    activators: [SingleActivator(LogicalKeyboardKey.f1)],
+    activators: [SingleActivator(LogicalKeyboardKey.f1, includeRepeats: false)],
     intent: const OpenHelpIntent(),
     description: 'Open Help',
   ),
   ShortcutDef(
     id: ShortcutId.escape,
     scope: ShortcutScope.global,
-    activators: [SingleActivator(LogicalKeyboardKey.escape)],
+    activators: [
+      SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false),
+    ],
     intent: const EscapeIntent(),
     description: 'Close the popup or dialog, then clear search or selection, then go back',
   ),
@@ -160,8 +198,16 @@ final List<ShortcutDef> kShortcutDefs = [
     id: ShortcutId.quickNav,
     scope: ShortcutScope.global,
     activators: [
-      SingleActivator(LogicalKeyboardKey.keyK, control: true),
-      SingleActivator(LogicalKeyboardKey.keyK, meta: true),
+      SingleActivator(
+        LogicalKeyboardKey.keyK,
+        control: true,
+        includeRepeats: false,
+      ),
+      SingleActivator(
+        LogicalKeyboardKey.keyK,
+        meta: true,
+        includeRepeats: false,
+      ),
     ],
     intent: const QuickNavIntent(),
     description: 'Quick navigation (not implemented yet)',
@@ -173,8 +219,16 @@ final List<ShortcutDef> kShortcutDefs = [
     id: ShortcutId.saveNow,
     scope: ShortcutScope.editor,
     activators: [
-      SingleActivator(LogicalKeyboardKey.keyS, control: true),
-      SingleActivator(LogicalKeyboardKey.keyS, meta: true),
+      SingleActivator(
+        LogicalKeyboardKey.keyS,
+        control: true,
+        includeRepeats: false,
+      ),
+      SingleActivator(
+        LogicalKeyboardKey.keyS,
+        meta: true,
+        includeRepeats: false,
+      ),
     ],
     intent: const SaveNowIntent(),
     description: 'Save now',

@@ -79,6 +79,8 @@ class SettingsRow extends StatelessWidget {
     this.trailing,
     this.below,
     this.onTap,
+    this.minimumHeight = 28,
+    this.semanticLabel,
   });
 
   final String title;
@@ -86,6 +88,8 @@ class SettingsRow extends StatelessWidget {
   final Widget? trailing;
   final Widget? below;
   final VoidCallback? onTap;
+  final double minimumHeight;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +122,7 @@ class SettingsRow extends StatelessWidget {
     final body = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 28),
+        constraints: BoxConstraints(minHeight: minimumHeight),
         child: below == null
             ? head
             : Column(
@@ -127,7 +131,10 @@ class SettingsRow extends StatelessWidget {
               ),
       ),
     );
-    return onTap == null ? body : InkWell(onTap: onTap, child: body);
+    if (onTap == null) return body;
+    final tappable = InkWell(onTap: onTap, child: body);
+    if (semanticLabel == null) return tappable;
+    return Semantics(label: semanticLabel, button: true, child: tappable);
   }
 }
 

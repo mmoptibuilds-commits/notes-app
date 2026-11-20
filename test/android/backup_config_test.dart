@@ -102,6 +102,23 @@ void main() {
     }
   });
 
+  test('no cross-platform transfer is declared without an iOS counterpart', () {
+    final xml = read('$rulesDir/data_extraction_rules.xml');
+    expect(xml, isNot(contains('<cross-platform-transfer')));
+    expectProtected(
+      applicationTag(read(manifestPath)),
+      where: 'AndroidManifest.xml',
+    );
+    for (final section in ['cloud-backup', 'device-transfer']) {
+      final m = RegExp(
+        '<$section\\b[^>]*>(.*?)</$section>',
+        dotAll: true,
+      ).firstMatch(xml);
+      expect(m, isNotNull, reason: 'missing <$section>');
+      expect(excludedDomains(m!.group(1)!), allDomains, reason: section);
+    }
+  });
+
   group('merged release manifest', () {
     // Produced by `flutter build apk --release`; absent on a fresh checkout.
     final merged = Directory('build/app/intermediates').existsSync()

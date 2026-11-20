@@ -154,3 +154,14 @@ Not yet reviewed by anyone else: `lib/doc/checklist_projection.dart`,
   worse than keeping a note the user was still editing.
 - Reviewer found no loss in checklist split/merge, open-writes-nothing, or
   import/rollback transactions (it could not see migrations.dart).
+
+## D17. No Android cross-platform transfer rules without an iOS counterpart
+Android's official Auto Backup documentation (developer.android.com/identity/data/autobackup,
+checked 2026-11-20) says `<cross-platform-transfer platform="ios">` requires
+`bundleId`, `teamId`, and `contentVersion` parameters so Android can match the
+target app. Notes has Android and Linux builds, but no iOS counterpart, so
+there are no valid iOS identifiers to supply and inventing them would be
+incorrect. Keep the existing extraction XML unchanged. The app disables backup
+with `allowBackup=false`; its cloud-backup and device-transfer sections each
+exclude every data domain. `test/android/backup_config_test.dart` checks these
+protections and confirms no cross-platform-transfer section is declared.

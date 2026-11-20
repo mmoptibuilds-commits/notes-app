@@ -5,6 +5,7 @@ import '../../data/app_settings.dart';
 import '../../data/note_repository.dart' show NoteSort;
 import '../material.dart';
 import '../theme/app_theme.dart';
+import 'open_source_licenses.dart';
 import 'settings_widgets.dart';
 import 'sync_data_section.dart';
 import 'toolbar_settings_screen.dart';
@@ -298,6 +299,21 @@ class AboutSection extends StatelessWidget {
             'Version $appVersionText',
             style: TextStyle(fontSize: 13.5, color: p.textMuted),
           ),
+        ),
+        SettingsRow(
+          title: 'Open-source licences',
+          semanticLabel: 'Open-source licences',
+          minimumHeight: 30,
+          trailing: Icon(Icons.chevron_right_rounded, color: p.textFaint),
+          onTap: () async {
+            await registerBundledFontLicenses();
+            if (!context.mounted) return;
+            showLicensePage(
+              context: context,
+              applicationName: 'Notes',
+              applicationVersion: appVersionText,
+            );
+          },
         ),
         if (dir.isNotEmpty)
           SettingsRow(

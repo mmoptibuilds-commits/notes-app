@@ -65,6 +65,11 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/Inter-OFL.txt
+    - assets/fonts/SourceSerif4-OFL.txt
+    - assets/fonts/JetBrainsMono-OFL.txt
+    - assets/fonts/AtkinsonHyperlegible-OFL.txt
 
   # Bundled fonts (SIL Open Font License; licence texts sit beside the files).
   # Inter, Source Serif 4 and JetBrains Mono are variable fonts.

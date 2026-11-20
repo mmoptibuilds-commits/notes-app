@@ -1,9 +1,13 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
+import 'package:notes/ui/settings/open_source_licenses.dart';
 import 'package:notes/ui/settings/settings_widgets.dart';
 import 'package:notes/ui/toolbar_item_info.dart';
 
@@ -45,6 +49,50 @@ void main() {
     expect(find.byType(SelectableText), findsOneWidget);
     expect(find.text('/home/someone/notes-data'), findsOneWidget);
   });
+
+  testWidgets('open-source licences are reachable and include bundled fonts', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await openSettings(tester);
+    final label = find.text('Open-source licences');
+    await tester.scrollUntilVisible(
+      label,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final tile = find.ancestor(of: label, matching: find.byType(InkWell));
+    expect(tile, findsOneWidget);
+    expect(tester.getSize(tile).height, greaterThanOrEqualTo(48));
+    expect(find.bySemanticsLabel(RegExp('Open-source licences')), findsWidgets);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(find.text('Inter (font)'), findsOneWidget);
+    await tester.tap(find.text('Inter (font)'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('The Inter Project Authors'), findsWidgets);
+    expect(find.textContaining('SIL OPEN FONT LICENSE'), findsWidgets);
+    semantics.dispose();
+  });
+
+  test(
+    'font licence assets are declared in pubspec and carry the OFL text',
+    () {
+      const assets = [
+        'assets/fonts/Inter-OFL.txt',
+        'assets/fonts/SourceSerif4-OFL.txt',
+        'assets/fonts/JetBrainsMono-OFL.txt',
+        'assets/fonts/AtkinsonHyperlegible-OFL.txt',
+      ];
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      for (final asset in assets) {
+        expect(pubspec, contains('- $asset'), reason: asset);
+        final text = File(asset).readAsStringSync();
+        expect(text, contains('SIL OPEN FONT LICENSE'), reason: asset);
+        expect(text, contains('Copyright'), reason: asset);
+      }
+    },
+  );
 
   testWidgets('appearance controls write their settings', (tester) async {
     final s = await openSettings(tester);

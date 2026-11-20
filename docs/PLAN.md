@@ -1,8 +1,8 @@
 # Plan
 
 Status words: **verified** means supported by an automated test or a recorded
-run; **unverified** means the check has not been done. Current verification
-facts below were supplied by the integrator on 2026-11-20.
+run; **unverified** means the check has not been done. Verification facts are
+dated individually where known.
 
 ## Current position
 
@@ -44,7 +44,7 @@ pre-release with no assets.
 | Android app launch and persistence | Verified | x86_64 Android 15 emulator |
 | Android QR pairing | Verified | Real phone to Linux, 2026-11-20 |
 | Android arm64 phone | Verified | Nothing Phone 2, Android 16 |
-| APK in-place upgrade | Verified | 20261120 to 20261121, same certificate, data intact |
+| APK in-place upgrade | Verified | 20261120 to 20261121, same certificate, data intact; recorded 2026-11-20 |
 | Linux app and keyring | Verified | Linux release app and keyring persistence |
 | Linux device sync | Verified | Code entry, conflicts, deletions, and 476-note convergence |
 | Sync collision and quarantine retry | Verified | Tested in CI; two-way sync on real devices |
@@ -53,13 +53,15 @@ pre-release with no assets.
 | Android release signing guard | Verified | Release tasks fail without signing configuration |
 | CI workflow | Verified | Runs on every push; passing |
 | Public release | Not published | Only the `v1.0.0-preview.1` pre-release exists |
-| In-app update checker | Verified on emulator | Real GitHub request reports no stable release; installer hand-off reaches Android's confirmation dialog |
+| In-app update checker | Verified on emulator | Real GitHub request reports no stable release; installer hand-off reaches Android's confirmation dialog; not yet end-to-end on a real device |
 | Linux self-update | Blocked | Needs an owner-provisioned signing key; helper tested end to end with synthetic packages |
 
 ## Release candidate
 
 Candidate stable version: `1.0.0+20261122` (Android versionCode `20261122`).
-The phone has `20261121` installed; the preview build used `1`;
+In a read-only check on 2026-11-21, the phone had `20261121` installed
+(Android users 0 and 11); make a fresh read-only check before installing.
+The preview build used `1`;
 `.audit-input/known-codes.txt` was absent, so no other phone code was available
 to check. The date-based code advances Android's update ordering with ample
 headroom. Keep the Linux package version at `1.0.0`; it is derived from the

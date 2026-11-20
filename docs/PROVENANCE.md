@@ -4,10 +4,9 @@
 
 This review uses the Git history available in this worktree, the bundled font
 files, and `.audit-input/inter-ref/`. The supplied `.audit-input/upstream/`
-snapshot and `.audit-input/licenses/` directory were absent here, so the
-earlier static comparison and package inventory already recorded below are
-identified as prior review evidence rather than re-run findings. No contents
-from the upstream app were read in this review.
+snapshot and `.audit-input/licenses/` directory were absent here; package
+classifications below remain historical audit evidence. The upstream
+comparison was re-run on 2026-11-21 using the available comparison inputs.
 
 The staged Inter 4.1 notes identify the official release and its licence, and
 record that `assets/fonts/Inter.ttf` has a different SHA-256 from the staged
@@ -16,8 +15,11 @@ version `4.001;git-66647c0bb`, with OFL 1.1 metadata. This is consistent with
 an Inter 4.0-era build, but the exact upstream build origin is unknown. The
 font's file history begins at commit `1717e2a` on 2026-11-17.
 
-The official Inter licence is OFL 1.1. It contains the standard Reserved Font
-Name rule, but no specific Reserved Font Name follows the copyright notice.
+The bundled Inter file reports `Version 4.001;git-66647c0bb`, Copyright 2016
+The Inter Project Authors, and SIL OFL 1.1 with no Reserved Font Name. Byte
+identity with an official Inter release file has not been established; the
+comparison found a byte match only with the copy in the upstream app. This is
+not a licence blocker.
 The app uses the font under the family name `Inter`, does not claim to have
 modified it, and bundles its OFL text. The bundled copyright line was corrected
 from 2020 to `(c) 2016`, matching the official licence and font metadata. This
@@ -53,36 +55,32 @@ distinctive copied Dart source structure. These observations support that the
 behaviour and formats were implemented in Notes; they are not legal clearance
 or proof of independent creation.
 
-### Material found copied
+### Material matches and open publication items
 
-The prior static comparison recorded in this document found
-`assets/fonts/Inter.ttf` byte-identical to the upstream file named
-`assets/fonts/Inter-Regular.ttf`. This establishes a byte match, not the
-direction or circumstances of copying. Inter is distributed under OFL 1.1;
-the required copyright and licence text are present beside the bundled fonts
-and are included in the Linux package. The Android package currently has no
-in-app licences page, and the font licence text is not declared as an Android
-asset; see [third-party licences](THIRD_PARTY_LICENSES.md).
+The 2026-11-21 heuristic comparison found eight byte-identical files of at
+least 64 bytes: `assets/fonts/Inter.ttf` and seven standard `flutter create`
+scaffold files. It found zero shared normalized six-line Dart runs (91 Notes
+files versus 260 upstream files) and 13 shared literals of at least 40
+characters: 12 package import paths and one generic sentence. This is not
+proof of independent creation. The importer reads the Notebook backup JSON
+format for interoperability. The owner reports permission from the upstream
+author, but its scope is not confirmed in writing. Publication remains an
+owner decision; settle that scope before publication.
 
 ### Unknown
 
-The exact source/build origin of the byte-matched Inter font, any upstream
-author's permission and its scope, and any semantic influence beyond the
-documented checks remain unknown. Only written permission from the upstream
-author can settle the reported permission's scope. This review makes no claim
-of legal clearance.
+The origin of `assets/icon/icon_512.png` and `assets/icon/icon_1024.png` is
+undocumented. Before publication, the owner must state whether they created
+the icons, generated them, or need permission. This is a separate open
+publication item. No legal clearance is claimed.
 
-## Earlier static comparison (recorded before this worktree)
+## Earlier static comparison (historical; date not recorded)
 
-The prior review compared the Notes tree with a supplied Everything-App
-snapshot. It reported no byte-identical Dart source and no substantial shared
-Dart text. It reported one byte-identical asset pair: Notes
-`assets/fonts/Inter.ttf` and upstream `assets/fonts/Inter-Regular.ttf`.
-It reported zero matching normalized Dart source runs of six or more lines,
-and shared long string literals limited to package import paths and a common
-SQLite metadata query. These were heuristic comparisons, not proof of
-independent creation. The snapshot is not present in this worktree, so the
-comparison was not repeated here.
+The earlier comparison reported no byte-identical Dart source, one matching
+font pair, zero normalized six-line Dart runs, and shared literals limited to
+package import paths and a common SQLite metadata query. This evidence is
+historical and superseded by the 2026-11-21 count-only rerun above. Both are
+heuristics, not proof of independent creation.
 
 The importer reads legacy Notebook backup JSON, including `version`,
 `exportedAt`, and notes-related tables such as `notes`, `tags`, `noteTags`, and
@@ -90,8 +88,7 @@ The importer reads legacy Notebook backup JSON, including `version`,
 and real-backup counts are described in [the plan](PLAN.md); no private note
 content is included in this document.
 
-The project must obtain written permission and settle its scope before public
-publication or distribution of anything that may be protected by the upstream
-author. Compatibility with a data format and independent implementation of
+The reported upstream permission and its scope remain an owner publication
+decision. Compatibility with a data format and independent implementation of
 common features do not by themselves settle rights. This review is not legal
 advice.

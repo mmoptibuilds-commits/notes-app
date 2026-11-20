@@ -145,22 +145,22 @@ licence text was identified in these package inputs.
   `assets/fonts/`. These texts identify the SIL Open Font License 1.1 (OFL-1.1).
   Keep the licence texts with redistributions of the fonts.
 - The four bundled font licence files have a copyright notice and the OFL 1.1
-  text. Inter's notice now says `(c) 2016 The Inter Project Authors`, matching
-  the staged official Inter licence and font name-table metadata; it previously
-  said 2020. The OFL includes the standard Reserved Font Name restriction, but
-  the Inter licence names no specific Reserved Font Name. Notes uses the
-  unmodified family name `Inter`.
+  text. Inter reports `Version 4.001;git-66647c0bb`, Copyright 2016 The Inter
+  Project Authors, and no Reserved Font Name. Byte identity with an official
+  Inter release file is not established; this is not a licence blocker. Notes
+  uses the unmodified family name `Inter`.
 - `tool/package_linux.sh` copies the four font licence files into the Linux
-  release directory. No in-app licences page was found. The Android app
-  bundles the font files but does not declare these text files as assets, so
-  the Android APK does not currently provide a demonstrated, user-viewable
-  copy of the font notices. Add an in-app or packaged notice before Android
-  redistribution; this documentation cannot satisfy the APK's notice duty.
-- The Linux package copies font OFL texts, but does not currently include this
-  package inventory or all third-party package licence/NOTICE texts.
+  release directory. The app has an in-app page at Settings > Open-source
+  licences. The Android APK bundles the four font licence text files.
+- Both packages carry Flutter's generated `NOTICES.Z` (the licence texts of
+  the Dart and Flutter packages, shown on the in-app licences page): the APK at
+  `assets/flutter_assets/NOTICES.Z`, the Linux archive at
+  `bundle/data/flutter_assets/NOTICES.Z` (checked in the a688e14 artifacts).
+  The Linux archive also copies the four font OFL texts to its root.
 - `assets/icon/icon_512.png` and `assets/icon/icon_1024.png` have no source or
-  licence documentation in the repository. Their provenance/licence is
-  undocumented here.
+  licence documentation in the repository. Their origin is a separate open
+  publication item: the owner must state whether they created them, generated
+  them, or need permission.
 - No separate licence/source documentation was found for other bundled
   artwork or generated icon assets. The asset inventory inspected was the
   repository’s `assets/` tree.

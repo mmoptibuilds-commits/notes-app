@@ -11,13 +11,15 @@ Linux installation is blocked ("release signing key not provisioned").
 **Android.** Authenticity rests on the APK's signing certificate, which must
 match the certificate pinned in the app, plus Android's own installer, which
 only accepts an update signed by the same key and always asks the user. The
-manifest signature is additionally required once a key is pinned. While no key
-is pinned the metadata is unsigned, and the Updates screen says so.
+manifest signature is required once a key is pinned. Before a key is pinned,
+metadata can be unsigned; after pinning there is no unsigned fallback on either
+Android or Linux.
 
-**Replay and downgrade.** The app records the highest verified manifest
-version and build and rejects anything lower. It does not allow downgrades and
-rejects expired manifests. The `publishedAt` field is informational; it is not
-used for replay checks. Bookkeeping is persisted silently.
+**Replay and downgrade.** The app records the highest signed manifest version
+and build it has verified and rejects anything lower. Retracting a newer
+release therefore makes later checks fail until a newer release is published.
+The `publishedAt` field is informational; it is not used for replay checks.
+Bookkeeping is persisted silently.
 
 **Manual installs.** `tool/release/verify_manifest.dart --artifact FILE` checks
 the signature and then hashes the file you downloaded against the signed
@@ -27,26 +29,65 @@ Stable releases use `notes-manifest.json` and `notes-manifest.json.sig`. The
 preview tag is a pre-release and does not count as a stable release. If GitHub
 has no stable release, the app says "No stable release published."
 
-The production key list currently has no provisioned key. Update checks can
-still discover release metadata, but automatic Linux replacement is blocked.
-Tests use throwaway keys only.
+No production Ed25519 manifest key is pinned yet in
+`lib/update/pinned_keys.dart` or `tool/release_signing_pubkeys.json`. Update
+checks can still discover release metadata, but automatic Linux replacement
+is blocked. Tests use throwaway keys only. The planned key id is
+`notes-release-1`.
 
 ## Offline production key provisioning
 
-On an offline machine controlled by the owner, generate an Ed25519 keypair
-with `dart tool/release/keygen.dart --private-key /offline/path/private.json
---public-key /offline/path/public.json --key-id <id>`. Keep the private key
-readable only by its owner (mode 0600), make an offline backup, and never put it
-in the repository, CI, environment variables, or a GitHub secret. Add only the
-public key's id and base64 public key to `lib/update/pinned_keys.dart` and
+The owner will generate the Ed25519 key, encrypt it with GPG, and keep two
+offline USB copies. Never put the private key in the repository, CI,
+environment variables, or GitHub secrets. Publish the public key as Ed25519
+PEM (SPKI) with a SHA-256 fingerprint of the DER SPKI. Add only the public
+key's id and base64 key to `lib/update/pinned_keys.dart` and
 `tool/release_signing_pubkeys.json`. Sign each release manifest locally with
-`tool/release/sign_manifest.dart`; CI must never hold the signing key.
+`tool/release_signing_pubkeys.json` (a test keeps the two equal); CI must never hold the signing key. Rebuild
+all release artifacts after the key is pinned.
 
-For key rotation, ship an app update pinning the next public key while retaining
-the old key for the overlap period. Sign with the old key until that app update
-is available, then sign releases with the new key. Remove the old pin only
-after supported installs have received the rotation update. Never replace a
-lost private key by silently reusing its id.
+`kPinnedKeys` may contain several keys. For rotation, ship the new public key
+in a release signed by the old key, then sign later releases with the new key.
+Remove the old key only after users have moved to a build that trusts the new
+key. Never reuse a key id.
+
+## Manifest expiry, re-signing and key rotation
+
+Expiry is enforced against the device clock. If the latest stable release's
+manifest has expired, every installed app reports “verification failed” on a
+check, including apps already up to date; nothing is installed. Use an expiry
+about 24 months after publication. Re-sign well before expiry, for example
+three months ahead: replace the manifest and signature assets on the same
+release with a new `expires` and `publishedAt` while keeping the same artifact
+bytes, or publish a new release. `publishedAt` does not affect replay checks.
+
+A device clock far ahead of the real time can make the manifest appear expired
+and fail closed. A clock behind real time does not affect signature
+verification.
+
+The app records the highest signed `(version, build)` it has verified and
+refuses older manifests. Retracting a newer release causes later checks to fail
+until a newer one is published.
+
+For rotation, `kPinnedKeys` can list multiple keys. Ship the new public key in
+a release signed by the old key, then sign later releases with the new key.
+Remove the old key only after users have moved to builds that trust the new
+key.
+
+If the private key is lost, nobody can sign updates for builds that trust only
+that key. Recovery requires a new key and a new build that users install
+manually. On Android, the same APK certificate still permits an in-place
+install through the system installer. Never reuse a key id.
+
+If the manifest key is compromised, an attacker could sign manifests. To harm
+users they also need to place files on this project's GitHub release. Then
+Linux installs would accept a malicious archive whose hash the attacker signed;
+Android additionally requires the pinned APK signing certificate, which the
+manifest key cannot replace. Respond by publishing a new build that pins a new
+key and drops the compromised one, and announce the change in README.
+
+There is no unsigned fallback once a key is pinned. Android and Linux both
+require the signature.
 
 The checked-in
 `tool/release_signing_pubkeys.json` is an empty JSON list until provisioning.

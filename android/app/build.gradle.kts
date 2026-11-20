@@ -33,16 +33,32 @@ android {
 
     // The release signing identity lives outside the repository. android/key.properties
     // (git-ignored) points at it: storeFile, storePassword, keyAlias, keyPassword.
-    // Without it, release builds fall back to the debug key so development still works,
-    // but such an APK cannot be updated in place by a properly signed one.
+    // Without it, release builds are blocked by the task-graph check below. Keep this
+    // optional during configuration so debug builds and analysis do not need a key.
     val keyProps = Properties()
     val keyFile = rootProject.file("key.properties")
     if (keyFile.exists()) keyProps.load(keyFile.inputStream())
 
+    val requiredSigningProperties = listOf(
+        "storeFile",
+        "storePassword",
+        "keyAlias",
+        "keyPassword",
+    )
+    val missingSigningProperties = requiredSigningProperties.filter {
+        keyProps.getProperty(it)?.isNotBlank() != true
+    }
+    val configuredStoreFile = keyProps.getProperty("storeFile")
+        ?.takeIf { it.isNotBlank() }
+        ?.let { file(it) }
+    val releaseSigningReady = keyFile.exists() &&
+        missingSigningProperties.isEmpty() &&
+        configuredStoreFile?.isFile == true
+
     signingConfigs {
-        if (keyFile.exists()) {
+        if (releaseSigningReady) {
             create("release") {
-                storeFile = file(keyProps.getProperty("storeFile"))
+                storeFile = configuredStoreFile
                 storePassword = keyProps.getProperty("storePassword")
                 keyAlias = keyProps.getProperty("keyAlias")
                 keyPassword = keyProps.getProperty("keyPassword")
@@ -52,8 +68,34 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keyFile.exists()) signingConfigs.getByName("release")
-                            else signingConfigs.getByName("debug")
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    // Fail only for tasks that package/sign the release variant. The task graph is
+    // available after project configuration, so debug builds and analyzer tasks can
+    // still configure the Android project without release credentials.
+    gradle.taskGraph.whenReady {
+        val isReleasePackagingTask = allTasks.any { task ->
+            task.project == project && task.name.matches(
+                Regex("^(assemble|bundle|package|sign|validateSigning).*Release.*$"),
+            )
+        }
+        if (isReleasePackagingTask && !releaseSigningReady) {
+            val missing = if (!keyFile.exists()) {
+                "android/key.properties is missing"
+            } else if (missingSigningProperties.isNotEmpty()) {
+                "android/key.properties is missing non-blank values for: " +
+                    missingSigningProperties.joinToString(", ")
+            } else {
+                "the configured storeFile does not exist"
+            }
+            throw GradleException(
+                "Release signing is not configured: $missing. Configure the " +
+                    "release keystore properties before running an Android release build.",
+            )
         }
     }
 }

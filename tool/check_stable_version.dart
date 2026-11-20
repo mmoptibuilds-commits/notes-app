@@ -32,7 +32,12 @@ int versionCodeFromPubspec(String pubspec) {
 }
 
 int parsePreviousVersionCode(String value) {
-  final parsed = int.tryParse(value.trim());
+  final values = value
+      .split('\n')
+      .map((line) => line.split('#').first.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  final parsed = values.length == 1 ? int.tryParse(values.single) : null;
   if (parsed == null || parsed <= 0) {
     throw const FormatException(
       'Previous versionCode must be a positive integer.',

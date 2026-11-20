@@ -81,5 +81,14 @@ Signer #1 certificate SHA-256 digest: AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:
         throwsFormatException,
       );
     });
+
+    test('reads a previous code with blank lines and comments', () {
+      expect(
+        version_check.parsePreviousVersionCode(
+          '# Most recently distributed Android code\n\n7 # release build\n',
+        ),
+        7,
+      );
+    });
   });
 }

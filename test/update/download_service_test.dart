@@ -266,6 +266,30 @@ void main() {
     expect(files(), isEmpty);
   });
 
+  test('Cancel works before the server has answered', () async {
+    http.on(url.toString(), FakeReply(200, hang: true));
+    final token = CancelToken();
+    final f = run(svc(), cancel: token);
+    final expectation = expectLater(f, fails(DownloadFailure.cancelled));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    token.cancel();
+    await expectation;
+    expect(files(), isEmpty);
+  });
+
+  test(
+    'a server that never sends headers times out as an interruption',
+    () async {
+      http.on(url.toString(), FakeReply(200, hang: true));
+      final s = DownloadService(
+        http,
+        headerTimeout: const Duration(milliseconds: 100),
+      );
+      await expectLater(run(s), fails(DownloadFailure.interrupted));
+      expect(files(), isEmpty);
+    },
+  );
+
   test('an earlier verified download is reused without a request', () async {
     http.on(url.toString(), FakeReply(200, body: payload));
     await run(svc());

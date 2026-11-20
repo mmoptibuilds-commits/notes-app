@@ -413,8 +413,9 @@ class _StatusCard extends StatelessWidget {
           : 'Waiting for Android to finish installing ${candidate.version}',
       detail: willRestart
           ? 'Notes will reopen by itself. If it does not, start it again.'
-          : 'Follow the Android prompt. Notes will say whether the update '
-                'went through the next time it opens.',
+          : 'Follow the Android prompt. If you dismissed it, you can install '
+                'again. Notes will say whether the update went through the '
+                'next time it opens.',
     ),
     UpdateBlocked(:final block, :final candidate) => _Line(
       Icons.block_rounded,
@@ -438,12 +439,13 @@ class _StatusCard extends StatelessWidget {
     _ => b.message,
   };
 
+  bool _restarting(UpdateStatus s) =>
+      s is UpdateInstallationHandedToOs && s.willRestart;
+
   List<Widget> _actions(BuildContext context, UpdateStatus s) {
     final c = controller;
     Widget check(String label, {bool primary = false}) {
-      final onPressed = c.busy || s is UpdateInstallationHandedToOs
-          ? null
-          : () => c.check();
+      final onPressed = c.busy || _restarting(s) ? null : () => c.check();
       return primary
           ? FilledButton(onPressed: onPressed, child: Text(label))
           : OutlinedButton(onPressed: onPressed, child: Text(label));
@@ -468,7 +470,16 @@ class _StatusCard extends StatelessWidget {
         check('Check again'),
       ],
       UpdateInstalling() => const [],
-      UpdateInstallationHandedToOs() => const [],
+      UpdateInstallationHandedToOs(:final candidate, :final willRestart) =>
+        willRestart
+            ? const []
+            : [
+                FilledButton(
+                  onPressed: () => _confirmInstall(context, candidate),
+                  child: const Text('Install again'),
+                ),
+                check('Check again'),
+              ],
       UpdateFailed(candidate: != null) => [
         FilledButton(onPressed: c.download, child: const Text('Retry')),
         check('Check again'),

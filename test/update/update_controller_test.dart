@@ -228,6 +228,73 @@ void main() {
     });
   });
 
+  group('hung servers', () {
+    test('a manifest that never answers fails instead of hanging', () async {
+      await setUpWorld();
+      await w.publish();
+      w.http.replace(
+        assetUrl('1.0.1', 'notes-manifest.json'),
+        FakeReply(200, hang: true),
+      );
+      await w.controller.check();
+      expect(statusIs<UpdateFailed>().message, contains('in time'));
+      expect(w.controller.busy, isFalse, reason: 'Check is usable again');
+    });
+
+    test('a signature file that never answers fails too', () async {
+      await setUpWorld();
+      await w.publish();
+      w.http.replace(
+        assetUrl('1.0.1', 'notes-manifest.json.sig'),
+        FakeReply(200, hang: true),
+      );
+      await w.controller.check();
+      statusIs<UpdateFailed>();
+    });
+
+    test('Cancel works while the artifact server has not answered', () async {
+      await setUpWorld();
+      await w.publish();
+      await w.controller.check();
+      w.http.replace(
+        assetUrl('1.0.1', 'notes-1.0.1-linux-x64.tar.gz'),
+        FakeReply(200, hang: true),
+      );
+      final done = w.controller.download();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      statusIs<UpdateDownloading>();
+      w.controller.cancelDownload();
+      await done;
+      statusIs<UpdateAvailable>();
+      expect(w.installer.updateDir.listSync(), isEmpty);
+    });
+  });
+
+  group('after the hand-over on Android', () {
+    test('a dismissed system dialog can be retried', () async {
+      await setUpWorld(platform: androidPlatform);
+      await w.publish();
+      await w.controller.check();
+      await w.controller.download();
+      w.installer.installResult = const InstallHandedToOs(willRestart: false);
+      await w.controller.install();
+      expect(statusIs<UpdateInstallationHandedToOs>().willRestart, isFalse);
+      await w.controller.install(); // user presses "Install again"
+      expect(w.installer.installs, 2);
+      statusIs<UpdateInstallationHandedToOs>();
+    });
+
+    test('on Linux the restart hand-over is final', () async {
+      await setUpWorld();
+      await w.publish();
+      await w.controller.check();
+      await w.controller.download();
+      await w.controller.install();
+      await w.controller.install();
+      expect(w.installer.installs, 1);
+    });
+  });
+
   group('trust', () {
     test('a wrong signature is a verification failure', () async {
       await setUpWorld();

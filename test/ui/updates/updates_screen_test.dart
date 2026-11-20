@@ -369,6 +369,48 @@ void main() {
       },
     );
 
+    testWidgets('Android: a dismissed system dialog offers Install again', (
+      tester,
+    ) async {
+      await create(platform: androidPlatform);
+      await w.publish();
+      await pump(tester);
+      await run(tester, w.controller.check);
+      await run(tester, w.controller.download);
+      w.installer.installResult = const InstallHandedToOs(willRestart: false);
+      await run(tester, w.controller.install);
+      expect(find.textContaining('Waiting for Android'), findsOneWidget);
+      expect(find.text('Install again'), findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Check again'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      await tester.tap(find.text('Install again'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Install'));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await settle(tester);
+      expect(w.installer.installs, 2);
+    });
+
+    testWidgets('Linux: restarting hand-over has no actions', (tester) async {
+      await create();
+      await w.publish();
+      await pump(tester);
+      await run(tester, w.controller.check);
+      await run(tester, w.controller.download);
+      await run(tester, w.controller.install);
+      expect(find.text('Install again'), findsNothing);
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+    });
+
     testWidgets('Android unsigned metadata is disclosed', (tester) async {
       await create(platform: androidPlatform, pinKey: false);
       await w.publish(sign: false);

@@ -69,6 +69,7 @@ class World {
     keys: keys,
     now: () => now,
     devInstance: dev,
+    assetTimeout: const Duration(milliseconds: 300),
     client: GithubReleaseClient(
       http,
       totalTimeout: const Duration(milliseconds: 300),

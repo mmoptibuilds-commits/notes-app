@@ -23,7 +23,7 @@ class InstallResultReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                val confirm: Intent? = if (Build.VERSION.SDK_INT >= 33) {
+                val confirm: Intent? = if (Build.VERSION.SDK_INT >= 34) {
                     intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
                 } else {
                     @Suppress("DEPRECATION")

@@ -86,6 +86,7 @@ class DownloadService {
     this._http, {
     this.freeSpace,
     this.idleTimeout = const Duration(seconds: 30),
+    this.headerTimeout = const Duration(seconds: 30),
     this.spaceMargin = 16 * 1024 * 1024,
   });
 
@@ -94,6 +95,9 @@ class DownloadService {
 
   /// Longest wait for the next chunk. A 40 MB download has no overall limit.
   final Duration idleTimeout;
+
+  /// Longest wait for the server's response headers (and redirects).
+  final Duration headerTimeout;
 
   /// Extra free space required beyond the artifact size.
   final int spaceMargin;
@@ -162,12 +166,20 @@ class DownloadService {
     CancelToken token,
   ) async {
     final UpdateResponse response;
+    // The wait for headers is bounded and Cancel works during it. A response
+    // that arrives after either is closed so no connection is leaked.
+    final cancelled = Completer<UpdateResponse>();
+    token._onCancel(() {
+      if (!cancelled.isCompleted) cancelled.completeError(_cancelled);
+    });
+    final pending = getFollowingRedirects(
+      _http,
+      url,
+      headers: const {'Accept-Encoding': 'identity'},
+    );
     try {
-      response = await getFollowingRedirects(
-        _http,
-        url,
-        headers: const {'Accept-Encoding': 'identity'},
-      );
+      response = await Future.any([pending, cancelled.future])
+          .timeout(headerTimeout);
     } on UpdateOfflineException {
       throw const DownloadException(
         DownloadFailure.offline,
@@ -175,6 +187,15 @@ class DownloadService {
       );
     } on UpdateProtocolException catch (e) {
       throw DownloadException(DownloadFailure.http, e.message);
+    } on TimeoutException {
+      unawaited(pending.then((r) => r.close(), onError: (Object _) {}));
+      throw const DownloadException(
+        DownloadFailure.interrupted,
+        'The server did not answer in time.',
+      );
+    } on DownloadException {
+      unawaited(pending.then((r) => r.close(), onError: (Object _) {}));
+      rethrow;
     }
     token._onCancel(() => unawaited(response.close()));
     final digest = _DigestSink();

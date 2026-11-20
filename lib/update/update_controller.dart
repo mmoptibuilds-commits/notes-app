@@ -34,6 +34,7 @@ class UpdateController extends ChangeNotifier {
     this.devInstance = false,
     this.startupDelay = const Duration(seconds: 30),
     this.checkInterval = const Duration(hours: 24),
+    this.assetTimeout = const Duration(seconds: 20),
   }) : _http = http,
        _now = now ?? DateTime.now,
        _client = client ?? GithubReleaseClient(http, now: now),
@@ -66,6 +67,9 @@ class UpdateController extends ChangeNotifier {
   final bool devInstance;
   final Duration startupDelay;
   final Duration checkInterval;
+
+  /// Longest wait for each small manifest or signature file.
+  final Duration assetTimeout;
 
   final UpdateHttp _http;
   final DateTime Function() _now;
@@ -204,6 +208,8 @@ class UpdateController extends ChangeNotifier {
           store.write(UpdateKeys.retryAfter, null);
           await _evaluate(release, info);
       }
+    } on TimeoutException {
+      _set(const UpdateFailed('GitHub did not answer in time.'));
     } on UpdateOfflineException {
       _set(const UpdateOffline());
     } on SocketException {
@@ -358,7 +364,13 @@ class UpdateController extends ChangeNotifier {
     return null;
   }
 
-  Future<Uint8List> _fetchAsset(GithubAsset asset, int maxBytes) async {
+  Future<Uint8List> _fetchAsset(GithubAsset asset, int maxBytes) =>
+      _fetchAssetUnbounded(asset, maxBytes).timeout(assetTimeout);
+
+  Future<Uint8List> _fetchAssetUnbounded(
+    GithubAsset asset,
+    int maxBytes,
+  ) async {
     final response = await getFollowingRedirects(_http, asset.downloadUrl);
     if (response.status != 200) {
       await response.close();
@@ -464,6 +476,9 @@ class UpdateController extends ChangeNotifier {
     final status = _status;
     final allowed =
         status is UpdateReadyToInstall ||
+        // Android reported the hand-over, but the user may have dismissed the
+        // system dialog: allow trying again.
+        (status is UpdateInstallationHandedToOs && !status.willRestart) ||
         (status is UpdateBlocked &&
             status.block.kind == BlockKind.installPermission);
     if (ready == null || !allowed) return;

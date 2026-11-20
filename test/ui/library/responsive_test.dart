@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/ui/library/library_layout.dart';
@@ -99,5 +100,36 @@ void main() {
           MediaQuery.textScalerOf(tester.element(find.text('Notes')));
       expect(scaler.scale(22) * 1.2, lessThanOrEqualTo(56));
     });
+  }
+
+  // Linux is a first-class target: the same matrix with a mouse platform.
+  for (final size in const [
+    Size(800, 600),
+    Size(1280, 800),
+    Size(1920, 1080),
+  ]) {
+    for (final scale in const [1.0, 1.5]) {
+      for (final layout in LibraryLayout.values) {
+        testWidgets('Linux ${layout.name} lays out at ${size.width.toInt()}x'
+            '${size.height.toInt()} scale $scale', (tester) async {
+          debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+          addTearDown(() => debugDefaultTargetPlatformOverride = null);
+          final s = seedLibrary();
+          addTearDown(s.services.close);
+          markConflict(s, 'short');
+          s.services.settings.layout = layout;
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.platformDispatcher.clearAllTestValues);
+          await pumpLibrary(tester, s, size: size);
+          await tester.pumpAndSettle();
+          expect(noteItems(), findsWidgets);
+          expect(tester.takeException(), isNull);
+          await tester.enterText(find.byType(TextField), 'the');
+          await tester.pump(const Duration(milliseconds: 150));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
   }
 }

@@ -85,7 +85,17 @@ void main() {
     await asPlatform(tester, TargetPlatform.linux);
     final s = seedLibrary();
     addTearDown(s.services.close);
+    s.services.settings.layout = LibraryLayout.list;
+    s.services.settings.previewLines = 0;
+    s.services.notes.createNote(title: 'Solo', body: paragraphs(['']));
     await pumpLibrary(tester, s, size: const Size(1280, 800));
+    expect(tester.takeException(), isNull);
+    // A one-line row keeps its natural height with a mouse.
+    final solo = find.ancestor(
+      of: find.text('Solo'),
+      matching: find.byType(NoteRow),
+    );
+    expect(sizeOf(tester, solo).height, lessThan(48));
     expect(sizeOf(tester, find.byTooltip('More')), const Size(40, 40));
     expect(sizeOf(tester, chip('Home')).height, 44);
     expect(sizeOf(tester, find.byTooltip('New folder')).width, 36);

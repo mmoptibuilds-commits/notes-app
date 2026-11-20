@@ -449,7 +449,7 @@ class NoteRow extends StatelessWidget {
       // A one-line row still has to be a comfortable touch target.
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          minHeight: hitSize(context, desktop: 0) - 18,
+          minHeight: isTouchPlatform(context) ? touchTarget - 18 : 0,
         ),
         child: Align(
           alignment: Alignment.centerLeft,

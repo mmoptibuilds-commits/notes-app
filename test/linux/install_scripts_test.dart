@@ -140,6 +140,55 @@ void main() {
         reason: 'the old program is kept for recovery',
       );
       expect(userData.readAsStringSync(), 'synthetic data');
+
+      // The adopted copy is now the previous install: the update helper must
+      // accept it (it has no marker) and carry on updating.
+      final archiveRoot = Directory('${temp.path}/notes-1.0.2-linux-x64')
+        ..createSync();
+      Directory('${archiveRoot.path}/bundle/lib').createSync(recursive: true);
+      Directory('${archiveRoot.path}/bundle/data').createSync(recursive: true);
+      Directory('${archiveRoot.path}/update').createSync();
+      File('tool/linux/notes-update-helper')
+          .copySync('${archiveRoot.path}/update/notes-update-helper');
+      File('${archiveRoot.path}/bundle/notes')
+          .writeAsStringSync('#!/bin/sh\necho two\n');
+      Process.runSync('chmod', ['+x', '${archiveRoot.path}/bundle/notes']);
+      final tarball = '${temp.path}/two.tar.gz';
+      Process.runSync('tar', [
+        '-czf',
+        tarball,
+        '-C',
+        temp.path,
+        'notes-1.0.2-linux-x64',
+      ]);
+      final sha = (Process.runSync('sha256sum', [tarball]).stdout as String)
+          .split(' ')
+          .first;
+      final apply = await Process.run('/bin/sh', [
+        'tool/linux/notes-update-helper',
+        'apply',
+        '--pid',
+        '99999999',
+        '--archive',
+        tarball,
+        '--sha256',
+        sha,
+        '--size',
+        '${File(tarball).lengthSync()}',
+        '--install',
+        legacy.path,
+        '--state-dir',
+        '${home.path}/.local/state/com.mmoptibuilds.notes/updater',
+        '--version',
+        '1.0.2',
+        '--build',
+        '20261200',
+      ], environment: env());
+      expect(apply.exitCode, 0, reason: apply.stderr.toString());
+      expect(
+        File('${legacy.path}/notes').readAsStringSync(),
+        contains('echo two'),
+      );
     },
   );
 

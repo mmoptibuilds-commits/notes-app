@@ -173,6 +173,73 @@ t.close()
     );
   });
 
+  group('a previous install made by the first installer (no marker)', () {
+    void legacyPrevious() {
+      final prev = Directory('${install.path}.previous')..createSync();
+      Directory('${prev.path}/lib').createSync();
+      Directory('${prev.path}/data/flutter_assets').createSync(recursive: true);
+      File('${prev.path}/notes').writeAsStringSync('#!/bin/sh\necho legacy\n');
+      Process.runSync('chmod', ['+x', '${prev.path}/notes']);
+    }
+
+    test('does not block the next update', () async {
+      legacyPrevious();
+      final r = await run();
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(
+        File('${install.path}.previous/notes').readAsStringSync(),
+        contains('exit 0'),
+        reason: 'the install being replaced is the new previous',
+      );
+    });
+
+    test(
+      'can be rolled back to, and gets a marker so updates keep working',
+      () async {
+        legacyPrevious();
+        Process.runSync('rm', [
+          '-rf',
+          install.path,
+        ]); // only previous remains...
+        // Put a current install back, so rollback has something to swap out.
+        Directory(install.path).createSync(recursive: true);
+        Directory('${install.path}/lib').createSync();
+        Directory('${install.path}/data').createSync();
+        File('${install.path}/notes').writeAsStringSync('#!/bin/sh\nexit 0\n');
+        Process.runSync('chmod', ['+x', '${install.path}/notes']);
+        File('${install.path}/.managed-install').writeAsStringSync(
+          '{"schema":1,"version":"1.0.1","build":5,"installedAt":"2026-01-01T00:00:00Z"}\n',
+        );
+        final r = await Process.run(
+          '/bin/sh',
+          [
+            helper,
+            'rollback',
+            '--install',
+            install.path,
+            '--state-dir',
+            state.path,
+          ],
+          environment: {
+            'HOME': home.path,
+            'PATH': Platform.environment['PATH']!,
+          },
+        );
+        expect(r.exitCode, 0, reason: r.stderr.toString());
+        expect(
+          File('${install.path}/notes').readAsStringSync(),
+          contains('echo legacy'),
+        );
+        expect(
+          File('${install.path}/.managed-install').readAsStringSync(),
+          contains('"version":"0.0.0"'),
+        );
+        final next = await run(version: '1.0.1', build: 1);
+        expect(next.exitCode, 0, reason: next.stderr.toString());
+      },
+    );
+  });
+
   group('the same version with a higher build is an update', () {
     void installedAs(
       int? build,

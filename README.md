@@ -6,10 +6,10 @@ device-to-device sync is optional.
 
 ## Download
 
-- [Android arm64 APK](https://github.com/mmoptibuilds-commits/notes-app/releases/latest)
-- [Linux x64 archive](https://github.com/mmoptibuilds-commits/notes-app/releases/latest)
+- [Android arm64 APK](https://github.com/mmoptibuilds-commits/notes-app/releases)
+- [Linux x64 archive](https://github.com/mmoptibuilds-commits/notes-app/releases)
 
-You need Android 8 or later, or a Linux x64 desktop with GTK 3 and GLib runtime
+You need Android 7.0 or later (in-app updates need Android 9 or later), or a Linux x64 desktop with GTK 3 and GLib runtime
 libraries. Download the release archive, then check its supplied checksum and
 signed manifest before installing. Manifest verification uses Dart and a
 source checkout of this project:
@@ -34,13 +34,11 @@ offered as a stable update.
 
 ## Status
 
-The current implementation has 387 automated tests passing and 1 skipped
-(integrator report, 2026-11-20). Android was exercised
-on an x86_64 Android 15 emulator. Linux sync was verified end to end by
-pairing with a code, resolving conflicts and deletions, and converging 476
-notes. QR scanning, an arm64 phone, Android in-place upgrade, Tailscale, and
-the first CI run remain unverified. No release has been published; the
-`v1.0.0-preview.1` tag has no release assets. See the
+The automated suite has over 1,200 tests and passes in GitHub Actions. On
+2026-11-20 the signed APK was installed in place on a Nothing Phone 2 (arm64,
+Android 16) with existing notes intact, paired with the Linux app by QR code,
+and synced both ways automatically. Tailscale has not been checked. No stable
+release has been published yet; `v1.0.0-preview.1` is a pre-release. See the
 [verification plan](docs/PLAN.md).
 
 ## Screenshots
@@ -67,7 +65,7 @@ the first CI run remain unverified. No release has been published; the
 
 | Platform | Verified |
 | --- | --- |
-| Android | x86_64 Android 15 emulator; arm64 phone and in-place APK update pending |
+| Android | arm64 phone (Android 16) with in-place APK update; x86_64 Android 15 emulator |
 | Linux | Native app, keyring persistence, Linux packaging, and end-to-end sync |
 
 ## Build from source

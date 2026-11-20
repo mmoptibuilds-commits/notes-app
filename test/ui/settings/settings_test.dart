@@ -1,13 +1,11 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
-import 'package:notes/ui/settings/open_source_licenses.dart';
 import 'package:notes/ui/settings/settings_widgets.dart';
 import 'package:notes/ui/toolbar_item_info.dart';
 

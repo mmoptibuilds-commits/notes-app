@@ -126,6 +126,8 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   final db = AppDatabase.open(dbPath, key: key);
   final notes = NoteRepository(db);
   final settings = AppSettings(db);
+  // Only a database created by this very launch can need the introduction.
+  if (db.createdNow) settings.write('onboarding', 'pending');
   final identity = await DeviceIdentity.loadOrCreate(db);
   final sync = SyncService(
     repo: notes,

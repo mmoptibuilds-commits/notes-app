@@ -162,6 +162,30 @@ class AppSettings extends ChangeNotifier {
 
   set deviceName(String v) => _set('deviceName', v.trim());
 
+  /// First-use introduction. Only a database created by this launch is ever
+  /// marked `pending`; a missing key (every upgraded install) means "do not
+  /// show". Not synced.
+  bool get onboardingPending => _values['onboarding'] == 'pending';
+
+  /// Marks the first-use introduction as shown, skipped or no longer needed.
+  void completeOnboarding() => _set('onboarding', 'done');
+
+  /// Whether the database holds anything the user created or received: any
+  /// note (including trashed or archived), folder, attachment, import record
+  /// or paired device. Reads raw tables so hidden rows count.
+  bool get hasUserData {
+    for (final t in const [
+      'notes',
+      'folders',
+      'attachments',
+      'import_batches',
+      'peers',
+    ]) {
+      if (_db.raw.select('SELECT 1 FROM $t LIMIT 1').isNotEmpty) return true;
+    }
+    return false;
+  }
+
   /// Raw access for small bits of UI state (for example, last opened folder).
   String? read(String key) => _values[key];
   void write(String key, String? value) {

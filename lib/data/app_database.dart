@@ -33,9 +33,20 @@ class DatabaseUnreadableException implements Exception {
 ///
 /// [changes] fires once after every committed transaction that wrote.
 class AppDatabase {
-  AppDatabase._(this._db, this.path, this.deviceId, this.clock, this._seq);
+  AppDatabase._(
+    this._db,
+    this.path,
+    this.deviceId,
+    this.clock,
+    this._seq, {
+    this.createdNow = false,
+  });
 
   final Database _db;
+
+  /// True when this call to [open] created the database (schema version 0).
+  /// Never true for an existing database, including one just migrated.
+  final bool createdNow;
 
   /// File path, or null for an in-memory database.
   final String? path;
@@ -135,8 +146,14 @@ class AppDatabase {
         last: lastHlc == null ? null : Hlc.parse(lastHlc),
       );
       final seq = int.parse(meta('seq') ?? '0');
-      return AppDatabase._(db, path, deviceId, clock, seq)
-        .._persistedHlc = clock.last;
+      return AppDatabase._(
+        db,
+        path,
+        deviceId,
+        clock,
+        seq,
+        createdNow: found == 0,
+      ).._persistedHlc = clock.last;
     } catch (_) {
       db.close();
       rethrow;

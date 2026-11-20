@@ -523,6 +523,116 @@ void main() {
       expect(a.repo.getRecord('bad-1'), isNull);
     });
 
+    test(
+      'a peer removed while a batch is paused cannot apply that batch',
+      () async {
+        final note = b.repo.createNote(
+          id: 'removed-during-batch',
+          title: 'must not arrive',
+          body: body('paused batch'),
+        );
+        final result = await against((ms) async {
+          await hello(ms);
+          await ms.send({
+            't': 'rows',
+            'k': 'notes',
+            'rows': [b.repo.getRecord(note.id)!.toJson()],
+          });
+          // Without `done`, the receiver cannot apply anything. Remove the
+          // peer while the session is waiting for the rest of this batch.
+          a.peers.remove(b.id);
+          await ms.send({'t': 'done', 'upTo': 1, 'count': 1});
+          await ms.expect('done');
+          await ms.expect('applied');
+          await ms.send({'t': 'applied', 'upTo': 0});
+          await ms.expect('need');
+          await ms.send({'t': 'need', 'hashes': <Object>[]});
+          await ms.send({'t': 'blobsdone'});
+          await ms.expect('blobsdone');
+          await ms.send({'t': 'bye'});
+        });
+
+        expect(result, isA<SyncProtocolException>());
+        expect(a.peers.get(b.id), isNull);
+        expect(a.repo.getRecord(note.id), isNull);
+        expect(a.peers.quarantined(), 0);
+      },
+    );
+
+    test('unreadable rows are acknowledged while quarantine stays capped and raw is truncated', () async {
+      const badCount = 501;
+      final sourceIds = [
+        for (var i = 0; i < badCount; i++) 'unreadable-$i',
+        'over-limit',
+      ];
+      final rows = <Map<String, Object?>>[];
+      for (var i = 0; i < badCount; i++) {
+        final note = b.repo.createNote(
+          id: sourceIds[i],
+          title: 'source $i',
+          body: body('valid source row $i'),
+        );
+        rows.add(
+          b.repo.getRecord(note.id)!.toJson()..['body'] = 'not a delta $i',
+        );
+      }
+      final largeSource = b.repo.createNote(
+        id: 'over-limit',
+        title: 'large source',
+        body: body('valid large source row'),
+      );
+      rows.add(
+        b.repo.getRecord(largeSource.id)!.toJson()..['body'] = 'x' * 2000001,
+      );
+
+      final result = await against((ms) async {
+        await hello(ms);
+        await ms.send({'t': 'rows', 'k': 'notes', 'rows': rows});
+        await ms.send({'t': 'done', 'upTo': rows.length, 'count': rows.length});
+        await ms.expect('done');
+        final applied = await ms.expect('applied');
+        expect(
+          applied['upTo'],
+          rows.length,
+          reason: 'the entire batch, including invalid rows, is acknowledged',
+        );
+        await ms.send({'t': 'applied', 'upTo': 0});
+        await ms.expect('need');
+        await ms.send({'t': 'need', 'hashes': <Object>[]});
+        await ms.send({'t': 'blobsdone'});
+        await ms.expect('blobsdone');
+        await ms.send({'t': 'bye'});
+      });
+
+      expect(ok(result).invalidRows, rows.length);
+      expect(a.peers.get(b.id)!.recvCursor, rows.length);
+      expect(a.peers.quarantined(), 500);
+      final quarantined = a.db
+          .select('SELECT raw FROM quarantine')
+          .map((row) => row['raw'] as String)
+          .toList();
+      final quarantinedIds = <String>{};
+      for (final raw in quarantined) {
+        final match = RegExp(r'"id":"([^"]+)"').firstMatch(raw);
+        if (match != null) quarantinedIds.add(match.group(1)!);
+      }
+      expect(quarantinedIds.length, 500);
+      expect(quarantinedIds.contains('unreadable-0'), isFalse);
+      expect(quarantinedIds.contains('unreadable-1'), isFalse);
+      expect(quarantinedIds.contains('unreadable-2'), isTrue);
+      expect(quarantinedIds.contains('unreadable-500'), isTrue);
+      expect(quarantinedIds.contains('over-limit'), isTrue);
+      final oversizedRaw = quarantined.singleWhere(
+        (raw) => raw.contains('over-limit'),
+      );
+      expect(oversizedRaw.length, 2000000);
+      expect(
+        sourceIds.every((id) => b.repo.getRecord(id) != null),
+        isTrue,
+        reason: 'the sending device retains its authoritative source rows',
+      );
+    });
+
     test('a record claiming a clock far in the future aborts the session with nothing applied', () async {
       final n = b.repo.createNote(title: 'time traveller', body: body('x'));
       final j = b.repo.getRecord(n.id)!.toJson();

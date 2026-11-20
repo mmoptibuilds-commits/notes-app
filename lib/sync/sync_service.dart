@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../data/note_repository.dart';
 import 'pairing.dart';
 import 'peers.dart';
+import 'protocol.dart';
 import 'secure_channel.dart';
 import 'sync_session.dart';
 import 'tcp_transport.dart';
@@ -56,6 +57,9 @@ class SyncService extends ChangeNotifier {
   PairingHost? _pairing;
   final _paired = StreamController<Peer>.broadcast();
   final _busy = <String>{};
+  final _sessionCompletions = <String, Completer<SyncOutcome?>>{};
+  final _outgoingDials = <String, _OutgoingDial>{};
+  final _activeChannels = <String, Set<SecureChannel>>{};
   final _nextAttempt = <String, DateTime>{};
   final _failures = <String, int>{};
   Timer? _debounce;
@@ -65,7 +69,11 @@ class SyncService extends ChangeNotifier {
   Stream<Peer> get onPaired => _paired.stream;
 
   bool get running => !_stopped;
-  bool get syncing => _busy.isNotEmpty || _manualRun;
+  bool get syncing =>
+      _busy.isNotEmpty ||
+      _outgoingDials.isNotEmpty ||
+      _sessionCompletions.isNotEmpty ||
+      _manualRun;
   bool _manualRun = false;
   String? currentPeerName;
 
@@ -112,11 +120,36 @@ class SyncService extends ChangeNotifier {
   Future<void> _teardown() async {
     _stopped = true;
     _debounce?.cancel();
+    for (final channels in _activeChannels.values) {
+      for (final channel in channels.toList()) {
+        unawaited(channel.close());
+      }
+    }
+    for (final id in _sessionCompletions.keys.toList()) {
+      _completeSession(id, null);
+    }
     final server = _server;
     _server = null;
     _udp?.close();
     _udp = null;
     await server?.close();
+  }
+
+  void _trackChannel(String peerId, SecureChannel channel) {
+    _activeChannels.putIfAbsent(peerId, () => <SecureChannel>{}).add(channel);
+  }
+
+  void _untrackChannel(String peerId, SecureChannel channel) {
+    final channels = _activeChannels[peerId];
+    channels?.remove(channel);
+    if (channels != null && channels.isEmpty) _activeChannels.remove(peerId);
+  }
+
+  void _completeSession(String peerId, SyncOutcome? outcome) {
+    final completion = _sessionCompletions.remove(peerId);
+    if (completion != null && !completion.isCompleted) {
+      completion.complete(outcome);
+    }
   }
 
   bool _disposed = false;
@@ -163,6 +196,9 @@ class SyncService extends ChangeNotifier {
 
   Future<void> _handle(TcpTransport t, String ip) async {
     String? peerId;
+    _IncomingSession? incomingSession;
+    var incomingAccepted = false;
+    SyncOutcome? incomingOutcome;
     var handshaking = true;
     void established() {
       if (!handshaking) return;
@@ -178,13 +214,37 @@ class SyncService extends ChangeNotifier {
         identity: identity,
         lookupPeer: peers.get,
         lookupOffer: (id) => _pairing?.lookup(id),
+        onSessionPeer: (id) {
+          final outgoing = _outgoingDials[id];
+          if (outgoing != null && !shouldDial(repo.db.deviceId, id)) {
+            incomingSession = outgoing.noteIncoming();
+          }
+        },
+        rejectSessionPeer: (id) async {
+          final outgoing = _outgoingDials[id];
+          if (outgoing == null || !shouldDial(repo.db.deviceId, id)) {
+            return false;
+          }
+          return outgoing.handshake.future;
+        },
       ).timeout(handshakeTimeout);
       established();
+      peerId = ch.peerId;
+      final outgoing = ch.mode == HandshakeMode.session
+          ? _outgoingDials[ch.peerId]
+          : null;
+      if (outgoing != null) {
+        if (shouldDial(repo.db.deviceId, ch.peerId) &&
+            await outgoing.handshake.future) {
+          await ch.close();
+          return;
+        }
+        incomingSession ??= outgoing.noteIncoming();
+      }
       if (_sessions > _maxSessions) {
         await ch.close();
         return;
       }
-      peerId = ch.peerId;
       if (ch.mode == HandshakeMode.pairing) {
         final host = _pairing;
         if (host == null || !host.consume()) {
@@ -206,37 +266,80 @@ class SyncService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      if (!_busy.add(ch.peerId)) {
+      if (peers.get(ch.peerId) == null) {
         await ch.close();
         return;
       }
-      notifyListeners();
+      _trackChannel(ch.peerId, ch);
       try {
-        final session = SyncSession(
-          channel: ch,
-          repo: repo,
-          peers: peers,
-          deviceName: deviceName,
+        incomingOutcome = await _runSession(
+          ch,
+          onStarted: () => incomingAccepted = true,
         );
-        final outcome = await session.run();
-        lastOutcome[ch.peerId] = outcome;
-        lastError.remove(ch.peerId);
       } finally {
-        _busy.remove(ch.peerId);
-        notifyListeners();
+        _untrackChannel(ch.peerId, ch);
       }
     } on Object catch (e) {
-      if (peerId != null && peers.get(peerId) != null) {
-        lastError[peerId] = describeSyncError(e);
+      if (e is! _SessionAlreadyRunning &&
+          peerId != null &&
+          peers.get(peerId) != null) {
+        final message = describeSyncError(e);
+        lastError[peerId] = message;
+        peers.recordError(peerId, message);
         notifyListeners();
       }
       await t.close();
     } finally {
+      incomingSession?.complete(incomingAccepted, incomingOutcome);
       if (handshaking) {
         _handshaking--;
       } else {
         _sessions--;
       }
+    }
+  }
+
+  Future<SyncOutcome> _runSession(
+    SecureChannel channel, {
+    void Function()? onStarted,
+  }) async {
+    final id = channel.peerId;
+    if (peers.get(id) == null) {
+      await channel.close();
+      throw SyncProtocolException('not a paired device');
+    }
+    if (!_busy.add(id)) {
+      await channel.close();
+      throw _SessionAlreadyRunning();
+    }
+    final completion = Completer<SyncOutcome?>();
+    _sessionCompletions[id] = completion;
+    SyncOutcome? outcome;
+    try {
+      currentPeerName = peers.get(id)?.name;
+      onStarted?.call();
+      notifyListeners();
+      outcome = await SyncSession(
+        channel: channel,
+        repo: repo,
+        peers: peers,
+        deviceName: deviceName,
+      ).run();
+      lastOutcome[id] = outcome;
+      lastError.remove(id);
+      _failures.remove(id);
+      _nextAttempt.remove(id);
+      return outcome;
+    } finally {
+      if (!completion.isCompleted) completion.complete(outcome);
+      if (identical(_sessionCompletions[id], completion)) {
+        _sessionCompletions.remove(id);
+      }
+      _busy.remove(id);
+      if (_busy.isEmpty && _outgoingDials.isEmpty && !_manualRun) {
+        currentPeerName = null;
+      }
+      notifyListeners();
     }
   }
 
@@ -329,6 +432,15 @@ class SyncService extends ChangeNotifier {
     peers.remove(id);
     lastError.remove(id);
     lastOutcome.remove(id);
+    _failures.remove(id);
+    _nextAttempt.remove(id);
+    _completeSession(id, null);
+    final channels = _activeChannels.remove(id);
+    if (channels != null) {
+      for (final channel in channels) {
+        unawaited(channel.close());
+      }
+    }
     notifyListeners();
   }
 
@@ -352,33 +464,60 @@ class SyncService extends ChangeNotifier {
     return out;
   }
 
-  /// Syncs with one device. Returns null if it could not be reached or the
-  /// session failed (see [lastError]).
+  /// Syncs with one device. Either device may dial; simultaneous dials are
+  /// resolved by the lower device id. Returns null when a dial or session
+  /// fails (see [lastError]).
   Future<SyncOutcome?> syncPeer(String id) async {
     final peer = peers.get(id);
     if (peer == null) return null;
-    if (!_busy.add(id)) return null;
+    final runningSession = _sessionCompletions[id];
+    if (runningSession != null) return runningSession.future;
+    final existingDial = _outgoingDials[id];
+    if (existingDial != null) return existingDial.completion.future;
+
+    final attempt = _OutgoingDial();
+    _outgoingDials[id] = attempt;
     currentPeerName = peer.name;
     notifyListeners();
+    SyncOutcome? outcome;
     try {
-      final o = await _dial(peer);
-      lastOutcome[id] = o;
-      lastError.remove(id);
-      _failures.remove(id);
-      _nextAttempt.remove(id);
-      return o;
-    } on Object catch (e) {
-      final msg = e is _Unreachable ? e.message : describeSyncError(e);
-      lastError[id] = msg;
-      peers.recordError(id, msg);
-      final n = (_failures[id] ?? 0) + 1;
-      _failures[id] = n;
-      _nextAttempt[id] = DateTime.now().add(
-        Duration(seconds: [20, 60, 180, 600, 900][n.clamp(1, 5) - 1]),
-      );
-      return null;
+      try {
+        outcome = await _dial(peer, attempt);
+        lastOutcome[id] = outcome;
+        lastError.remove(id);
+        _failures.remove(id);
+        _nextAttempt.remove(id);
+      } on Object catch (e) {
+        if (!attempt.handshake.isCompleted) attempt.handshake.complete(false);
+        final incoming = attempt.incoming;
+        if (incoming != null) {
+          final result = await incoming.result.future;
+          if (result.accepted) {
+            outcome = result.outcome;
+            return outcome;
+          }
+        }
+        if (peers.get(id) != null) {
+          final msg = e is _Unreachable ? e.message : describeSyncError(e);
+          lastError[id] = msg;
+          peers.recordError(id, msg);
+          final n = (_failures[id] ?? 0) + 1;
+          _failures[id] = n;
+          _nextAttempt[id] = DateTime.now().add(
+            Duration(seconds: [20, 60, 180, 600, 900][n.clamp(1, 5) - 1]),
+          );
+        }
+        return null;
+      }
+      return outcome;
     } finally {
-      _busy.remove(id);
+      if (identical(_outgoingDials[id], attempt)) {
+        _outgoingDials.remove(id);
+      }
+      if (!attempt.completion.isCompleted) attempt.completion.complete(outcome);
+      if (_busy.isEmpty && _outgoingDials.isEmpty && !_manualRun) {
+        currentPeerName = null;
+      }
       notifyListeners();
     }
   }
@@ -398,7 +537,7 @@ class SyncService extends ChangeNotifier {
     });
   }
 
-  Future<SyncOutcome> _dial(Peer peer) async {
+  Future<SyncOutcome> _dial(Peer peer, _OutgoingDial outgoing) async {
     final tried = <String>{};
     Future<SyncOutcome?> attempt(String ep) async {
       if (!tried.add(ep)) return null;
@@ -414,21 +553,32 @@ class SyncService extends ChangeNotifier {
       } on Object {
         return null;
       }
-      final ch = await SecureChannel.initiateSession(
-        t,
-        myId: repo.db.deviceId,
-        identity: identity,
-        peerId: peer.id,
-        peerPublicKey: peer.publicKey,
-      ).timeout(const Duration(seconds: 10));
-      final outcome = await SyncSession(
-        channel: ch,
-        repo: repo,
-        peers: peers,
-        deviceName: deviceName,
-      ).run();
-      peers.noteEndpoint(peer.id, ep);
-      return outcome;
+      final SecureChannel ch;
+      try {
+        ch = await SecureChannel.initiateSession(
+          t,
+          myId: repo.db.deviceId,
+          identity: identity,
+          peerId: peer.id,
+          peerPublicKey: peer.publicKey,
+        ).timeout(const Duration(seconds: 10));
+        if (!outgoing.handshake.isCompleted) outgoing.handshake.complete(true);
+      } on Object {
+        if (!outgoing.handshake.isCompleted) outgoing.handshake.complete(false);
+        rethrow;
+      }
+      _trackChannel(peer.id, ch);
+      try {
+        if (peers.get(peer.id) == null) {
+          await ch.close();
+          throw SyncProtocolException('not a paired device');
+        }
+        final outcome = await _runSession(ch);
+        peers.noteEndpoint(peer.id, ep);
+        return outcome;
+      } finally {
+        _untrackChannel(peer.id, ch);
+      }
     }
 
     for (final ep in peer.endpoints) {
@@ -441,6 +591,7 @@ class SyncService extends ChangeNotifier {
         if (o != null) return o;
       }
     }
+    if (!outgoing.handshake.isCompleted) outgoing.handshake.complete(false);
     throw _Unreachable(
       '${peer.name} is not reachable right now. Open Notes on both devices '
       'on the same network or Tailscale.',
@@ -577,6 +728,33 @@ class SyncService extends ChangeNotifier {
     return out;
   }
 }
+
+class _OutgoingDial {
+  final completion = Completer<SyncOutcome?>();
+  final handshake = Completer<bool>();
+  _IncomingSession? incoming;
+
+  _IncomingSession noteIncoming() => incoming ??= _IncomingSession();
+}
+
+class _IncomingSession {
+  final result = Completer<_IncomingSessionResult>();
+
+  void complete(bool accepted, SyncOutcome? outcome) {
+    if (!result.isCompleted) {
+      result.complete(_IncomingSessionResult(accepted, outcome));
+    }
+  }
+}
+
+class _IncomingSessionResult {
+  const _IncomingSessionResult(this.accepted, this.outcome);
+
+  final bool accepted;
+  final SyncOutcome? outcome;
+}
+
+class _SessionAlreadyRunning implements Exception {}
 
 class _Unreachable implements Exception {
   _Unreachable(this.message);

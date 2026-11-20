@@ -95,7 +95,10 @@ class SyncSession {
 
   Future<SyncOutcome> run() async {
     final peer = peers.get(channel.peerId);
-    if (peer == null) throw SyncProtocolException('not a paired device');
+    if (peer == null) {
+      await channel.close();
+      throw SyncProtocolException('not a paired device');
+    }
     try {
       try {
         await _exchange(peer).timeout(sessionDeadline);
@@ -240,6 +243,12 @@ class SyncSession {
   void _applyReceived(String peerId, _Received r) {
     outcome.receivedRows = r.count;
     repo.db.transaction(() {
+      // Peer removal can happen while a complete batch is in flight. Check
+      // membership inside the same transaction that applies rows and cursors
+      // so removal wins atomically over any later batch write.
+      if (peers.get(peerId) == null) {
+        throw SyncProtocolException('not a paired device');
+      }
       for (final json in r.folders) {
         final FolderRecord f;
         try {
@@ -378,6 +387,7 @@ class SyncSession {
             next.remove(h);
             answered.add(h);
             if (bytes.length == size && sha256Hex(bytes) == h) {
+              _requirePaired();
               repo.putAttachment(bytes, '${m['mime']}');
               outcome.attachmentsReceived++;
             }
@@ -387,6 +397,12 @@ class SyncSession {
             'unexpected ${m['t']} while receiving images',
           );
       }
+    }
+  }
+
+  void _requirePaired() {
+    if (peers.get(channel.peerId) == null) {
+      throw SyncProtocolException('not a paired device');
     }
   }
 

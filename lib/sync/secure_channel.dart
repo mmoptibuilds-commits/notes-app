@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -248,12 +249,17 @@ class SecureChannel {
   ///
   /// [lookupPeer] returns the stored key of a paired device (null if
   /// unknown); [lookupOffer] returns the live pairing offer with that id.
+  /// [onSessionPeer] sees a session initiator's claimed id before its
+  /// handshake proof is complete. [rejectSessionPeer] may close that session
+  /// before replying to its handshake, without changing the wire protocol.
   static Future<SecureChannel> respond(
     FrameTransport t, {
     required String myId,
     required DeviceIdentity identity,
     required Peer? Function(String peerId) lookupPeer,
     required PairingOffer? Function(Uint8List offerId) lookupOffer,
+    void Function(String peerId)? onSessionPeer,
+    FutureOr<bool> Function(String peerId)? rejectSessionPeer,
     DateTime Function()? now,
   }) async {
     try {
@@ -263,6 +269,8 @@ class SecureChannel {
         identity: identity,
         lookupPeer: lookupPeer,
         lookupOffer: lookupOffer,
+        onSessionPeer: onSessionPeer,
+        rejectSessionPeer: rejectSessionPeer,
         now: now,
       );
     } on HandshakeException {
@@ -277,6 +285,8 @@ class SecureChannel {
     required DeviceIdentity identity,
     required Peer? Function(String peerId) lookupPeer,
     required PairingOffer? Function(Uint8List offerId) lookupOffer,
+    void Function(String peerId)? onSessionPeer,
+    FutureOr<bool> Function(String peerId)? rejectSessionPeer,
     DateTime Function()? now,
   }) async {
     final m1 = await t.receive();
@@ -306,6 +316,11 @@ class SecureChannel {
       peer = lookupPeer(initiatorId);
       if (peer == null) {
         throw HandshakeException('Unknown device $initiatorId.');
+      }
+      onSessionPeer?.call(initiatorId);
+      final reject = rejectSessionPeer;
+      if (reject != null && await reject(initiatorId)) {
+        throw HandshakeException('A sync is already in progress.');
       }
     } else {
       offer = lookupOffer(offerId);

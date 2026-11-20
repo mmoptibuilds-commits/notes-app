@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,13 +9,23 @@ import 'package:notes/data/app_database.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/sync/pairing.dart';
 import 'package:notes/sync/peers.dart';
+import 'package:notes/sync/protocol.dart';
 import 'package:notes/sync/secure_channel.dart';
 import 'package:notes/sync/sync_service.dart';
+import 'package:notes/sync/sync_session.dart';
 import 'package:notes/sync/tcp_transport.dart';
 
 String body(String t) => jsonEncode([
   {'insert': '$t\n'},
 ]);
+
+/// The device that accepted a session finishes its own bookkeeping (cursor,
+/// busy flag) just after the dialing side returns; wait until both are idle.
+Future<void> _quiet(Node x, Node y) async {
+  for (var i = 0; i < 300 && (x.service.syncing || y.service.syncing); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
 
 class Node {
   Node._(this.db, this.repo, this.peers, this.service, this.name);
@@ -217,6 +228,143 @@ void main() {
     expect(b.repo.listNotes().any((n) => n.title == 'later'), isTrue);
   });
 
+  test(
+    'simultaneous sync requests resolve the collision and both complete',
+    () async {
+      final code = await a.service.beginPairing();
+      await b.service.pairWith(PairingCode.decode(code.encode()));
+      await a.service.onPaired.first.timeout(const Duration(seconds: 3));
+      a.repo.createNote(title: 'from laptop', body: body('offline edit A'));
+      b.repo.createNote(title: 'from phone', body: body('offline edit B'));
+
+      final startTogether = Completer<void>();
+      final requests = Future.wait<SyncOutcome?>([
+        (() async {
+          await startTogether.future;
+          return a.service.syncPeer(b.id);
+        })(),
+        (() async {
+          await startTogether.future;
+          return b.service.syncPeer(a.id);
+        })(),
+      ]);
+      startTogether.complete();
+      final outcomes = await requests;
+      await _quiet(a, b);
+
+      expect(outcomes.every((outcome) => outcome is SyncOutcome), isTrue);
+      expect(a.repo.listNotes().map((note) => note.title).toSet(), {
+        'from laptop',
+        'from phone',
+      });
+      expect(b.repo.listNotes().map((note) => note.title).toSet(), {
+        'from laptop',
+        'from phone',
+      });
+      expect(a.service.lastError, isEmpty);
+      expect(b.service.lastError, isEmpty);
+      expect(a.peers.get(b.id)!.lastError, isNull);
+      expect(b.peers.get(a.id)!.lastError, isNull);
+      expect(a.service.lastOutcome[b.id], isA<SyncOutcome>());
+      expect(b.service.lastOutcome[a.id], isA<SyncOutcome>());
+      // Rows a device applied from its peer still count as unconfirmed until a
+      // later session acknowledges them; a second sync settles both sides and
+      // must be quiet (idempotent).
+      expect(await a.service.syncPeer(b.id), isA<SyncOutcome>());
+      await _quiet(a, b);
+      expect(a.peers.pendingFor(b.id), 0);
+      expect(b.peers.pendingFor(a.id), 0);
+      expect(a.service.syncing, isFalse);
+      expect(b.service.syncing, isFalse);
+      expect(a.service.currentPeerName, isNull);
+      expect(b.service.currentPeerName, isNull);
+
+      final nonDesignated = shouldDial(a.id, b.id) ? b : a;
+      var observedStart = false;
+      final autoSyncFinished = Completer<void>();
+      nonDesignated.service.addListener(() {
+        if (nonDesignated.service.currentPeerName != null) {
+          observedStart = true;
+        } else if (observedStart && !nonDesignated.service.syncing) {
+          if (!autoSyncFinished.isCompleted) autoSyncFinished.complete();
+        }
+      });
+      nonDesignated.service.requestAutoSync();
+      await autoSyncFinished.future.timeout(const Duration(seconds: 3));
+      expect(nonDesignated.service.lastError, isEmpty);
+      expect(
+        nonDesignated.peers
+            .get(identical(nonDesignated, a) ? b.id : a.id)!
+            .lastError,
+        isNull,
+      );
+    },
+  );
+
+  test('only the non-designated device calling syncPeer still syncs', () async {
+    final code = await a.service.beginPairing();
+    await b.service.pairWith(PairingCode.decode(code.encode()));
+    await a.service.onPaired.first.timeout(const Duration(seconds: 3));
+    final designated = shouldDial(a.id, b.id) ? a : b;
+    final nonDesignated = identical(designated, a) ? b : a;
+    designated.repo.createNote(title: 'designated', body: body('from D'));
+    nonDesignated.repo.createNote(
+      title: 'non-designated',
+      body: body('from N'),
+    );
+
+    final outcome = await nonDesignated.service.syncPeer(designated.id);
+    await _quiet(a, b);
+
+    expect(
+      outcome,
+      isNotNull,
+      reason: nonDesignated.service.lastError.toString(),
+    );
+    for (final node in [a, b]) {
+      expect(
+        {for (final note in node.repo.listNotes()) note.title},
+        {'designated', 'non-designated'},
+      );
+      expect(node.service.lastError, isEmpty);
+      expect(
+        node.peers.get(identical(node, a) ? b.id : a.id)!.lastError,
+        isNull,
+      );
+      expect(node.service.syncing, isFalse);
+    }
+  });
+
+  test('only the designated device calling syncPeer still syncs', () async {
+    final code = await a.service.beginPairing();
+    await b.service.pairWith(PairingCode.decode(code.encode()));
+    await a.service.onPaired.first.timeout(const Duration(seconds: 3));
+    final designated = shouldDial(a.id, b.id) ? a : b;
+    final nonDesignated = identical(designated, a) ? b : a;
+    designated.repo.createNote(title: 'designated', body: body('from D'));
+    nonDesignated.repo.createNote(
+      title: 'non-designated',
+      body: body('from N'),
+    );
+
+    final outcome = await designated.service.syncPeer(nonDesignated.id);
+    await _quiet(a, b);
+
+    expect(outcome, isNotNull, reason: designated.service.lastError.toString());
+    for (final node in [a, b]) {
+      expect(
+        {for (final note in node.repo.listNotes()) note.title},
+        {'designated', 'non-designated'},
+      );
+      expect(node.service.lastError, isEmpty);
+      expect(
+        node.peers.get(identical(node, a) ? b.id : a.id)!.lastError,
+        isNull,
+      );
+      expect(node.service.syncing, isFalse);
+    }
+  });
+
   test('a used pairing code cannot be used again', () async {
     final code = await a.service.beginPairing();
     await b.service.pairWith(code);
@@ -291,6 +439,49 @@ void main() {
     expect(out, isNull);
     expect(b.service.lastError[a.id], isNotNull);
     expect(a.repo.listNotes(), isEmpty);
+  });
+
+  test('removing a peer closes its paused incoming session', () async {
+    final code = await a.service.beginPairing();
+    await b.service.pairWith(code);
+    await a.service.onPaired.first.timeout(const Duration(seconds: 3));
+    final note = b.repo.createNote(
+      id: 'paused-removed-peer',
+      title: 'must not arrive',
+      body: body('queued before removal'),
+    );
+    final transport = await TcpTransport.connect('127.0.0.1', a.service.port);
+    final channel = await SecureChannel.initiateSession(
+      transport,
+      myId: b.id,
+      identity: b.service.identity,
+      peerId: a.id,
+      peerPublicKey: a.service.identity.publicKey,
+    );
+    final messages = MessageStream(channel);
+    await messages.send({
+      't': 'hello',
+      'proto': 1,
+      'id': b.id,
+      'name': b.name,
+      'schema': 3,
+      'from': 0,
+      'max': 1,
+    });
+    await messages.expect('hello');
+    await messages.expect('done');
+    await messages.send({
+      't': 'rows',
+      'k': 'notes',
+      'rows': [b.repo.getRecord(note.id)!.toJson()],
+    });
+
+    a.service.removePeer(b.id);
+
+    await expectLater(channel.receive(), throwsA(isA<TransportClosed>()));
+    expect(a.repo.getRecord(note.id), isNull);
+    expect(a.service.lastError, isEmpty);
+    await channel.close();
   });
 
   test('a stranger who never paired cannot sync, and cannot read anything', () async {

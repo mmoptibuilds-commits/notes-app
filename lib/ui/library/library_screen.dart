@@ -841,7 +841,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
           );
         case LibraryLayout.masonry:
           return SliverMasonryGrid(
-            key: key,
+            // SliverMasonryGrid keeps a column and offset for every child it
+            // has laid out. When existing children are re-ordered those go
+            // stale and cards end up in the wrong place for good. A key that
+            // changes exactly when the order or membership changes gives a
+            // fresh sliver then (see test/ui/library/masonry_reorder_test).
+            key: ValueKey((
+              key,
+              Object.hashAll([
+                for (var i = start; i < end; i++) items[i].note.id,
+              ]),
+            )),
             delegate: delegate(start, end),
             gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,

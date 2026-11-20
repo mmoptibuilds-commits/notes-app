@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:notes/update/installer.dart';
@@ -22,6 +23,9 @@ class FakeInstaller implements UpdateInstaller {
   InstallStart installResult = const InstallHandedToOs(willRestart: true);
   InstallOutcome? outcome;
   int? free;
+
+  /// When set, `prepare` waits for it (to hold the controller mid-operation).
+  Completer<void>? gate;
   int prepares = 0;
   int installs = 0;
   int settingsOpened = 0;
@@ -33,6 +37,7 @@ class FakeInstaller implements UpdateInstaller {
   @override
   Future<InstallerInfo> prepare() async {
     prepares++;
+    await gate?.future;
     return InstallerInfo(
       platform: platform,
       installedVersion: installedVersion,

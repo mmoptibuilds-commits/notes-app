@@ -249,6 +249,7 @@ class SyncSession {
       if (peers.get(peerId) == null) {
         throw SyncProtocolException('not a paired device');
       }
+      _reingestQuarantine(peerId);
       for (final json in r.folders) {
         final FolderRecord f;
         try {
@@ -263,6 +264,7 @@ class SyncSession {
       for (final json in r.notes) {
         final NoteRecord n;
         try {
+          _validateVersionVector(json);
           n = NoteRecord.fromJson(json);
           if (!n.purged) decodeOps(n.body);
         } on Object catch (e) {
@@ -282,6 +284,69 @@ class SyncSession {
         peers.advance(peerId, received: r.upTo);
       }
     });
+  }
+
+  /// Rechecks retained rows on each completed session. A later app version
+  /// may understand a row that an earlier parser had to quarantine.
+  void _reingestQuarantine(String peerId) {
+    var afterId = 0;
+    while (true) {
+      final page = peers.quarantinePage(peerId, afterId: afterId);
+      if (page.isEmpty) return;
+      for (final row in page) {
+        afterId = row.id;
+        FolderRecord? folder;
+        NoteRecord? note;
+        try {
+          final decoded = jsonDecode(row.raw);
+          if (decoded is! Map) continue;
+          final json = Map<String, Object?>.from(decoded);
+          if (row.kind == 'folder') {
+            folder = FolderRecord.fromJson(json);
+          } else if (row.kind == 'note') {
+            _validateVersionVector(json);
+            note = NoteRecord.fromJson(json);
+            if (!note.purged) decodeOps(note.body);
+          } else {
+            continue;
+          }
+        } on Object {
+          // Keep rows that this parser still cannot understand for a later
+          // version or manual recovery.
+          continue;
+        }
+
+        try {
+          if (folder != null) {
+            _count(_applier.applyFolder(folder));
+          } else if (note != null) {
+            final result = _applier.applyNote(note);
+            _count(result);
+            if (result.conflictCopyId != null) outcome.conflictCopies++;
+          }
+        } on ClockSkewException {
+          // A parseable future-clock row remains recoverable, but must not
+          // prevent this session from applying other rows.
+          continue;
+        }
+        peers.resolveQuarantine(row.id);
+      }
+    }
+  }
+
+  /// VersionVector drops non-positive values when constructed. Reject
+  /// negative or fractional wire counters before that normalization can hide
+  /// a malformed incoming record.
+  void _validateVersionVector(Map<String, Object?> json) {
+    final vector = json['contentVv'];
+    if (vector is! Map) return; // fromJson reports the wrong container type.
+    for (final value in vector.values) {
+      if (value is! int || value < 0) {
+        throw const FormatException(
+          'version vector counters must be non-negative integers',
+        );
+      }
+    }
   }
 
   void _count(ApplyResult res) {

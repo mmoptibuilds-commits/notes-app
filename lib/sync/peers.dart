@@ -70,6 +70,19 @@ class Peer {
   final int recvCursor;
 }
 
+/// A received row that could not be parsed yet.
+class QuarantinedRow {
+  const QuarantinedRow({
+    required this.id,
+    required this.kind,
+    required this.raw,
+  });
+
+  final int id;
+  final String kind;
+  final String raw;
+}
+
 class PairingLimitException implements Exception {
   @override
   String toString() =>
@@ -205,20 +218,31 @@ class PeerStore {
     db.execute(
       'INSERT INTO quarantine(peer_id, kind, received_at, reason, raw) '
       'VALUES (?, ?, ?, ?, ?)',
-      [
-        id,
-        kind,
-        _now(),
-        reason,
-        raw.length > 2000000 ? raw.substring(0, 2000000) : raw,
-      ],
-    );
-    // Bounded: oldest entries go first.
-    db.execute(
-      'DELETE FROM quarantine WHERE id NOT IN '
-      '(SELECT id FROM quarantine ORDER BY id DESC LIMIT 500)',
+      [id, kind, _now(), reason, raw],
     );
   }
+
+  /// Reads a page of retained rows for retry with the current parser.
+  List<QuarantinedRow> quarantinePage(
+    String peerId, {
+    required int afterId,
+    int limit = 100,
+  }) => [
+    for (final r in db.select(
+      'SELECT id, kind, raw FROM quarantine '
+      'WHERE peer_id = ? AND id > ? ORDER BY id LIMIT ?',
+      [peerId, afterId, limit],
+    ))
+      QuarantinedRow(
+        id: r['id'] as int,
+        kind: r['kind'] as String,
+        raw: r['raw'] as String,
+      ),
+  ];
+
+  /// Removes a row only after it has parsed and been applied successfully.
+  void resolveQuarantine(int id) =>
+      db.execute('DELETE FROM quarantine WHERE id = ?', [id]);
 
   int quarantined() =>
       db.select('SELECT count(*) AS n FROM quarantine').first['n'] as int;

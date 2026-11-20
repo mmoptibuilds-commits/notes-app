@@ -5,12 +5,14 @@ import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
 
 import '../../app.dart';
+import '../../importer/atomic_export.dart';
 import '../../importer/legacy_backup.dart';
 import '../../importer/notes_export.dart';
+import '../../importer/notes_restore.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 
-/// Import the legacy Notebook backup, undo imports, export everything.
+/// Import a legacy backup or this app's export, undo legacy imports, export.
 class DataScreen extends StatefulWidget {
   const DataScreen({super.key, this.pickBackup, this.pickSaveFile});
 
@@ -43,21 +45,96 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<void> _import() async {
-    final app = AppScope.of(context);
     final file = await _pick();
     if (file == null || !mounted) return;
-    if (await file.length() > _maxBackupBytes) {
-      _say('That file is too large to be a notes backup.');
-      return;
-    }
-    final String text;
-    final ImportReport preview;
-    final importer = LegacyBackupImporter(app.notes);
     final name = file.name.isEmpty ? 'this backup' : file.name;
+    String text;
     _setBusy(true);
     try {
-      text = utf8.decode(await file.readAsBytes());
-      // Let the spinner paint before the (synchronous) parse.
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // A content URI may not support stat through dart:io. In that case,
+      // XFile.readAsBytes() is the supported way to obtain its contents.
+      try {
+        if (await file.length() > _maxBackupBytes) {
+          _say('That file is too large to be a notes backup.');
+          return;
+        }
+      } on Object {
+        // Check the byte length after reading when stat is unavailable.
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.length > _maxBackupBytes) {
+        _say('That file is too large to be a notes backup.');
+        return;
+      }
+      text = utf8.decode(bytes);
+    } on FormatException catch (e) {
+      _say('That file could not be read: ${e.message}');
+      return;
+    } on Object catch (e) {
+      _say('That file could not be read: $e');
+      return;
+    } finally {
+      _setBusy(false);
+    }
+
+    if (!mounted) return;
+    if (_looksLikeNotesExport(text)) {
+      await _restoreNotesExport(text, name);
+    } else {
+      await _importLegacy(text, name);
+    }
+  }
+
+  Future<void> _restoreNotesExport(String text, String name) async {
+    final app = AppScope.of(context);
+    final restorer = NotesExportRestorer(app.notes);
+    final NotesRestorePreview preview;
+    _setBusy(true);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      preview = restorer.inspect(text);
+    } on FormatException catch (e) {
+      _say('That Notes export could not be restored: ${e.message}');
+      return;
+    } finally {
+      _setBusy(false);
+    }
+    if (!mounted) return;
+
+    final go = await _confirm(
+      title: 'Restore $name?',
+      body:
+          '${preview.summary()}\n\nSame-id records are merged using the '
+          'sync rules. Newer local edits are kept, and concurrent edits get '
+          'a conflict copy. A database snapshot is made before restore when '
+          'the library is stored on disk.',
+      action: 'Restore',
+    );
+    if (go != true || !mounted) return;
+    _setBusy(true);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final report = restorer.apply(
+        text,
+        snapshotPath: _snapshotPath(app.dataDir, app.db.path),
+      );
+      _setBusy(false);
+      if (!mounted) return;
+      await _info('Restore finished', report.summary());
+    } on Object catch (e) {
+      _say('The restore failed and nothing was changed. $e');
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> _importLegacy(String text, String name) async {
+    final app = AppScope.of(context);
+    final importer = LegacyBackupImporter(app.notes);
+    final ImportReport preview;
+    _setBusy(true);
+    try {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       preview = importer.inspect(text, sourceName: name);
     } on LegacyBackupFormatException catch (e) {
@@ -78,21 +155,13 @@ class _DataScreenState extends State<DataScreen> {
       action: 'Import',
     );
     if (go != true || !mounted) return;
-    String? snapshot;
-    if (app.dataDir.isNotEmpty && app.db.path != null) {
-      snapshot = p.join(
-        app.dataDir,
-        'backups',
-        'before-import-${DateTime.now().millisecondsSinceEpoch}.db',
-      );
-    }
     _setBusy(true);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       final report = importer.import(
         text,
         sourceName: name,
-        snapshotPath: snapshot,
+        snapshotPath: _snapshotPath(app.dataDir, app.db.path),
       );
       _setBusy(false);
       if (!mounted) return;
@@ -101,6 +170,28 @@ class _DataScreenState extends State<DataScreen> {
       _say('The import failed and nothing was changed. $e');
     } finally {
       _setBusy(false);
+    }
+  }
+
+  String? _snapshotPath(String dataDir, String? dbPath) {
+    if (dataDir.isEmpty || dbPath == null) return null;
+    return p.join(
+      dataDir,
+      'backups',
+      'before-import-${DateTime.now().millisecondsSinceEpoch}.db',
+    );
+  }
+
+  bool _looksLikeNotesExport(String text) {
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return false;
+      return decoded['format'] == exportFormat ||
+          (decoded.containsKey('deviceId') &&
+              decoded.containsKey('folders') &&
+              decoded.containsKey('attachments'));
+    } on FormatException {
+      return false;
     }
   }
 
@@ -135,14 +226,17 @@ class _DataScreenState extends State<DataScreen> {
           XTypeGroup(label: 'JSON', extensions: ['json']),
         ],
       );
-      if (loc != null) target = File(loc.path);
+      if (loc != null) {
+        final uri = Uri.tryParse(loc.path);
+        target = uri?.scheme == 'file' ? File.fromUri(uri!) : File(loc.path);
+      }
     }
     if (target == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       final json = exportAll(app.notes);
-      await target.writeAsString(json, flush: true);
+      await writeExportAtomically(target, json);
       _say(
         'Exported ${app.notes.counts().active + app.notes.counts().archived + app.notes.counts().trash} notes.',
       );
@@ -219,11 +313,10 @@ class _DataScreenState extends State<DataScreen> {
                 children: [
                   ListTile(
                     leading: const Icon(Icons.file_open_outlined),
-                    title: const Text('Import a Notebook backup'),
+                    title: const Text('Import a backup or Notes export'),
                     subtitle: const Text(
-                      'Choose the JSON file exported by the old app (not the '
-                      'encrypted one). You see what it contains before anything '
-                      'is added, and can undo it.',
+                      'Choose a Notebook backup from the old app or a Notes '
+                      'export. You see what it contains before anything changes.',
                     ),
                     onTap: _busy ? null : _import,
                   ),

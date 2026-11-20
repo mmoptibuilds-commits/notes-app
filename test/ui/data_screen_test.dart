@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/app.dart';
+import 'package:notes/doc/delta_text.dart';
+import 'package:notes/importer/notes_export.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/data/data_screen.dart';
 import 'package:notes/ui/material.dart';
@@ -48,7 +50,7 @@ void main() {
             XFile.fromData(backup, name: 'notebook-backup.json'),
       ),
     );
-    await tester.tap(find.text('Import a Notebook backup'));
+    await tester.tap(find.text('Import a backup or Notes export'));
     await tester.pumpAndSettle();
     expect(find.text('Import this backup?'), findsOneWidget);
     expect(find.textContaining('84 notes'), findsOneWidget);
@@ -71,7 +73,7 @@ void main() {
 
     // Importing the same file again adds nothing.
     final seq = s.db.currentSeq;
-    await tester.tap(find.text('Import a Notebook backup'));
+    await tester.tap(find.text('Import a backup or Notes export'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
@@ -109,7 +111,7 @@ void main() {
             XFile.fromData(utf8.encode('{"hello": 1}'), name: 'x.json'),
       ),
     );
-    await tester.tap(find.text('Import a Notebook backup'));
+    await tester.tap(find.text('Import a backup or Notes export'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SnackBar), findsOneWidget);
@@ -127,7 +129,7 @@ void main() {
         pickBackup: () async => XFile.fromData(backup, name: 'b.json'),
       ),
     );
-    await tester.tap(find.text('Import a Notebook backup'));
+    await tester.tap(find.text('Import a backup or Notes export'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -153,5 +155,47 @@ void main() {
     final json = jsonDecode(out.readAsStringSync()) as Map<String, Object?>;
     final ids = {for (final n in json['notes'] as List) (n as Map)['id']};
     expect(ids, {a.id, b.id});
+  });
+
+  testWidgets('Notes export restore requires confirmation and preserves data', (
+    tester,
+  ) async {
+    const now =
+        1700000000000; // must not be ahead of the real clock (skew guard)
+    final source = AppServices.inMemory(clock: () => now);
+    addTearDown(source.close);
+    final original = source.notes.createNote(
+      id: 'widget-restore-note',
+      title: 'Restored note',
+      body: bodyFromPlainText('synthetic export body'),
+    );
+    final text = exportAll(source.notes, now: DateTime.utc(2027, 1, 15));
+    final s = AppServices.inMemory(clock: () => now);
+    addTearDown(s.close);
+    await pumpData(
+      tester,
+      s,
+      DataScreen(
+        pickBackup: () async =>
+            XFile.fromData(utf8.encode(text), name: 'notes-export.json'),
+      ),
+    );
+
+    await tester.tap(find.text('Import a backup or Notes export'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.textContaining('1 notes: 1 new'), findsOneWidget);
+    expect(s.notes.getRecord(original.id), isNull);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Restore'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Restore finished'), findsOneWidget);
+    expect(s.notes.getRecord(original.id)!.title, 'Restored note');
+    expect(s.notes.getNote(original.id)!.body, original.body);
   });
 }

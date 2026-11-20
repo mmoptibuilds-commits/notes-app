@@ -51,6 +51,30 @@ Run a second, isolated instance (for sync testing) with
 - No new dependency without a line in `docs/DECISIONS.md`.
 - Tests use synthetic data only.
 
+## Agent and worktree rules
+
+- Parallel workers use their own git worktrees (outside the repo, in
+  `~/Projects/notes-worktrees/`) cut from an explicitly named commit. Verify the
+  starting commit; never assume. Existing worktrees are kept.
+- Workers own disjoint files. Shared files (`lib/app.dart`, `lib/ui/theme/`,
+  `pubspec.yaml`, `lib/platform/bootstrap.dart`, `lib/data/`) are changed only by
+  the coordinator. Workers never push, merge, or touch `private/`, signing keys,
+  or the physical phone.
+- Project skills: `.claude/skills/notes-ui-qa` (layout/accessibility checks) and
+  `.claude/skills/notes-release` (release candidate verification).
+
+## Project pitfalls
+
+- First-use state: `AppSettings.onboardingPending` is set only when
+  `AppDatabase.createdNow` (a database created by that launch). A missing key
+  means "do not show" so upgraded installs never see onboarding. Never create
+  sample notes: they would bump the change counter and sync to paired devices.
+- Bare-key shortcuts (`/`, Delete) must not fire while the Quill editor has
+  focus or a dialog is open; pushed routes are not inside the library `Focus`.
+- Exported Notes JSON is not encrypted; Android system backup is disabled and
+  cannot restore the database.
+- Perf and sync tests set `NOTES_DATA_DIR` to a temp dir, never real data.
+
 ## Safety boundaries
 
 - `private/` holds the user's real backup and screenshots. It is git-ignored.

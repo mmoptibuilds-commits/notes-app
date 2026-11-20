@@ -60,4 +60,5 @@ app.*.map.json
 /dist/
 
 # Worker worktrees and local agent state
-/.claude/
+/.claude/*
+!/.claude/skills/

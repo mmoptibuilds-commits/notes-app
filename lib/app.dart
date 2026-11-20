@@ -83,8 +83,14 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
             theme: buildTheme(s),
             themeAnimationDuration: AppMotion(s.animations).medium,
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(s.textScale)),
+              data: MediaQuery.of(context).copyWith(
+                textScaler: s.textScale == 1
+                    ? MediaQuery.textScalerOf(context)
+                    : _AppTextScaler(
+                        MediaQuery.textScalerOf(context),
+                        s.textScale,
+                      ),
+              ),
               child: child!,
             ),
             home: const LibraryScreen(),
@@ -93,4 +99,30 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+/// Applies the user's app-level multiplier after the platform's text scaling.
+/// Keeping the platform scaler intact preserves Android's nonlinear curve.
+@immutable
+class _AppTextScaler extends TextScaler {
+  const _AppTextScaler(this.systemScaler, this.appScale);
+
+  final TextScaler systemScaler;
+  final double appScale;
+
+  @override
+  double scale(double fontSize) => systemScaler.scale(fontSize) * appScale;
+
+  @override
+  @Deprecated('Use scale instead.')
+  double get textScaleFactor => systemScaler.textScaleFactor * appScale;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AppTextScaler &&
+      other.systemScaler == systemScaler &&
+      other.appScale == appScale;
+
+  @override
+  int get hashCode => Object.hash(systemScaler, appScale);
 }

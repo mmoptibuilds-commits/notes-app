@@ -77,12 +77,15 @@ void main() {
     expect(signed.exitCode, 0, reason: signed.stderr.toString());
   }
 
-  Future<ProcessResult> verify() => _dart('tool/release/verify_manifest.dart', [
-    '--pubkeys',
-    pubkeys.path,
-    manifest.path,
-    signature.path,
-  ]);
+  Future<ProcessResult> verify({List<File>? artifacts}) =>
+      _dart('tool/release/verify_manifest.dart', [
+        '--pubkeys',
+        pubkeys.path,
+        if (artifacts == null) '--manifest-only',
+        for (final a in artifacts ?? const <File>[]) ...['--artifact', a.path],
+        manifest.path,
+        signature.path,
+      ]);
 
   test(
     'manifest generation is canonical and Ed25519 signature verifies',
@@ -95,6 +98,59 @@ void main() {
       expect((await verify()).exitCode, 0);
     },
   );
+
+  group('the artifact bytes are checked against the signed manifest', () {
+    test('the genuine files pass', () async {
+      await makeAndSign();
+      final r = await verify(artifacts: [linux, android]);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(r.stdout.toString(), contains('Artifact verified'));
+    });
+
+    test(
+      'a replaced archive fails even though the signature is genuine',
+      () async {
+        await makeAndSign();
+        expect((await verify()).exitCode, 0, reason: 'manifest alone is fine');
+        linux.writeAsStringSync('synthetic linux artifact!'); // altered bytes
+        final r = await verify(artifacts: [linux]);
+        expect(r.exitCode, isNot(0));
+        expect(r.stderr.toString(), contains('signed manifest says'));
+      },
+    );
+
+    test('same size, different bytes: the SHA-256 catches it', () async {
+      await makeAndSign();
+      linux.writeAsStringSync('synthetic linux artifacT'); // same length
+      final r = await verify(artifacts: [linux]);
+      expect(r.exitCode, isNot(0));
+      expect(r.stderr.toString(), contains('do not install'));
+    });
+
+    test('a file the manifest does not list is refused', () async {
+      await makeAndSign();
+      final other = File('${temp.path}/notes-9.9.9-linux-x64.tar.gz')
+        ..writeAsStringSync('x');
+      final r = await verify(artifacts: [other]);
+      expect(r.exitCode, isNot(0));
+      expect(r.stderr.toString(), contains('not listed'));
+    });
+
+    test(
+      'with no artifact and no explicit --manifest-only it refuses',
+      () async {
+        await makeAndSign();
+        final r = await _dart('tool/release/verify_manifest.dart', [
+          '--pubkeys',
+          pubkeys.path,
+          manifest.path,
+          signature.path,
+        ]);
+        expect(r.exitCode, isNot(0));
+        expect(r.stderr.toString(), contains('usage'));
+      },
+    );
+  });
 
   test('tampering, a wrong key, and bad signature are rejected', () async {
     await makeAndSign();

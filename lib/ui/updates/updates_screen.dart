@@ -185,8 +185,10 @@ class _Body extends StatelessWidget {
               title: 'Automatically check about once a day',
               subtitle:
                   'Contacts api.github.com over HTTPS to ask for the latest '
-                  'release. No personal data is sent. Updates are never '
-                  'downloaded or installed without you asking.',
+                  'release. No notes or account details are sent; GitHub sees '
+                  'your IP address and a generic user agent, as with any web '
+                  'request. Updates are never downloaded or installed '
+                  'without you asking.',
               value: settings.autoCheckUpdates,
               onChanged: (v) => settings.autoCheckUpdates = v,
             ),

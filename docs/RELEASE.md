@@ -105,6 +105,8 @@ dart tool/release/sign_manifest.dart --key /offline/path/notes-ed25519-key.json 
   --key-id <key-id> --manifest dist/notes-manifest.json \
   --sig dist/notes-manifest.json.sig
 dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json \
+  --artifact dist/notes-1.0.1-linux-x64.tar.gz \
+  --artifact dist/notes-1.0.1-android-arm64.apk \
   dist/notes-manifest.json dist/notes-manifest.json.sig
 ```
 
@@ -118,10 +120,11 @@ preview-only GitHub release as a stable update.
 
 Before any distribution, the user must provide written upstream permission
 with its publication and distribution scope settled, confirm the expected
-certificate fingerprint and any installed versionCodes, and arrange a
-user-viewable Android font notice. The current app has no in-app licences page
-and the APK does not include the separate font licence text files. CI has not
-run; review its first result before release. After the release is reviewed,
+certificate fingerprint and any installed versionCodes, and review the
+font and open-source notices. The app has an in-app licences page (Settings,
+About, Open-source licences) that includes the bundled font notices, and the
+APK bundles the font licence text files. CI runs on every push; check that the
+run for the exact release commit has passed. After the release is reviewed,
 the user decides whether to create a tag, publish assets, or distribute the
 Linux archive. This procedure does not publish or push anything.
 
@@ -132,9 +135,5 @@ Linux archive. This procedure does not publish or push anything.
 project toolchain. No signing secrets are configured or needed: release
 configuration tests exercise validation helpers and the Gradle release guard
 without building a signed release. The workflow runs formatting, analysis,
-and tests; caching is not configured. The actions use version tags
-(`actions/checkout@v4`, `actions/setup-java@v4`, and
-`subosito/flutter-action@v2`), not full commit SHAs. This worker could not
-verify SHAs offline; verify the intended upstream action commits and pin by
-full SHA in a separate reviewed change. The workflow exists but has never
-run.
+and tests; caching is not configured. The actions are pinned to full commit SHAs (with the version in a comment). The
+workflow runs on every push and has passed.

@@ -87,14 +87,19 @@ class DownloadService {
     this.freeSpace,
     this.idleTimeout = const Duration(seconds: 30),
     this.headerTimeout = const Duration(seconds: 30),
+    this.totalDeadline = const Duration(minutes: 45),
     this.spaceMargin = 16 * 1024 * 1024,
   });
 
   final UpdateHttp _http;
   final FreeSpaceProbe? freeSpace;
 
-  /// Longest wait for the next chunk. A 40 MB download has no overall limit.
+  /// Longest wait for the next chunk.
   final Duration idleTimeout;
+
+  /// Longest the whole transfer may take, so a server that trickles a few
+  /// bytes just often enough to dodge [idleTimeout] cannot hold it forever.
+  final Duration totalDeadline;
 
   /// Longest wait for the server's response headers (and redirects).
   final Duration headerTimeout;
@@ -226,9 +231,16 @@ class DownloadService {
       }
       sink = part.openWrite();
       var received = 0;
+      final clock = Stopwatch()..start();
       try {
         await for (final chunk in response.body.timeout(idleTimeout)) {
           if (token.isCancelled) throw _cancelled;
+          if (clock.elapsed > totalDeadline) {
+            throw const DownloadException(
+              DownloadFailure.interrupted,
+              'The download took too long.',
+            );
+          }
           received += chunk.length;
           if (received > size) {
             throw const DownloadException(

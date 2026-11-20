@@ -131,6 +131,29 @@ void main() {
       },
     );
 
+    test('a state dir that overlaps the data dir falls back', () async {
+      for (final state in [
+        '${home.path}/.local/share', // state would equal the data dir
+        '${home.path}/.local/share/com.mmoptibuilds.notes', // inside it
+      ]) {
+        final i = make(env: {'HOME': home.path, 'XDG_STATE_HOME': state});
+        expect(
+          i.stateDir,
+          '${home.path}/.local/state/com.mmoptibuilds.notes/updater',
+          reason: state,
+        );
+        expect(i.updatesDir, isNot(contains('.local/share')));
+      }
+      final custom = make(
+        env: {
+          'HOME': home.path,
+          'XDG_DATA_HOME': '${home.path}/data',
+          'XDG_STATE_HOME': '${home.path}/data',
+        },
+      );
+      expect(custom.stateDir, isNot(startsWith('${home.path}/data')));
+    });
+
     test('XDG_STATE_HOME is honoured', () async {
       final i = make(
         env: {'HOME': home.path, 'XDG_STATE_HOME': '${home.path}/xdg'},
@@ -228,6 +251,8 @@ void main() {
         i.stateDir,
         '--version',
         '1.0.1',
+        '--build',
+        '20261123',
         '--relaunch',
       ]);
       // chmod 700 on the private directory and on the copied helper.

@@ -7,16 +7,38 @@ import 'release_common.dart';
 
 Future<void> main(List<String> argv) async {
   try {
-    if (argv.length != 4 || argv[0] != '--pubkeys') {
-      throw const FormatException(
-        'usage: verify_manifest.dart --pubkeys PUBKEYS MANIFEST SIGNATURE',
-      );
+    const usage =
+        'usage: verify_manifest.dart --pubkeys PUBKEYS '
+        '(--artifact FILE ... | --manifest-only) MANIFEST SIGNATURE';
+    if (argv.length < 4 || argv[0] != '--pubkeys') {
+      throw const FormatException(usage);
+    }
+    final artifactPaths = <String>[];
+    var manifestOnly = false;
+    final positional = <String>[];
+    for (var i = 2; i < argv.length; i++) {
+      if (argv[i] == '--artifact') {
+        if (i + 1 >= argv.length) {
+          throw const FormatException(usage);
+        }
+        artifactPaths.add(argv[++i]);
+      } else if (argv[i] == '--manifest-only') {
+        manifestOnly = true;
+      } else {
+        positional.add(argv[i]);
+      }
+    }
+    if (positional.length != 2 ||
+        (artifactPaths.isEmpty && !manifestOnly) ||
+        (artifactPaths.isNotEmpty && manifestOnly)) {
+      throw const FormatException(usage);
     }
     final keysJson =
         jsonDecode(await File(argv[1]).readAsString()) as List<dynamic>;
-    final manifestBytes = await File(argv[2]).readAsBytes();
-    final sig =
-        jsonDecode(await File(argv[3]).readAsString()) as Map<String, dynamic>;
+    final manifestBytes = await File(positional[0]).readAsBytes();
+    final sig = jsonDecode(
+      await File(positional[1]).readAsString(),
+    ) as Map<String, dynamic>;
     if (sig['alg'] != 'ed25519') {
       throw const FormatException('Unsupported signature algorithm');
     }
@@ -86,6 +108,31 @@ Future<void> main(List<String> argv) async {
     final expiry = DateTime.parse(manifest['expires'] as String).toUtc();
     if (!expiry.isAfter(DateTime.now().toUtc())) {
       throw const FormatException('Manifest is expired');
+    }
+    // The signature only protects the manifest. Installing is safe only if the
+    // file you hold is the one the manifest describes, so check the bytes.
+    for (final path in artifactPaths) {
+      final file = File(path);
+      final name = path.split(Platform.pathSeparator).last;
+      final listed = artifacts.where((a) => a['filename'] == name).toList();
+      if (listed.length != 1) {
+        throw FormatException('$name is not listed in the signed manifest');
+      }
+      if (!await file.exists()) throw FormatException('$name does not exist');
+      final size = await file.length();
+      if (size != listed.single['size']) {
+        throw FormatException(
+          '$name has $size bytes but the signed manifest says '
+          '${listed.single['size']}',
+        );
+      }
+      final digest = await sha256File(file);
+      if (digest != (listed.single['sha256'] as String).toLowerCase()) {
+        throw FormatException(
+          '$name does not match the signed SHA-256: do not install it',
+        );
+      }
+      stdout.writeln('Artifact verified: $name ($size bytes, sha256 $digest)');
     }
     stdout.writeln('Manifest signature and schema verified (${sig['keyId']}).');
   } on Object catch (error) {

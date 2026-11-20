@@ -4,6 +4,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 version="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
+build="$(sed -n 's/^version: [^+]*+\([0-9]*\).*/\1/p' pubspec.yaml)"
 name="notes-${version}-linux-x64"
 flutter build linux --release
 rm -rf "dist/${name}"
@@ -12,6 +13,7 @@ cp -a build/linux/x64/release/bundle "dist/${name}/bundle"
 cp tool/linux/install.sh tool/linux/uninstall.sh tool/linux/com.mmoptibuilds.notes.desktop "dist/${name}/"
 mkdir -p "dist/${name}/update"
 cp tool/linux/notes-update-helper "dist/${name}/update/notes-update-helper"
+printf '%s\n' "${build:-0}" > "dist/${name}/BUILD"
 cp assets/icon/icon_512.png "dist/${name}/notes.png"
 cp assets/fonts/*-OFL.txt "dist/${name}/" 2>/dev/null || true
 chmod +x "dist/${name}/install.sh" "dist/${name}/uninstall.sh" "dist/${name}/update/notes-update-helper"

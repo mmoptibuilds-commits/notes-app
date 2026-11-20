@@ -478,7 +478,14 @@ void main() {
       await create();
       await pump(tester);
       expect(services.settings.autoCheckUpdates, isTrue);
-      expect(find.textContaining('No personal data is sent'), findsOneWidget);
+      expect(
+        find.textContaining('GitHub sees your IP address'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('No notes or account details'),
+        findsOneWidget,
+      );
       expect(find.textContaining('api.github.com'), findsOneWidget);
       await tester.tap(find.byType(Switch));
       await tester.pump();

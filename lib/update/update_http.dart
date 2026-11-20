@@ -64,10 +64,16 @@ abstract class UpdateHttp {
 class IoUpdateHttp implements UpdateHttp {
   IoUpdateHttp({
     this.connectTimeout = const Duration(seconds: 10),
+    this.headerTimeout = const Duration(seconds: 25),
     this.userAgent = 'Notes-update-check',
   });
 
   final Duration connectTimeout;
+
+  /// Longest wait for the response headers after the request is sent. A server
+  /// that accepts the connection and never answers has its request aborted and
+  /// the client closed, so repeated checks cannot pile up pending sockets.
+  final Duration headerTimeout;
   final String userAgent;
 
   @override
@@ -86,7 +92,13 @@ class IoUpdateHttp implements UpdateHttp {
       final request = await client.getUrl(url);
       request.followRedirects = false;
       headers.forEach(request.headers.set);
-      final response = await request.close();
+      final HttpClientResponse response;
+      try {
+        response = await request.close().timeout(headerTimeout);
+      } on TimeoutException {
+        request.abort();
+        rethrow;
+      }
       final out = <String, String>{};
       response.headers.forEach((name, values) {
         out[name.toLowerCase()] = values.join(', ');

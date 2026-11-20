@@ -55,6 +55,7 @@ void main() {
     String? hash,
     int? size,
     bool relaunch = false,
+    int? build,
     Map<String, String> env = const {},
     String? pathPrefix,
   }) async {
@@ -79,6 +80,7 @@ void main() {
         state.path,
         '--version',
         version,
+        if (build != null) ...['--build', '$build'],
         if (relaunch) '--relaunch',
       ],
       environment: {
@@ -169,6 +171,50 @@ t.close()
       File('${install.path}/notes').readAsStringSync(),
       contains('exit 0'),
     );
+  });
+
+  group('the same version with a higher build is an update', () {
+    void installedAs(
+      int? build,
+    ) => File('${install.path}/.managed-install').writeAsStringSync(
+      '{"schema":1,"version":"1.0.1"${build == null ? '' : ',"build":$build'},'
+      '"installedAt":"2026-01-01T00:00:00Z"}\n',
+    );
+
+    test('higher build is applied and recorded', () async {
+      installedAs(5);
+      final r = await run(build: 6);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(
+        File('${install.path}/.managed-install').readAsStringSync(),
+        contains('"build":6'),
+      );
+    });
+
+    test('the same or a lower build is refused', () async {
+      installedAs(5);
+      expect((await run(build: 5)).exitCode, 10);
+      expect((await run(build: 4)).exitCode, 10);
+      expect(
+        File('${install.path}/notes').readAsStringSync(),
+        contains('exit 0'),
+      );
+    });
+
+    test('an install recorded without a build counts as build 0', () async {
+      installedAs(null);
+      expect((await run()).exitCode, 10, reason: 'no build given = 0');
+      expect((await run(build: 1)).exitCode, 0);
+    });
+
+    test('a higher version wins whatever the builds are', () async {
+      File('${install.path}/.managed-install').writeAsStringSync(
+        '{"schema":1,"version":"1.0.0","build":900,'
+        '"installedAt":"2026-01-01T00:00:00Z"}\n',
+      );
+      final r = await run(version: '1.0.1', build: 1);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+    });
   });
 
   test('wrong digest and size fail before replacing the install', () async {

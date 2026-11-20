@@ -82,12 +82,31 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   String get installDir =>
       _installOverride ?? p.join(_home, '.local/opt/notes');
 
+  /// Where the notes database lives (the data directory, never written here).
+  String get _dataDir {
+    final xdg = _env['XDG_DATA_HOME'];
+    final base = (xdg != null && xdg.isNotEmpty)
+        ? xdg
+        : p.join(_home, '.local/share');
+    return p.join(base, 'com.mmoptibuilds.notes');
+  }
+
   String get _stateBase {
     final xdg = _env['XDG_STATE_HOME'];
     final base = (xdg != null && xdg.isNotEmpty)
         ? xdg
         : p.join(_home, '.local/state');
-    return p.join(base, 'com.mmoptibuilds.notes');
+    final candidate = p.normalize(p.join(base, 'com.mmoptibuilds.notes'));
+    final data = p.normalize(_dataDir);
+    // An XDG_STATE_HOME that lands on or inside the data directory would put
+    // downloads and updater status next to the database, where cleanup could
+    // touch them. Fall back to the standard state location instead.
+    if (candidate == data ||
+        p.isWithin(data, candidate) ||
+        p.isWithin(candidate, data)) {
+      return p.join(_home, '.local/state', 'com.mmoptibuilds.notes');
+    }
+    return candidate;
   }
 
   /// The helper's state directory (status file, lock). Never the data dir.
@@ -194,6 +213,8 @@ class LinuxUpdateInstaller implements UpdateInstaller {
         stateDir,
         '--version',
         c.version,
+        '--build',
+        '${c.manifest.buildNumber}',
         '--relaunch',
       ]);
     } on Object {

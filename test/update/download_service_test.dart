@@ -266,6 +266,30 @@ void main() {
     expect(files(), isEmpty);
   });
 
+  test(
+    'a slow trickle that beats the idle timeout still hits the deadline',
+    () async {
+      final trickle = _TrickleHttp();
+      addTearDown(trickle.stop);
+      final s = DownloadService(
+        trickle,
+        idleTimeout: const Duration(seconds: 5),
+        totalDeadline: const Duration(milliseconds: 200),
+      );
+      await expectLater(
+        s.download(
+          url: url,
+          dir: Directory('${tmp.path}/updates'),
+          filename: name,
+          sha256Hex: goodSha,
+          size: payload.length,
+        ),
+        fails(DownloadFailure.interrupted),
+      );
+      expect(files(), isEmpty, reason: 'no partial file survives');
+    },
+  );
+
   test('Cancel works before the server has answered', () async {
     http.on(url.toString(), FakeReply(200, hang: true));
     final token = CancelToken();
@@ -369,6 +393,31 @@ class _StallingHttp implements UpdateHttp {
     Map<String, String> headers = const {},
   }) async {
     final c = StreamController<List<int>>()..add(chunk);
+    return UpdateResponse(status: 200, headers: const {}, body: c.stream);
+  }
+}
+
+/// Sends one byte every 20 ms: never idle, never finishes.
+class _TrickleHttp implements UpdateHttp {
+  Timer? _timer;
+  StreamController<List<int>>? _c;
+
+  void stop() {
+    _timer?.cancel();
+    _c?.close();
+  }
+
+  @override
+  Future<UpdateResponse> get(
+    Uri url, {
+    Map<String, String> headers = const {},
+  }) async {
+    final c = StreamController<List<int>>();
+    _c = c;
+    _timer = Timer.periodic(
+      const Duration(milliseconds: 20),
+      (_) => c.isClosed ? null : c.add([1]),
+    );
     return UpdateResponse(status: 200, headers: const {}, body: c.stream);
   }
 }

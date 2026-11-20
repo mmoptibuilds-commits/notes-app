@@ -95,4 +95,139 @@ void main() {
     expect(userData.readAsStringSync(), 'synthetic data');
     expect(removed.stdout.toString(), contains('Your notes were not deleted'));
   });
+
+  Map<String, String> env() => {
+    'HOME': home.path,
+    'PATH': Platform.environment['PATH']!,
+  };
+
+  Directory legacyInstall() {
+    // What the first installer left: no marker, no update helper.
+    final d = Directory('${home.path}/.local/opt/notes')
+      ..createSync(recursive: true);
+    Directory('${d.path}/lib').createSync();
+    Directory('${d.path}/data/flutter_assets').createSync(recursive: true);
+    File('${d.path}/notes').writeAsStringSync('#!/bin/sh\necho legacy\n');
+    Process.runSync('chmod', ['+x', '${d.path}/notes']);
+    return d;
+  }
+
+  test(
+    'a baseline-format install (no marker) is adopted and upgraded',
+    () async {
+      File('${package.path}/BUILD').writeAsStringSync('20261122\n');
+      final userData = File(
+        '${home.path}/.local/share/com.mmoptibuilds.notes/sentinel',
+      )..createSync(recursive: true);
+      userData.writeAsStringSync('synthetic data');
+      final legacy = legacyInstall();
+      final r = await Process.run(
+        '${package.path}/install.sh',
+        [],
+        environment: env(),
+      );
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      final marker = File('${legacy.path}/.managed-install').readAsStringSync();
+      expect(marker, contains('"version":"1.0.1"'));
+      expect(marker, contains('"build":20261122'));
+      expect(
+        File('${legacy.path}/update/notes-update-helper').existsSync(),
+        isTrue,
+      );
+      expect(
+        File('${legacy.path}.previous/notes').readAsStringSync(),
+        contains('echo legacy'),
+        reason: 'the old program is kept for recovery',
+      );
+      expect(userData.readAsStringSync(), 'synthetic data');
+    },
+  );
+
+  test('something that is not a Notes install is never replaced', () async {
+    final other = Directory('${home.path}/.local/opt/notes')
+      ..createSync(recursive: true);
+    final keep = File('${other.path}/precious')..writeAsStringSync('keep me');
+    final r = await Process.run(
+      '${package.path}/install.sh',
+      [],
+      environment: env(),
+    );
+    expect(r.exitCode, 10);
+    expect(keep.readAsStringSync(), 'keep me');
+    expect(Directory('${other.path}.previous').existsSync(), isFalse);
+  });
+
+  test('a symlink at the install path is refused', () async {
+    final target = Directory('${temp.path}/elsewhere')..createSync();
+    File('${target.path}/precious').writeAsStringSync('keep me');
+    Directory('${home.path}/.local/opt').createSync(recursive: true);
+    Link('${home.path}/.local/opt/notes').createSync(target.path);
+    final r = await Process.run(
+      '${package.path}/install.sh',
+      [],
+      environment: env(),
+    );
+    expect(r.exitCode, 10);
+    expect(File('${target.path}/precious').readAsStringSync(), 'keep me');
+  });
+
+  group('uninstall', () {
+    test(
+      'refuses a directory that is not a Notes install, changing nothing',
+      () async {
+        final other = Directory('${home.path}/.local/opt/notes')
+          ..createSync(recursive: true);
+        final keep = File('${other.path}/precious')
+          ..writeAsStringSync('keep me');
+        final launcher = File('${home.path}/.local/bin/notes')
+          ..createSync(recursive: true);
+        final r = await Process.run(
+          '${package.path}/uninstall.sh',
+          [],
+          environment: env(),
+        );
+        expect(r.exitCode, 10);
+        expect(
+          r.stderr.toString(),
+          contains('does not look like an installed copy'),
+        );
+        expect(keep.readAsStringSync(), 'keep me');
+        expect(
+          launcher.existsSync(),
+          isTrue,
+          reason: 'nothing else was touched',
+        );
+      },
+    );
+
+    test('refuses a symlink', () async {
+      final target = Directory('${temp.path}/elsewhere')..createSync();
+      File('${target.path}/precious').writeAsStringSync('keep me');
+      Directory('${home.path}/.local/opt').createSync(recursive: true);
+      Link('${home.path}/.local/opt/notes').createSync(target.path);
+      final r = await Process.run(
+        '${package.path}/uninstall.sh',
+        [],
+        environment: env(),
+      );
+      expect(r.exitCode, 10);
+      expect(File('${target.path}/precious').readAsStringSync(), 'keep me');
+    });
+
+    test('removes a baseline-format install and keeps the data', () async {
+      final userData = File(
+        '${home.path}/.local/share/com.mmoptibuilds.notes/sentinel',
+      )..createSync(recursive: true);
+      userData.writeAsStringSync('synthetic data');
+      final legacy = legacyInstall();
+      final r = await Process.run(
+        '${package.path}/uninstall.sh',
+        [],
+        environment: env(),
+      );
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(legacy.existsSync(), isFalse);
+      expect(userData.readAsStringSync(), 'synthetic data');
+    });
+  });
 }

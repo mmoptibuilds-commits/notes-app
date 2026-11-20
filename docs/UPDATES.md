@@ -2,24 +2,34 @@
 
 ## Trust model
 
-The app retrieves release metadata, verifies the Ed25519 signature against a
-public key pinned in the app, checks the signature over the raw manifest bytes,
-then parses the manifest and validates its schema, app id, channel, expiry,
-version and artifact metadata. It checks downloaded bytes against the signed
-SHA-256 and size. A release's signature authenticates the manifest; a pinned
-key establishes which publisher the app trusts.
+**Linux.** The app requires a pinned public key. It verifies the Ed25519
+signature over the raw manifest bytes, then parses the manifest and validates
+its schema, app id, channel, expiry, version and artifact metadata, and checks
+the downloaded bytes against the signed SHA-256 and size. With no key pinned,
+Linux installation is blocked ("release signing key not provisioned").
 
-Stable releases use `notes-manifest.json` and
-`notes-manifest.json.sig`. The preview tag is a pre-release and does not count
-as a stable release. If GitHub has no stable release, the app must say “No
-stable release published.” Expired manifests are rejected. The app does not
-allow downgrades; recorded update bookkeeping is persisted silently. The
-published timestamp and monotonic build/version checks limit replay of older
-releases.
+**Android.** Authenticity rests on the APK's signing certificate, which must
+match the certificate pinned in the app, plus Android's own installer, which
+only accepts an update signed by the same key and always asks the user. The
+manifest signature is additionally required once a key is pinned. While no key
+is pinned the metadata is unsigned, and the Updates screen says so.
+
+**Replay and downgrade.** The app records the highest verified manifest
+version and build and rejects anything lower. It does not allow downgrades and
+rejects expired manifests. The `publishedAt` field is informational; it is not
+used for replay checks. Bookkeeping is persisted silently.
+
+**Manual installs.** `tool/release/verify_manifest.dart --artifact FILE` checks
+the signature and then hashes the file you downloaded against the signed
+manifest. The checksum sidecar alone only detects a damaged download.
+
+Stable releases use `notes-manifest.json` and `notes-manifest.json.sig`. The
+preview tag is a pre-release and does not count as a stable release. If GitHub
+has no stable release, the app says "No stable release published."
 
 The production key list currently has no provisioned key. Update checks can
-still discover release metadata, but automatic Linux replacement is blocked
-with “release signing key not provisioned.” Tests use throwaway keys only.
+still discover release metadata, but automatic Linux replacement is blocked.
+Tests use throwaway keys only.
 
 ## Offline production key provisioning
 

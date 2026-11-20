@@ -12,11 +12,17 @@ the local network.
 1. Download `notes-<version>-linux-x64.tar.gz` and its checksum sidecar from a
    stable GitHub release.
 2. From the directory containing the sidecar, run
-   `sha256sum -c notes-<version>-linux-x64.tar.gz.sha256`.
-3. With Dart and a source checkout of this project, verify the release
-   manifest using the signed manifest, signature, and trusted public keys:
-   `dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json notes-manifest.json notes-manifest.json.sig`.
-4. Extract the archive and run `install.sh` from its top-level directory.
+   `sha256sum -c notes-<version>-linux-x64.tar.gz.sha256`. This only detects a
+   damaged download: the sidecar comes from the same place as the archive.
+3. Before extracting, with Dart and a source checkout of this project, verify
+   the archive against the signed manifest. The verifier checks the signature
+   and then hashes the archive itself:
+   `dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json --artifact notes-<version>-linux-x64.tar.gz notes-manifest.json notes-manifest.json.sig`.
+   Do not continue if it reports an error.
+4. Extract the archive and run `install.sh` from its top-level directory. If
+   you installed Notes with the earlier installer, `install.sh` adopts that copy
+   (it checks that it is a real Notes install owned by you) and keeps the old
+   program as `~/.local/opt/notes.previous`.
 5. Start Notes from the desktop app menu or run `notes`.
 
 The installer is user-scoped and writes program files to

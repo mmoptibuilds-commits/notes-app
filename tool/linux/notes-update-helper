@@ -4,7 +4,7 @@
 set -eu
 umask 077
 
-usage() { echo 'usage: notes-update-helper apply --pid N --archive PATH --sha256 HEX --size BYTES --install DIR --state-dir DIR --version VER [--relaunch] | rollback --install DIR --state-dir DIR' >&2; exit 2; }
+usage() { echo 'usage: notes-update-helper apply --pid N --archive PATH --sha256 HEX --size BYTES --install DIR --state-dir DIR --version VER [--build N] [--relaunch] | rollback --install DIR --state-dir DIR' >&2; exit 2; }
 refused() { echo "$*" >&2; exit 10; }
 verifyfail() { echo "$*" >&2; exit 11; }
 status_write() {
@@ -19,7 +19,7 @@ inside() { case "$1/" in "$2/"*) return 0;; *) return 1;; esac; }
 valid_version() { printf '%s\n' "$1" | awk -F. 'NF == 3 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { valid=1 } END { exit !valid }'; }
 
 command_name=${1-}; [ -n "$command_name" ] || usage; shift
-pid= archive= sha= size= install_dir= state_dir= version= relaunch=no
+pid= archive= sha= size= install_dir= state_dir= version= build=0 relaunch=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pid) [ "$#" -ge 2 ] || usage; pid=$2; shift 2;;
@@ -29,6 +29,7 @@ while [ "$#" -gt 0 ]; do
     --install) [ "$#" -ge 2 ] || usage; install_dir=$2; shift 2;;
     --state-dir) [ "$#" -ge 2 ] || usage; state_dir=$2; shift 2;;
     --version) [ "$#" -ge 2 ] || usage; version=$2; shift 2;;
+    --build) [ "$#" -ge 2 ] || usage; build=$2; shift 2;;
     --relaunch) relaunch=yes; shift;;
     *) usage;;
   esac
@@ -67,6 +68,8 @@ recover
 [ "$(stat -c %u "$install_dir")" = "$(id -u)" ] || refused 'Install is not owned by current user'
 from_version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$install_dir/.managed-install" | head -n 1)
 valid_version "$from_version" || refused 'Invalid managed install version'
+from_build=$(sed -n 's/.*"build"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$install_dir/.managed-install" | head -n 1)
+[ -n "$from_build" ] || from_build=0
 
 if [ "$command_name" = rollback ]; then
   [ -d "$previous" ] && [ -f "$previous/.managed-install" ] || refused 'No managed previous install to restore'
@@ -91,12 +94,18 @@ case "$sha" in *[!0-9a-fA-F]*|'') usage;; esac
 [ "${#sha}" -eq 64 ] || usage
 case "$size" in ''|*[!0-9]*) usage;; esac
 valid_version "$version" || usage
+case "$build" in ''|*[!0-9]*) usage;; esac
+[ "${#build}" -le 12 ] || usage
 valid_path "$archive" || usage
 [ -f "$archive" ] || verifyfail 'Archive missing'
 oldver=$(printf '%s\n' "$from_version" | awk -F. '{printf "%d.%d.%d",$1,$2,$3}')
 newver=$(printf '%s\n' "$version" | awk -F. '{printf "%d.%d.%d",$1,$2,$3}')
-[ "$oldver" != "$newver" ] || refused 'Same-version update refused'
-if [ "$(printf '%s\n%s\n' "$oldver" "$newver" | sort -V | head -n 1)" = "$newver" ]; then refused 'Downgrade refused'; fi
+# Newer means a higher version, or the same version with a higher build.
+if [ "$oldver" = "$newver" ]; then
+  [ "$build" -gt "$from_build" ] || refused 'Same-version update without a newer build refused'
+elif [ "$(printf '%s\n%s\n' "$oldver" "$newver" | sort -V | head -n 1)" = "$newver" ]; then
+  refused 'Downgrade refused'
+fi
 # Wait up to five minutes for the initiating app to exit.
 i=0
 while kill -0 "$pid" 2>/dev/null; do
@@ -126,12 +135,18 @@ function unsafe(p, n,a,i) { if (p ~ /^\//) return 1; n=split(p,a,"/"); for(i=1;i
 ' "$listing" || verifyfail 'Unsafe archive entries or unexpected layout'
 status_write staged false ''
 # Refuse to replace files while any process executes from the install tree.
-for exe in /proc/[0-9]*/exe; do
-  [ -e "$exe" ] || continue
-  target=$(readlink -f "$exe" 2>/dev/null || true)
-  [ -n "$target" ] || continue
-  inside "$target" "$install_dir" && refused 'An application process is still running'
-done
+# Checked now, and again right before the swap (a second instance could have
+# been started while the archive was being unpacked).
+running_check() {
+  for exe in /proc/[0-9]*/exe; do
+    [ -e "$exe" ] || continue
+    target=$(readlink -f "$exe" 2>/dev/null || true)
+    [ -n "$target" ] || continue
+    inside "$target" "$install_dir" && return 1
+  done
+  return 0
+}
+running_check || refused 'An application process is still running'
 unpack=$(mktemp -d "${parent}/.notes-unpack-XXXXXX")
 case "$unpack" in "$parent"/.notes-unpack-*) ;; *) refused 'Unsafe unpack path';; esac
 if ! tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$unpack"; then rm -rf "$unpack"; verifyfail 'Archive extraction failed'; fi
@@ -146,7 +161,8 @@ mkdir -p "$stage/update"
 install -m 0755 "$archive_root/update/notes-update-helper" "$stage/update/notes-update-helper"
 rm -rf "$unpack"
 [ -x "$stage/notes" ] && [ -d "$stage/lib" ] && [ -d "$stage/data" ] || { rm -rf "$stage"; verifyfail 'Runtime files missing'; }
-printf '{"schema":1,"version":"%s","installedAt":"%s"}\n' "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stage/.managed-install"
+printf '{"schema":1,"version":"%s","build":%s,"installedAt":"%s"}\n' "$version" "$build" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stage/.managed-install"
+if ! running_check; then rm -rf "$stage"; refused 'An application process is still running'; fi
 status_write swapping false ''
 if [ -e "$previous" ]; then
   [ -f "$previous/.managed-install" ] && [ "$(stat -c %u "$previous")" = "$(id -u)" ] || { rm -rf "$stage"; refused 'Unsafe previous install'; }

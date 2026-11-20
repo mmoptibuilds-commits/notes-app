@@ -10,14 +10,22 @@ device-to-device sync is optional.
 - [Linux x64 archive](https://github.com/mmoptibuilds-commits/notes-app/releases)
 
 You need Android 7.0 or later (in-app updates need Android 9 or later), or a Linux x64 desktop with GTK 3 and GLib runtime
-libraries. Download the release archive, then check its supplied checksum and
-signed manifest before installing. Manifest verification uses Dart and a
-source checkout of this project:
+libraries. Download the release archive, then verify it **before** extracting or
+running anything from it. The checksum file only detects a damaged download:
+it comes from the same place as the archive, so it cannot prove the archive is
+genuine. The signed manifest can, and the verifier below hashes the archive
+itself and compares it with the signed manifest. It uses Dart and a source
+checkout of this project:
 
 ```sh
-sha256sum -c notes-1.0.1-linux-x64.tar.gz.sha256
-dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json notes-manifest.json notes-manifest.json.sig
+sha256sum -c notes-1.0.1-linux-x64.tar.gz.sha256     # damaged download?
+dart tool/release/verify_manifest.dart --pubkeys tool/release_signing_pubkeys.json \
+  --artifact notes-1.0.1-linux-x64.tar.gz notes-manifest.json notes-manifest.json.sig
 ```
+
+Until the owner publishes a signing key in `tool/release_signing_pubkeys.json`
+the second command cannot succeed, so releases cannot yet be verified this way;
+see [docs/UPDATES.md](docs/UPDATES.md).
 
 Extract the Linux archive and run `install.sh`; launch Notes from the app menu
 or run `notes`. To upgrade, install a newer archive over the managed install,

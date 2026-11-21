@@ -61,6 +61,7 @@ class SyncService extends ChangeNotifier {
   final _outgoingDials = <String, _OutgoingDial>{};
   final _activeChannels = <String, Set<SecureChannel>>{};
   final _nextAttempt = <String, DateTime>{};
+  final _pendingAutoSync = <String, int>{};
   final _failures = <String, int>{};
   Timer? _debounce;
   bool _stopped = true;
@@ -315,6 +316,7 @@ class SyncService extends ChangeNotifier {
     final completion = Completer<SyncOutcome?>();
     _sessionCompletions[id] = completion;
     SyncOutcome? outcome;
+    var sendLimit = repo.db.currentSeq;
     try {
       currentPeerName = peers.get(id)?.name;
       onStarted?.call();
@@ -325,12 +327,17 @@ class SyncService extends ChangeNotifier {
         peers: peers,
         deviceName: deviceName,
       ).run();
+      sendLimit = outcome.sendLimit ?? sendLimit;
       lastOutcome[id] = outcome;
       lastError.remove(id);
       _failures.remove(id);
       _nextAttempt.remove(id);
       return outcome;
     } finally {
+      final currentSeq = repo.db.currentSeq;
+      if (currentSeq > sendLimit) {
+        _pendingAutoSync[id] = currentSeq;
+      }
       if (!completion.isCompleted) completion.complete(outcome);
       if (identical(_sessionCompletions[id], completion)) {
         _sessionCompletions.remove(id);
@@ -340,6 +347,7 @@ class SyncService extends ChangeNotifier {
         currentPeerName = null;
       }
       notifyListeners();
+      _schedulePendingAutoSync();
     }
   }
 
@@ -471,9 +479,15 @@ class SyncService extends ChangeNotifier {
     final peer = peers.get(id);
     if (peer == null) return null;
     final runningSession = _sessionCompletions[id];
-    if (runningSession != null) return runningSession.future;
+    if (runningSession != null) {
+      _pendingAutoSync[id] = repo.db.currentSeq;
+      return runningSession.future;
+    }
     final existingDial = _outgoingDials[id];
-    if (existingDial != null) return existingDial.completion.future;
+    if (existingDial != null) {
+      _pendingAutoSync[id] = repo.db.currentSeq;
+      return existingDial.completion.future;
+    }
 
     final attempt = _OutgoingDial();
     _outgoingDials[id] = attempt;
@@ -519,6 +533,7 @@ class SyncService extends ChangeNotifier {
         currentPeerName = null;
       }
       notifyListeners();
+      _schedulePendingAutoSync();
     }
   }
 
@@ -531,10 +546,33 @@ class SyncService extends ChangeNotifier {
       for (final p in peers.list()) {
         final next = _nextAttempt[p.id];
         if (next != null && next.isAfter(DateTime.now())) continue;
-        if (_busy.contains(p.id)) continue;
+        if (_busy.contains(p.id) || _outgoingDials.containsKey(p.id)) {
+          _pendingAutoSync[p.id] = repo.db.currentSeq;
+          continue;
+        }
         await syncPeer(p.id);
       }
     });
+  }
+
+  void _schedulePendingAutoSync() {
+    if (_pendingAutoSync.isEmpty || _stopped || _disposed) return;
+    unawaited(_drainPendingAutoSync());
+  }
+
+  Future<void> _drainPendingAutoSync() async {
+    for (final id in _pendingAutoSync.keys.toList()) {
+      if (_busy.contains(id) || _outgoingDials.containsKey(id)) continue;
+      final requestedAt = _pendingAutoSync.remove(id);
+      if (requestedAt == null || peers.get(id) == null) continue;
+      final next = _nextAttempt[id];
+      if (next != null && next.isAfter(DateTime.now())) continue;
+      // A pending request is useful only if local data advanced after the
+      // send snapshot. This prevents an idle follow-up from scheduling itself.
+      final limit = lastOutcome[id]?.sendLimit;
+      if (limit == null || requestedAt <= limit) continue;
+      await syncPeer(id);
+    }
   }
 
   Future<SyncOutcome> _dial(Peer peer, _OutgoingDial outgoing) async {

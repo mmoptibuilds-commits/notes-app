@@ -335,6 +335,75 @@ void main() {
     }
   });
 
+  test('local edit during a session is sent in one follow-up sync', () async {
+    final code = await a.service.beginPairing();
+    await b.service.pairWith(PairingCode.decode(code.encode()));
+    await a.service.onPaired.first.timeout(const Duration(seconds: 3));
+
+    final original = a.repo.createNote(
+      title: 'edit during sync',
+      body: body('original'),
+    );
+    b.repo.createNote(title: 'peer commit', body: body('committed'));
+
+    final edited = Completer<void>();
+    final delivered = Completer<void>();
+    var editStarted = false;
+    void injectEdit() {
+      if (editStarted ||
+          !a.repo.listNotes().any((note) => note.title == 'peer commit')) {
+        return;
+      }
+      editStarted = true;
+      final current = a.repo.getRecord(original.id)!;
+      a.repo.saveContent(
+        original.id,
+        title: 'edited during sync',
+        body: body('updated after the peer commit'),
+        base: current.contentVv,
+      );
+      edited.complete();
+    }
+
+    void observeDelivery() {
+      if (b.repo.getRecord(original.id)?.body ==
+              body('updated after the peer commit') &&
+          !delivered.isCompleted) {
+        delivered.complete();
+      }
+    }
+
+    a.repo.changes.addListener(injectEdit);
+    addTearDown(() => a.repo.changes.removeListener(injectEdit));
+    b.repo.changes.addListener(observeDelivery);
+    addTearDown(() => b.repo.changes.removeListener(observeDelivery));
+    var sessionActive = false;
+    var sessionStarts = 0;
+    a.service.addListener(() {
+      final active = a.service.currentPeerName != null;
+      if (active && !sessionActive) sessionStarts++;
+      sessionActive = active;
+    });
+
+    final starter = shouldDial(a.id, b.id) ? a : b;
+    final other = identical(starter, a) ? b : a;
+    await starter.service.syncPeer(other.id);
+    await edited.future.timeout(const Duration(seconds: 3));
+    a.repo.changes.removeListener(injectEdit);
+    await delivered.future.timeout(const Duration(seconds: 3));
+    await _quiet(a, b);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(
+      b.repo.getRecord(original.id)!.body,
+      body('updated after the peer commit'),
+    );
+    expect(sessionStarts, greaterThanOrEqualTo(2));
+    expect(sessionStarts, lessThan(4), reason: 'follow-up syncing must settle');
+    expect(a.service.syncing, isFalse);
+    expect(b.service.syncing, isFalse);
+  });
+
   test('only the designated device calling syncPeer still syncs', () async {
     final code = await a.service.beginPairing();
     await b.service.pairWith(PairingCode.decode(code.encode()));

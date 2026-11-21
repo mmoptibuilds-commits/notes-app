@@ -14,6 +14,9 @@ import 'secure_channel.dart';
 
 /// What one sync session did.
 class SyncOutcome {
+  /// Highest local change sequence included in this session's send snapshot.
+  /// The service uses this to detect edits made while rows were transferring.
+  int? sendLimit;
   int sentRows = 0;
   int receivedRows = 0;
   int created = 0;
@@ -130,6 +133,7 @@ class SyncSession {
     }
     final theirFrom = _int(hello['from']);
     final snapshot = db.currentSeq;
+    outcome.sendLimit = snapshot;
     // A cursor ahead of everything we have means we were restored from an
     // older copy: send it all rather than silently skipping new changes.
     final reset = theirFrom > snapshot;

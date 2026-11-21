@@ -34,12 +34,12 @@ from the same place as the archive, so it cannot prove the archive is genuine.
 The signed manifest can. Download `notes-manifest.json`,
 `notes-manifest.json.sig` and the archive from the same release, save the
 release public key shown in [Release signing key](#release-signing-key) as
-`notes-release.pem`, and run, with the release's version in place of `1.0.0`:
+`notes-release.pem`, and run, with the release's version in place of `1.1.0`:
 
 ```sh
 sed -n 's/.*"signature":"\([^"]*\)".*/\1/p' notes-manifest.json.sig | base64 -d > notes-manifest.sig.bin
 openssl pkeyutl -verify -pubin -inkey notes-release.pem -rawin -in notes-manifest.json -sigfile notes-manifest.sig.bin
-grep -q "\"filename\":\"notes-1.0.0-linux-x64.tar.gz\",\"platform\":\"linux\",\"sha256\":\"$(sha256sum notes-1.0.0-linux-x64.tar.gz | cut -d' ' -f1)\"" notes-manifest.json && echo "archive matches the signed manifest"
+grep -q "\"filename\":\"notes-1.1.0-linux-x64.tar.gz\",\"platform\":\"linux\",\"sha256\":\"$(sha256sum notes-1.1.0-linux-x64.tar.gz | cut -d' ' -f1)\"" notes-manifest.json && echo "archive matches the signed manifest"
 ```
 
 Continue only if the second command prints `Signature Verified Successfully`

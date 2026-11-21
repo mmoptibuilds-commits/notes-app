@@ -1,12 +1,12 @@
 # Stable release procedure
 
-Release candidate: `1.0.0+20261123` (versionName `1.0.0`, Android
-versionCode `20261123`). The latest recorded read-only phone check, on
+Current release: `1.1.0+20261124` (versionName `1.1.0`, Android
+versionCode `20261124`), published 2026-11-21. The latest recorded read-only phone check, on
 2026-11-21, found versionCode `20261122`; check installed versionCodes
 read-only again before installing, including on other target devices. Treat
 that phone value as a dated snapshot, not a permanent current value. The
 `tool/last_release_version_code.txt` holds the build number of the last
-distributed stable release (`20261123`, Notes 1.0.0, published 2026-11-21).
+distributed stable release (`20261124`, Notes 1.1.0, published 2026-11-21).
 Update it in the commit that follows each published release.
 
 ## 1. Preflight
@@ -31,8 +31,7 @@ upstream permission scope before distributing anything.
 
 ## 2. Set the version
 
-For this release, the candidate version in `pubspec.yaml` is
-`1.0.0+20261123`. Before changing it for a later release, make a fresh
+The last released version in `pubspec.yaml` is `1.1.0+20261124`. Before changing it for a later release, make a fresh
 read-only check of installed phone versionCodes. Change only the `version:`
 line, then run:
 
@@ -73,7 +72,7 @@ The verifier calls Android SDK `apksigner verify --print-certs`, rejects a
 debug certificate, and checks the result against
 `tool/release_cert_sha256.txt`. It finds `apksigner` under the SDK named by
 `ANDROID_SDK_ROOT` or `ANDROID_HOME`. Confirm `apkanalyzer` reports
-`20261123` and the APK reports the expected package id,
+the new build number (e.g. `20261124` for 1.1.0) and the APK reports the expected package id,
 `com.mmoptibuilds.notes`.
 
 ## 5. Package Linux and verify checksums
@@ -82,14 +81,13 @@ With Flutter still on `PATH`:
 
 ```sh
 tool/package_linux.sh
-sha256sum -c dist/notes-1.0.0-linux-x64.tar.gz.sha256
+(cd dist && sha256sum -c notes-<version>-linux-x64.tar.gz.sha256)
 ```
 
 The script builds `flutter build linux --release`, creates
-`dist/notes-1.0.0-linux-x64.tar.gz` with the application bundle, installer,
+`dist/notes-<version>-linux-x64.tar.gz` with the application bundle, installer,
 uninstaller, update helper, desktop entry, icon, and four font OFL texts, then
-writes a SHA-256 sidecar. The checksum command verifies that sidecar from the
-repository root.
+writes a SHA-256 sidecar. The sidecar names the bare file, so the checksum runs inside `dist/`.
 
 ## 6. Stable update manifest and assets
 

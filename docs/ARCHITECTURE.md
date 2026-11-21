@@ -713,6 +713,16 @@ for the first results only (SQLite `snippet()` took seconds on a 1 MB note).
 `gridCardExtent`, which mirrors card metrics so fixed-height grid cards fit at
 any text scale.
 
+On phone-width windows, search results use one-column rows when the saved layout
+is Grid or Masonry; the saved layout itself does not change. The folder strip
+scrolls the selected chip into view on first layout. The mobile overflow menu
+opens below its 48 dp More button, lists destinations before View options, and
+keeps Settings last; desktop retains a view-only menu. Its layout picker is a
+single row of Grid, Masonry and List buttons, and the menu scrolls when its
+contents exceed the available height. The phone All view is titled All notes;
+empty active and Unfiled states give next steps that match the phone FAB or the
+desktop New note button.
+
 ### 8.3 Editor
 
 `EditorSession` (`editor_session.dart`) is the non-widget core, tested without

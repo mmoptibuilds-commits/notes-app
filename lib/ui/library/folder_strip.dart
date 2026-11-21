@@ -19,7 +19,7 @@ double stripHeight(BuildContext context, TextScaler scaler) =>
     math.max(hitSize(context, desktop: 44), chipHeight(scaler) + 14);
 
 /// Compact horizontally scrollable row of folder chips.
-class FolderStrip extends StatelessWidget {
+class FolderStrip extends StatefulWidget {
   const FolderStrip({
     super.key,
     required this.folders,
@@ -50,32 +50,94 @@ class FolderStrip extends StatelessWidget {
   final void Function(Folder folder, Offset position) onFolderMenu;
 
   @override
+  State<FolderStrip> createState() => _FolderStripState();
+}
+
+class _FolderStripState extends State<FolderStrip> {
+  final ScrollController _scroll = ScrollController();
+  final GlobalKey _selectedChipKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleSelectedChipIntoView();
+  }
+
+  @override
+  void didUpdateWidget(covariant FolderStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedId != widget.selectedId ||
+        oldWidget.unfiledSelected != widget.unfiledSelected) {
+      _scheduleSelectedChipIntoView();
+    }
+  }
+
+  void _scheduleSelectedChipIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final selected = _selectedChipKey.currentContext?.findRenderObject();
+      if (selected == null) return;
+      _scroll.position.ensureVisible(
+        selected,
+        alignment: 0.5,
+        duration: Duration.zero,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final folders = widget.folders;
+    final counts = widget.counts;
+    final selectedId = widget.selectedId;
+    final unfiledSelected = widget.unfiledSelected;
+    final unfiledStartup = widget.unfiledStartup;
+    final inset = widget.inset;
+    final onAll = widget.onAll;
+    final onFolder = widget.onFolder;
+    final onUnfiled = widget.onUnfiled;
+    final onNew = widget.onNew;
+    final onFolderMenu = widget.onFolderMenu;
     final showUnfiled =
         folders.isNotEmpty &&
         (counts.unfiled > 0 || unfiledSelected || unfiledStartup);
     final chips = <Widget>[
-      _Chip(
-        label: 'All',
-        count: counts.active,
-        selected: selectedId == null && !unfiledSelected,
-        onTap: onAll,
+      _selectedChip(
+        _Chip(
+          label: 'All',
+          count: counts.active,
+          selected: selectedId == null && !unfiledSelected,
+          onTap: onAll,
+        ),
+        selectedId == null && !unfiledSelected,
       ),
       if (showUnfiled)
-        _Chip(
-          label: 'Unfiled',
-          count: counts.unfiled,
-          selected: unfiledSelected,
-          onTap: onUnfiled,
+        _selectedChip(
+          _Chip(
+            label: 'Unfiled',
+            count: counts.unfiled,
+            selected: unfiledSelected,
+            onTap: onUnfiled,
+          ),
+          unfiledSelected,
         ),
       for (final f in folders)
-        _Chip(
-          key: ValueKey('folder-${f.id}'),
-          label: f.name,
-          count: f.noteCount,
-          selected: selectedId == f.id,
-          onTap: () => onFolder(f),
-          onMenu: (pos) => onFolderMenu(f, pos),
+        _selectedChip(
+          _Chip(
+            key: ValueKey('folder-${f.id}'),
+            label: f.name,
+            count: f.noteCount,
+            selected: selectedId == f.id,
+            onTap: () => onFolder(f),
+            onMenu: (pos) => onFolderMenu(f, pos),
+          ),
+          selectedId == f.id,
         ),
       _Chip(icon: Icons.add_rounded, tooltip: 'New folder', onTap: onNew),
     ];
@@ -83,6 +145,7 @@ class FolderStrip extends StatelessWidget {
     return SizedBox(
       height: stripHeight(context, scaler),
       child: ListView.separated(
+        controller: _scroll,
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: inset),
         itemCount: chips.length,
@@ -91,6 +154,9 @@ class FolderStrip extends StatelessWidget {
       ),
     );
   }
+
+  Widget _selectedChip(Widget chip, bool selected) =>
+      selected ? KeyedSubtree(key: _selectedChipKey, child: chip) : chip;
 }
 
 class _Chip extends StatefulWidget {

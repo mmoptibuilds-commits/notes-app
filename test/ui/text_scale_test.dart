@@ -18,7 +18,7 @@ void main() {
       for (final appScale in [1.0, 1.4]) {
         services.settings.textScale = appScale;
         await pumpApp(tester, services);
-        final context = tester.element(find.text('Notes'));
+        final context = tester.element(find.text('All notes'));
         final scaler = MediaQuery.textScalerOf(context);
         expect(scaler.scale(20), closeTo(20 * systemScale * appScale, 0.001));
       }

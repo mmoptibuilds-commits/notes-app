@@ -94,10 +94,10 @@ void main() {
       }
       // The heading sits in a 56 dp bar. A rect cannot show clipping (the
       // box clamps the text), so check the scale the title is drawn with.
-      final text = tester.widget<Text>(find.text('Notes'));
+      final text = tester.widget<Text>(find.text('All notes'));
       final scaler =
           text.textScaler ??
-          MediaQuery.textScalerOf(tester.element(find.text('Notes')));
+          MediaQuery.textScalerOf(tester.element(find.text('All notes')));
       expect(scaler.scale(22) * 1.2, lessThanOrEqualTo(56));
     });
   }

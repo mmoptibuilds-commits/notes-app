@@ -29,8 +29,8 @@ pre-release with no assets.
 ## Next actions
 
 1. Complete Android and Linux release checks in [RELEASE.md](RELEASE.md).
-2. Provision an offline production signing key for update manifests
-   ([UPDATES.md](UPDATES.md)); until then Linux self-update stays blocked.
+2. Sign the release manifest with the pinned production key `notes-release-1`
+   (pinned 2026-11-21; [UPDATES.md](UPDATES.md)) for the final artifacts.
 3. Obtain written upstream permission with publication and distribution scope
    settled before any public release.
 
@@ -54,7 +54,7 @@ pre-release with no assets.
 | CI workflow | Verified | Runs on every push; passing |
 | Public release | Not published | Only the `v1.0.0-preview.1` pre-release exists |
 | In-app update checker | Verified on emulator | Real GitHub request reports no stable release; installer hand-off reaches Android's confirmation dialog; not yet end-to-end on a real device |
-| Linux self-update | Blocked | Needs an owner-provisioned signing key; helper tested end to end with synthetic packages |
+| Linux self-update | Unverified | Key `notes-release-1` pinned 2026-11-21; helper tested end to end with synthetic packages; a real update needs a second signed release |
 
 ## Release candidate
 

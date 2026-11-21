@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/update/manifest.dart';
 import 'package:notes/update/pinned_keys.dart';
@@ -45,8 +46,61 @@ void main() {
     expect(kReleaseCertSha256, text.trim().toLowerCase());
   });
 
-  test('no key is pinned until the owner provisions one', () {
-    expect(kPinnedKeys, isEmpty);
+  group('production manifest key', () {
+    // The one production key. Changing it locks every installed build out of
+    // signed updates, so this literal is deliberate.
+    const keyId = 'notes-release-1';
+    const publicKey = '0Fp4/rw2KnbJD7bt6tA2spIhMTLLFtJwYiEHaivaXzM=';
+    const fingerprint =
+        '6947c0cb0e4311f7579a37d028f5b5e013326f93935b2b918cacfbd7a0ed0471';
+
+    // Ed25519 SubjectPublicKeyInfo (RFC 8410) around the 32 raw key bytes.
+    List<int> spki(String b64) => [
+      0x30,
+      0x2a,
+      0x30,
+      0x05,
+      0x06,
+      0x03,
+      0x2b,
+      0x65,
+      0x70,
+      0x03,
+      0x21,
+      0x00,
+      ...base64.decode(b64),
+    ];
+
+    test('the app pins exactly notes-release-1', () {
+      expect(kPinnedKeys, hasLength(1));
+      expect(kPinnedKeys.single.keyId, keyId);
+      expect(kPinnedKeys.single.publicKey, publicKey);
+      expect(base64.decode(publicKey), hasLength(32));
+    });
+
+    test('tool/release_signing_pubkeys.json lists the same keys', () {
+      final json = jsonDecode(
+        File('tool/release_signing_pubkeys.json').readAsStringSync(),
+      ) as List<dynamic>;
+      expect(
+        json,
+        kPinnedKeys
+            .map((k) => {'keyId': k.keyId, 'publicKey': k.publicKey})
+            .toList(),
+      );
+    });
+
+    test('README publishes the same PEM key and full fingerprint', () async {
+      final der = spki(publicKey);
+      final digest = (await Sha256().hash(der)).bytes
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+      expect(digest, fingerprint);
+      final readme = File('README.md').readAsStringSync();
+      expect(readme, contains(base64.encode(der)));
+      expect(readme, contains(fingerprint));
+      expect(readme, contains(keyId));
+    });
   });
 
   group('signed manifests', () {

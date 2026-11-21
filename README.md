@@ -45,11 +45,28 @@ expiry date and release version.
 
 ### Release signing key
 
-No production release signing key has been published yet, so releases cannot
-be verified this way yet. When it is published, its PEM text and SHA-256
-fingerprint will appear here and in `tool/release_signing_pubkeys.json`.
-Compare the fingerprint with a second source you trust before relying on it.
-See [docs/UPDATES.md](docs/UPDATES.md).
+Release manifests are signed with the Ed25519 key `notes-release-1`. Save
+these three lines as `notes-release.pem`:
+
+```text
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA0Fp4/rw2KnbJD7bt6tA2spIhMTLLFtJwYiEHaivaXzM=
+-----END PUBLIC KEY-----
+```
+
+Check the file before using it:
+
+```sh
+openssl pkey -pubin -in notes-release.pem -outform DER | sha256sum
+```
+
+It must print
+`6947c0cb0e4311f7579a37d028f5b5e013326f93935b2b918cacfbd7a0ed0471`.
+The same key is compiled into the app (`lib/update/pinned_keys.dart`) and
+listed in `tool/release_signing_pubkeys.json`. All of these come from this
+repository, so they protect against a tampered download, not against someone
+who controls this GitHub account. Key rotation, expiry and recovery are
+described in [docs/UPDATES.md](docs/UPDATES.md).
 
 ### Install on Linux
 

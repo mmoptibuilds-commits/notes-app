@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:dart_quill_delta/dart_quill_delta.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +56,21 @@ Future<void> pumpEditor(
     ),
   );
   await tester.pump(const Duration(milliseconds: 50));
+}
+
+void expectDialogActionsAtLeast48(WidgetTester tester) {
+  final actions = find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.byType(TextButton),
+  );
+  expect(actions, findsWidgets);
+  for (var i = 0; i < actions.evaluate().length; i++) {
+    expect(
+      tester.getSize(actions.at(i)).height,
+      greaterThanOrEqualTo(48),
+      reason: 'dialog action $i',
+    );
+  }
 }
 
 void main() {
@@ -139,6 +156,43 @@ void main() {
     await tester.tap(find.text('Undo'));
     await tester.pumpAndSettle();
     expect(find.text('2 completed items'), findsOneWidget);
+  });
+
+  testWidgets('link dialog actions are touch sized on Android', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(
+      body: jsonEncode((Delta()..insert('Link text\n')).toJson()),
+    );
+    s.settings.toolbar = [ToolbarItem.link];
+    await pumpEditor(tester, s, noteId: note.id);
+    await tester.tap(find.byTooltip('Link'));
+    await tester.pumpAndSettle();
+    expect(find.text('Apply'), findsOneWidget);
+    expectDialogActionsAtLeast48(tester);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('delete forever dialog actions are touch sized on Android', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(title: 'Gone');
+    s.notes.trash([note.id]);
+    await pumpEditor(tester, s, noteId: note.id);
+    await tester.tap(find.text('Delete forever'));
+    await tester.pumpAndSettle();
+    expectDialogActionsAtLeast48(tester);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(s.notes.getRecord(note.id), isNotNull);
   });
 
   testWidgets(

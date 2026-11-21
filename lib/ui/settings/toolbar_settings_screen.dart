@@ -74,13 +74,14 @@ class _ToolbarSettingsScreenState extends State<ToolbarSettingsScreen> {
         appBar: AppBar(
           title: const Text('Toolbar'),
           actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: touchButtonMinimumSize(context),
+            IconButton(
+              tooltip: 'Reset to default',
+              style: IconButton.styleFrom(
+                minimumSize: Size.square(hitSize(context, desktop: 40)),
                 visualDensity: touchVisualDensity(context),
               ),
               onPressed: _reset,
-              child: const Text('Reset to default'),
+              icon: const Icon(Icons.restart_alt_rounded),
             ),
             const SizedBox(width: 8),
           ],
@@ -152,23 +153,22 @@ class _ToolbarSettingsScreenState extends State<ToolbarSettingsScreen> {
                                 ),
                               ),
                               SizedBox(
-                                height: 28,
-                                child: FittedBox(
-                                  child: Switch(
-                                    value: on,
-                                    onChanged: (v) => _toggle(t, v),
-                                    activeThumbColor: p.onAccent,
-                                    activeTrackColor: p.accent,
-                                    inactiveThumbColor: p.textMuted,
-                                    inactiveTrackColor: p.background,
-                                    trackOutlineColor:
-                                        WidgetStateProperty.resolveWith(
-                                          (s) =>
-                                              s.contains(WidgetState.selected)
-                                              ? p.accent
-                                              : p.cardBorder,
-                                        ),
-                                  ),
+                                height: hitSize(context, desktop: 40),
+                                child: Switch(
+                                  value: on,
+                                  onChanged: (v) => _toggle(t, v),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.padded,
+                                  activeThumbColor: p.onAccent,
+                                  activeTrackColor: p.accent,
+                                  inactiveThumbColor: p.textMuted,
+                                  inactiveTrackColor: p.background,
+                                  trackOutlineColor:
+                                      WidgetStateProperty.resolveWith(
+                                        (s) => s.contains(WidgetState.selected)
+                                            ? p.accent
+                                            : p.cardBorder,
+                                      ),
                                 ),
                               ),
                               const SizedBox(width: 8),

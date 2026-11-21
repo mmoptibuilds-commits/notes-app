@@ -1,6 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/app.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/platform/bootstrap.dart';
@@ -8,6 +11,8 @@ import 'package:notes/ui/material.dart';
 import 'package:notes/core/app_version.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
 import 'package:notes/ui/settings/settings_widgets.dart';
+import 'package:notes/ui/settings/toolbar_settings_screen.dart';
+import 'package:notes/ui/theme/app_theme.dart';
 import 'package:notes/ui/toolbar_item_info.dart';
 
 import '../../support/screenshot.dart';
@@ -40,6 +45,13 @@ void main() {
     }
     expect(find.text('Version $appVersionText'), findsOneWidget);
     expect(find.text('Data folder'), findsNothing, reason: 'dataDir is empty');
+  });
+
+  testWidgets('settings root fits at 2x system text', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+    await openSettings(tester, size: const Size(360, 2000));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('data folder is shown and selectable when known', (tester) async {
@@ -226,12 +238,44 @@ void main() {
   });
 
   group('toolbar customisation', () {
-    Future<AppServices> openToolbar(WidgetTester tester) async {
-      final s = await openSettings(tester);
+    Future<AppServices> openToolbar(
+      WidgetTester tester, {
+      Size size = const Size(412, 2600),
+    }) async {
+      final s = await openSettings(tester, size: size);
+      await tester.scrollUntilVisible(
+        find.text('Customise toolbar'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Customise toolbar'));
       await tester.pumpAndSettle();
       return s;
     }
+
+    testWidgets('toolbar settings fit at 2x system text', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+      final s = AppServices.inMemory();
+      addTearDown(s.close);
+      await setWindow(tester, const Size(360, 800));
+      await tester.pumpWidget(
+        AppScope(
+          services: s,
+          child: ListenableBuilder(
+            listenable: s.settings,
+            builder: (context, _) => MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: buildTheme(s.settings),
+              home: const ToolbarSettingsScreen(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Reset to default'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('lists every item, enabled first in saved order', (
       tester,
@@ -267,6 +311,19 @@ void main() {
       expect(s.settings.toolbar, contains(ToolbarItem.bold));
     });
 
+    testWidgets('Android toolbar switches have 48 dp targets', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await openToolbar(tester);
+      for (final sw in find.byType(Switch).evaluate()) {
+        expect(
+          tester.getSize(find.byWidget(sw.widget)).height,
+          greaterThanOrEqualTo(48),
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('drag reorders and writes the order', (tester) async {
       final s = await openToolbar(tester);
       expect(s.settings.toolbar.first, ToolbarItem.checklist);
@@ -287,7 +344,7 @@ void main() {
     ) async {
       final s = await openToolbar(tester);
       s.settings.toolbar = [ToolbarItem.link];
-      await tester.tap(find.text('Reset to default'));
+      await tester.tap(find.byTooltip('Reset to default'));
       await tester.pumpAndSettle();
       expect(s.settings.toolbar, ToolbarItem.defaults);
     });

@@ -36,7 +36,7 @@ Future<bool> confirmDialog(
         fontWeight: FontWeight.w600,
         color: p.text,
       ),
-      content: Text(message),
+      content: SingleChildScrollView(child: Text(message)),
       contentTextStyle: TextStyle(
         fontSize: 13.5,
         height: 1.4,
@@ -66,14 +66,54 @@ Future<bool> confirmDialog(
   return result ?? false;
 }
 
+/// Shows an informational message with a touch-sized dismiss action.
+Future<void> infoDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String actionLabel = 'OK',
+}) async {
+  final p = AppPalette.of(context);
+  await showDialog<void>(
+    context: context,
+    animationStyle: animationStyleOf(context),
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      titleTextStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: p.text,
+      ),
+      content: SingleChildScrollView(
+        child: Text(
+          message,
+          style: TextStyle(fontSize: 13.5, height: 1.4, color: p.textMuted),
+        ),
+      ),
+      actions: [
+        TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: touchButtonMinimumSize(ctx),
+            visualDensity: touchVisualDensity(ctx),
+          ),
+          onPressed: () => Navigator.pop(ctx),
+          child: Text(actionLabel),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Asks for one line of text. Returns the trimmed text, or null if cancelled
-/// or left empty.
+/// or left empty (unless [allowEmpty] is true).
 Future<String?> promptDialog(
   BuildContext context, {
   required String title,
   String initial = '',
   String hint = '',
   required String confirmLabel,
+  bool allowEmpty = false,
+  int? maxLength = 60,
 }) async {
   final result = await showDialog<String>(
     context: context,
@@ -83,10 +123,11 @@ Future<String?> promptDialog(
       initial: initial,
       hint: hint,
       confirmLabel: confirmLabel,
+      maxLength: maxLength,
     ),
   );
   final t = result?.trim();
-  return (t == null || t.isEmpty) ? null : t;
+  return (t == null || (!allowEmpty && t.isEmpty)) ? null : t;
 }
 
 class _PromptDialog extends StatefulWidget {
@@ -95,12 +136,14 @@ class _PromptDialog extends StatefulWidget {
     required this.initial,
     required this.hint,
     required this.confirmLabel,
+    required this.maxLength,
   });
 
   final String title;
   final String initial;
   final String hint;
   final String confirmLabel;
+  final int? maxLength;
 
   @override
   State<_PromptDialog> createState() => _PromptDialogState();
@@ -133,7 +176,7 @@ class _PromptDialogState extends State<_PromptDialog> {
           controller: _ctl,
           autofocus: true,
           textInputAction: TextInputAction.done,
-          maxLength: 60,
+          maxLength: widget.maxLength,
           decoration: InputDecoration(hintText: widget.hint, counterText: ''),
           onSubmitted: (_) => _submit(),
         ),

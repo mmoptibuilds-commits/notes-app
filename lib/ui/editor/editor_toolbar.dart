@@ -8,7 +8,7 @@ import '../widgets/touch.dart';
 
 /// The formatting bar above the keyboard. Which buttons appear, and in what
 /// order, comes from the user's toolbar setting.
-class EditorToolbar extends StatelessWidget {
+class EditorToolbar extends StatefulWidget {
   const EditorToolbar({
     super.key,
     required this.controller,
@@ -27,35 +27,120 @@ class EditorToolbar extends StatelessWidget {
   final bool bottom;
 
   @override
+  State<EditorToolbar> createState() => _EditorToolbarState();
+}
+
+class _EditorToolbarState extends State<EditorToolbar> {
+  final _scroll = ScrollController();
+  bool _showLeadingFade = false;
+  bool _showTrailingFade = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_updateFadesFromPosition);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateFadesFromPosition();
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll
+      ..removeListener(_updateFadesFromPosition)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _updateFadesFromPosition() {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    _setFades(position.extentBefore > 1, position.extentAfter > 1);
+  }
+
+  void _setFades(bool leading, bool trailing) {
+    if (leading == _showLeadingFade && trailing == _showTrailingFade) return;
+    setState(() {
+      _showLeadingFade = leading;
+      _showTrailingFade = trailing;
+    });
+  }
+
+  bool _onMetrics(ScrollMetricsNotification notification) {
+    if (notification.metrics.axis == Axis.horizontal) {
+      _setFades(
+        notification.metrics.extentBefore > 1,
+        notification.metrics.extentAfter > 1,
+      );
+    }
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     final size = hitSize(context, desktop: 36);
+    final fadeDuration = AppMotion.of(context).fast;
     return Container(
       decoration: BoxDecoration(
         color: p.raised,
         border: Border(
-          top: bottom ? BorderSide(color: p.cardBorder) : BorderSide.none,
-          bottom: bottom ? BorderSide.none : BorderSide(color: p.cardBorder),
+          top: widget.bottom
+              ? BorderSide(color: p.cardBorder)
+              : BorderSide.none,
+          bottom: widget.bottom
+              ? BorderSide.none
+              : BorderSide(color: p.cardBorder),
         ),
       ),
       child: SafeArea(
         top: false,
-        bottom: bottom,
+        bottom: widget.bottom,
         // Buttons must never take focus from the text: that would close the
         // keyboard and lose the selection they act on.
         child: ExcludeFocus(
           child: SizedBox(
             height: size + 4,
             child: ListenableBuilder(
-              listenable: controller,
+              listenable: widget.controller,
               builder: (context, _) {
-                final attrs = controller.getSelectionStyle().attributes;
-                return ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                final attrs = widget.controller.getSelectionStyle().attributes;
+                return Stack(
                   children: [
-                    for (final item in items)
-                      _button(context, item, attrs, size, p),
+                    NotificationListener<ScrollMetricsNotification>(
+                      onNotification: _onMetrics,
+                      child: ListView(
+                        controller: _scroll,
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        children: [
+                          for (final item in widget.items)
+                            _button(context, item, attrs, size, p),
+                        ],
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _edgeFade(
+                              leading: true,
+                              visible: _showLeadingFade,
+                              color: p.raised,
+                              duration: fadeDuration,
+                            ),
+                            const Spacer(),
+                            _edgeFade(
+                              leading: false,
+                              visible: _showTrailingFade,
+                              color: p.raised,
+                              duration: fadeDuration,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 );
               },
@@ -65,6 +150,33 @@ class EditorToolbar extends StatelessWidget {
       ),
     );
   }
+
+  Widget _edgeFade({
+    required bool leading,
+    required bool visible,
+    required Color color,
+    required Duration duration,
+  }) => AnimatedOpacity(
+    key: ValueKey(
+      leading ? 'editor-toolbar-leading-fade' : 'editor-toolbar-trailing-fade',
+    ),
+    opacity: visible ? 1 : 0,
+    duration: duration,
+    child: SizedBox(
+      width: 20,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: leading
+                ? [color, color.withValues(alpha: 0)]
+                : [color.withValues(alpha: 0), color],
+          ),
+        ),
+      ),
+    ),
+  );
 
   bool _active(ToolbarItem item, Map<String, Attribute> a) {
     final list = a[Attribute.list.key]?.value;
@@ -89,10 +201,10 @@ class EditorToolbar extends StatelessWidget {
   }
 
   void _toggle(Attribute on, Attribute off, bool active) =>
-      controller.formatSelection(active ? off : on);
+      widget.controller.formatSelection(active ? off : on);
 
   Future<void> _press(ToolbarItem item, bool active) async {
-    final c = controller;
+    final c = widget.controller;
     switch (item) {
       case ToolbarItem.bold:
         _toggle(Attribute.bold, Attribute.clone(Attribute.bold, null), active);
@@ -149,9 +261,9 @@ class EditorToolbar extends StatelessWidget {
           active,
         );
       case ToolbarItem.link:
-        await onLink();
+        await widget.onLink();
       case ToolbarItem.image:
-        await onImage();
+        await widget.onImage();
       case ToolbarItem.indent:
         c.indentSelection(true);
       case ToolbarItem.outdent:
@@ -176,8 +288,8 @@ class EditorToolbar extends StatelessWidget {
   ) {
     final active = _active(item, attrs);
     final enabled = switch (item) {
-      ToolbarItem.undo => controller.hasUndo,
-      ToolbarItem.redo => controller.hasRedo,
+      ToolbarItem.undo => widget.controller.hasUndo,
+      ToolbarItem.redo => widget.controller.hasRedo,
       _ => true,
     };
     return Padding(

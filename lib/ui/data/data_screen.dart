@@ -15,6 +15,7 @@ import '../../platform/save_file.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
+import '../widgets/dialogs.dart';
 
 /// Import a legacy backup or this app's export, undo legacy imports, export.
 class DataScreen extends StatefulWidget {
@@ -327,42 +328,21 @@ class _DataScreenState extends State<DataScreen> {
       );
   }
 
-  Future<bool?> _confirm({
+  Future<bool> _confirm({
     required String title,
     required String body,
     required String action,
     bool danger = false,
-  }) => showDialog<bool>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: Text(title),
-      content: SingleChildScrollView(child: Text(body)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c, false),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(c, true),
-          child: Text(
-            action,
-            style: danger ? TextStyle(color: AppPalette.of(c).danger) : null,
-          ),
-        ),
-      ],
-    ),
+  }) => confirmDialog(
+    context,
+    title: title,
+    message: body,
+    confirmLabel: action,
+    destructive: danger,
   );
 
-  Future<void> _info(String title, String body) => showDialog<void>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: Text(title),
-      content: SingleChildScrollView(child: Text(body)),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK')),
-      ],
-    ),
-  );
+  Future<void> _info(String title, String body) =>
+      infoDialog(context, title: title, message: body);
 
   @override
   Widget build(BuildContext context) {

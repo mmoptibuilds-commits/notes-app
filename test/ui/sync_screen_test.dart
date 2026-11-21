@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/app.dart';
 import 'package:notes/core/ids.dart';
@@ -11,6 +13,21 @@ import 'package:notes/ui/sync/sync_screen.dart';
 import 'package:notes/ui/theme/app_theme.dart';
 
 import '../support/screenshot.dart';
+
+void expectDialogActionsAtLeast48(WidgetTester tester) {
+  final actions = find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.byType(TextButton),
+  );
+  expect(actions, findsWidgets);
+  for (var i = 0; i < actions.evaluate().length; i++) {
+    expect(
+      tester.getSize(actions.at(i)).height,
+      greaterThanOrEqualTo(48),
+      reason: 'dialog action $i',
+    );
+  }
+}
 
 Future<AppServices> servicesWithSync() async {
   final base = AppServices.inMemory();
@@ -72,6 +89,8 @@ void main() {
   testWidgets(
     'devices show status, pending changes and errors; rename and remove work',
     (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       final s = await servicesWithSync();
       addTearDown(s.close);
       final sync = s.sync!;
@@ -114,6 +133,7 @@ void main() {
         find.textContaining('Notes already exchanged stay on both'),
         findsOneWidget,
       );
+      expectDialogActionsAtLeast48(tester);
       await tester.tap(find.text('Remove').last);
       await tester.pumpAndSettle();
       expect(sync.peers.list().length, 1);

@@ -65,6 +65,15 @@ artifacts and never holds signing keys.
   test that fails without the fix.
 - Tests touching the filesystem use temporary directories; perf and sync tests
   set `NOTES_DATA_DIR` to a temp dir.
+- The Linux desktop smoke test launches the real GTK app and uses a temporary
+  encrypted database. Run it on a desktop session with:
+
+  ```bash
+  flutter test integration_test/desktop_smoke_test.dart -d linux
+  ```
+
+  This test exercises the native engine and disk persistence; it is separate
+  from the headless widget tests.
 
 ## Visual review
 

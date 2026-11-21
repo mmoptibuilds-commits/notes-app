@@ -207,3 +207,10 @@ protections and confirms no cross-platform-transfer section is declared.
   refuses it (`DatabaseTooNewException`), so a later manual rollback is unsafe
   across schema changes.
 - **No new dependency**: the existing `cryptography` package provides Ed25519.
+
+## D19. Linux desktop smoke tests use Flutter's `integration_test`
+The SDK-bundled `integration_test` package is a dev-only dependency. It lets the
+Linux smoke test launch the app in a real GTK window with Flutter's native
+engine, then verify encrypted SQLite persistence across a close and reopen.
+Widget tests remain useful for layout and interaction coverage, but they cannot
+prove the native desktop runner and on-disk database work together.

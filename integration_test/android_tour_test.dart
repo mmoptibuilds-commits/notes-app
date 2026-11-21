@@ -7,17 +7,17 @@ import 'package:integration_test/integration_test.dart';
 import 'package:notes/app.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/platform/bootstrap.dart';
-import 'package:notes/ui/material.dart' show ListView, SizedBox, TextField;
+import 'package:notes/ui/material.dart'
+    show FocusManager, ListView, SizedBox, TextField;
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Android UI screen tour', (tester) async {
     final dataDir = await Directory.systemTemp.createTemp(
       'notes-android-tour-',
     );
     AppServices? services;
-    var convertedSurface = false;
     final captured = <String>[];
     final failures = <String>[];
 
@@ -34,14 +34,17 @@ void main() {
 
     Future<void> capture(String name) async {
       await settle(tester);
-      if (!convertedSurface) {
-        await binding.convertFlutterSurfaceToImage();
-        convertedSurface = true;
-      }
-      await binding.takeScreenshot(name);
-      captured.add(name);
+      // The host (tool/android_tour.sh) watches logcat for this marker and
+      // takes an `adb screencap` while the app holds still. The integration
+      // test screenshot API hangs on some emulators, and screencap also shows
+      // the real system bars.
       // ignore: avoid_print
-      print('ANDROID_TOUR_CAPTURED $name');
+      print('ANDROID_TOUR_SHOT $name');
+      final end = DateTime.now().add(const Duration(milliseconds: 2500));
+      while (DateTime.now().isBefore(end)) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      captured.add(name);
     }
 
     Future<void> step(String name, Future<void> Function() action) async {
@@ -49,6 +52,11 @@ void main() {
         await action();
       } on Object catch (error, stack) {
         failures.add(name);
+        final clear = find.byTooltip('Clear selection');
+        if (clear.evaluate().isNotEmpty) {
+          await tester.tap(clear.first);
+          await settle(tester);
+        }
         // ignore: avoid_print
         print('ANDROID_TOUR_STEP_FAILED $name: $error\n$stack');
       }
@@ -57,9 +65,10 @@ void main() {
     Future<void> shot(String name) => capture(name);
 
     Future<void> tapText(String label, {int index = 0}) async {
-      final finder = find.text(label);
+      final finder = find.text(label, findRichText: true);
       expect(finder, findsWidgets, reason: 'Missing text control: $label');
       await tester.ensureVisible(finder.at(index));
+      await settle(tester);
       await tester.tap(finder.at(index));
       await settle(tester);
     }
@@ -72,11 +81,15 @@ void main() {
     }
 
     Future<void> back() async {
-      final backButton = find.byTooltip('Back');
+      var backButton = find.byTooltip('Back');
+      if (backButton.evaluate().isEmpty) {
+        backButton = find.byTooltip('Back to notes');
+      }
       if (backButton.evaluate().isNotEmpty) {
         await tester.tap(backButton.first);
       } else {
-        await tester.pageBack();
+        // Android's system Back: pops the top route, menu or dialog.
+        await tester.binding.handlePopRoute();
       }
       await settle(tester);
     }
@@ -173,24 +186,24 @@ void main() {
     await step('library overflow open', () async {
       await tapTooltip('More');
       await shot('04-library-overflow-open');
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await settle(tester);
     });
     await step('folder view', () async {
       await tapText('Work');
       await shot('05-folder-work');
-      await back();
+      await tapText('All');
     });
     await step('unfiled view', () async {
       await tapText('Unfiled');
       await shot('06-folder-unfiled');
-      await back();
+      await tapText('All');
     });
     await step('folder context menu', () async {
       await tester.longPress(find.text('Work').first);
       await settle(tester);
       await shot('07-folder-long-press-menu');
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await settle(tester);
     });
     await step('search results', () async {
@@ -204,24 +217,40 @@ void main() {
       await tester.enterText(search, 'roadmap');
       await tester.pumpAndSettle(const Duration(milliseconds: 500));
       await shot('08-search-results');
-      final close = find.byTooltip('Close search');
-      if (close.evaluate().isNotEmpty) await tester.tap(close);
+      // Hide the keyboard first so the header buttons are hit-testable.
+      FocusManager.instance.primaryFocus?.unfocus();
       await settle(tester);
+      for (final tip in ['Clear search', 'Close search']) {
+        final b = find.byTooltip(tip);
+        if (b.evaluate().isNotEmpty) await tester.tap(b.first);
+        await settle(tester);
+      }
     });
     await step('multi select bar', () async {
-      await tester.longPress(find.text('Meeting notes').first);
+      await tester.longPress(
+        find.text('Meeting notes', findRichText: true).first,
+      );
       await settle(tester);
       await shot('09-multi-select-actions');
       await tapTooltip('Clear selection');
       await settle(tester);
     });
     await step('move to folder dialog', () async {
-      await tester.longPress(find.text('Meeting notes').first);
+      await tester.longPress(
+        find.text('Meeting notes', findRichText: true).first,
+      );
       await settle(tester);
-      await tapTooltip('Selection actions');
-      await tapText('Move to folder');
+      // Wide phones show the action inline; narrow ones put it in a menu.
+      final inline = find.byTooltip('Move to folder');
+      if (inline.evaluate().isNotEmpty) {
+        await tester.tap(inline.first);
+        await settle(tester);
+      } else {
+        await tapTooltip('Selection actions');
+        await tapText('Move to folder');
+      }
       await shot('10-move-to-folder-dialog');
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await settle(tester);
       final clear = find.byTooltip('Clear selection');
       if (clear.evaluate().isNotEmpty) await tester.tap(clear);
@@ -300,8 +329,9 @@ void main() {
       await tapTooltip('More');
       await tapText('Empty Trash');
       await shot('23-empty-trash-confirmation');
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await settle(tester);
+      await back(); // Trash -> notes
     });
     await step('light library and editor', () async {
       services!.settings.theme = AppTheme.light;
@@ -331,6 +361,7 @@ void main() {
     print(
       'ANDROID_TOUR_FAILED_STEPS ${failures.isEmpty ? 'none' : failures.join(', ')}',
     );
+    expect(failures, isEmpty, reason: 'Tour steps failed: $failures');
   });
 }
 

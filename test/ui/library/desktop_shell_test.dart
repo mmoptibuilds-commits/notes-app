@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/data/app_settings.dart';
 import 'package:notes/ui/editor/editor_screen.dart';
 import 'package:notes/ui/library/desktop_sidebar.dart';
 import 'package:notes/ui/library/folder_strip.dart';
@@ -105,7 +106,8 @@ void main() {
       await pumpLibrary(tester, s, size: desktop);
 
       expect(sidebar('Unfiled'), findsOneWidget);
-      expect(find.text('No unfiled notes.'), findsOneWidget);
+      expect(find.text('No unfiled notes yet.'), findsOneWidget);
+      expect(find.text('Choose New note to write one.'), findsOneWidget);
       expect(
         tester.getTopLeft(sidebar('All notes')).dy,
         lessThan(tester.getTopLeft(sidebar('Unfiled')).dy),
@@ -114,6 +116,22 @@ void main() {
         tester.getTopLeft(sidebar('Unfiled')).dy,
         lessThan(tester.getTopLeft(sidebar('Work')).dy),
       );
+    });
+
+    testWidgets('empty All notes state names the desktop New note action', (
+      tester,
+    ) async {
+      final s = freshServices();
+      addTearDown(s.services.close);
+      s.services.settings.startupView = StartupView.all;
+      await pumpLibrary(tester, s, size: desktop);
+
+      expect(
+        find.text('No notes yet. Choose New note to write one.'),
+        findsOneWidget,
+      );
+      expect(find.text('New note'), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
     });
 
     testWidgets('navigates: folder, Archive, Trash, All notes', (tester) async {

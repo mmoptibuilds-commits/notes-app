@@ -16,7 +16,7 @@ void main() {
     addTearDown(services.close);
     await setWindow(tester, const Size(412, 915));
     await pumpApp(tester, services);
-    BuildContext ctx() => tester.element(find.text('Notes'));
+    BuildContext ctx() => tester.element(find.text('All notes'));
     expect(AppPalette.of(ctx()).background, AppPalette.amoled.background);
     services.settings.theme = AppTheme.light;
     await tester.pumpAndSettle();

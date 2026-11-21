@@ -220,7 +220,7 @@ Finder libraryRoot() => find.byWidgetPredicate(
       w is FloatingActionButton ||
       (w is Text &&
           w.key == const ValueKey('library-title') &&
-          {'All notes', 'Unfiled', 'Notes'}.contains(w.data)),
+          {'All notes', 'Unfiled'}.contains(w.data)),
   description: 'library root marker',
 );
 
@@ -251,7 +251,7 @@ const _sidebarViews = {
 
 /// Goes to [label]. On a phone that is the overflow menu; with the desktop
 /// sidebar on screen, navigation entries are taken from the sidebar (the menu
-/// keeps layout, sort and Empty Trash only).
+/// keeps view options only).
 Future<void> menuTap(WidgetTester tester, String label) async {
   final side = find.byType(DesktopSidebar);
   if (side.evaluate().isNotEmpty && _sidebarViews.contains(label)) {
@@ -262,7 +262,10 @@ Future<void> menuTap(WidgetTester tester, String label) async {
     return;
   }
   await openMenu(tester);
-  await tester.tap(find.text(label));
+  final target = const {'Grid', 'Masonry', 'List'}.contains(label)
+      ? find.byTooltip(label)
+      : find.text(label);
+  await tester.tap(target);
   await tester.pumpAndSettle();
 }
 

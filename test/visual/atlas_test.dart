@@ -175,12 +175,12 @@ void main() {
 
       expect(seed.services.settings.startupView, StartupView.unfiled);
       expect(libraryTitle('Unfiled'), findsOneWidget);
-      expect(find.text('No unfiled notes.'), findsOneWidget);
+      expect(find.text('No unfiled notes yet.'), findsOneWidget);
       expect(
         find.text(
           form == 'phone'
-              ? 'Notes in folders are under their folder chips.'
-              : 'Notes in folders are under their folder names.',
+              ? 'Tap + to write one.'
+              : 'Choose New note to write one.',
         ),
         findsOneWidget,
       );
@@ -408,6 +408,24 @@ void main() {
       AppTheme.charcoal,
       '03-editor-pane',
       'Desktop editor pane open beside the library.',
+    );
+  });
+
+  testWidgets('phone landscape overflow menu', (tester) async {
+    await _library(
+      tester,
+      form: 'phone-landscape',
+      theme: AppTheme.charcoal,
+      largeText: true,
+    );
+    await openMenu(tester);
+    expect(tester.takeException(), isNull);
+    await _capture(
+      tester,
+      'phone-landscape',
+      AppTheme.charcoal,
+      '11-overflow-menu',
+      'Phone library overflow menu open in landscape at text scale 1.4.',
     );
   });
 

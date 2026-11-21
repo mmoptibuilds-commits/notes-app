@@ -91,6 +91,31 @@ void main() {
     expect(find.byType(SliverMasonryGrid), findsWidgets);
   });
 
+  for (final layout in [LibraryLayout.grid, LibraryLayout.masonry]) {
+    testWidgets('phone search uses a one-column list in $layout layout', (
+      tester,
+    ) async {
+      final s = seedLibrary();
+      addTearDown(s.services.close);
+      s.services.settings.layout = layout;
+      await pumpLibrary(tester, s);
+
+      await tester.tap(find.byTooltip('Search'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'the');
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pumpAndSettle();
+
+      expect(s.services.settings.layout, layout);
+      expect(find.byType(NoteRow), findsWidgets);
+      expect(find.byType(NoteCard), findsNothing);
+      expect(find.byType(SliverList), findsOneWidget);
+      expect(find.byType(SliverGrid), findsNothing);
+      expect(find.byType(SliverMasonryGrid), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('sort from the menu reorders and persists', (tester) async {
     final s = seedLibrary();
     addTearDown(s.services.close);

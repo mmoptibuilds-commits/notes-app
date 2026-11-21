@@ -53,8 +53,8 @@ void main() {
     expect(sizeOf(tester, solo).height, greaterThanOrEqualTo(48));
 
     await openMenu(tester);
-    final item = find.ancestor(
-      of: find.text('Grid'),
+    final item = find.descendant(
+      of: find.byTooltip('Grid'),
       matching: find.byType(InkWell),
     );
     expect(sizeOf(tester, item).height, greaterThanOrEqualTo(48));
@@ -109,10 +109,10 @@ void main() {
     expect(sizeOf(tester, home).height, 36);
     expect(sizeOf(tester, find.byTooltip('New folder')).width, 28);
     await openMenu(tester);
-    final item = find.ancestor(
-      of: find.text('Grid'),
+    final item = find.descendant(
+      of: find.byTooltip('Grid'),
       matching: find.byType(InkWell),
     );
-    expect(sizeOf(tester, item).height, 42);
+    expect(sizeOf(tester, item).height, 48);
   });
 }

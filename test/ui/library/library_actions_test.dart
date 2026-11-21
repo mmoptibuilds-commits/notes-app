@@ -33,11 +33,8 @@ void main() {
         s.services.notes.createFolder('Work');
         await pumpLibrary(tester, s);
 
-        expect(find.text('No unfiled notes.'), findsOneWidget);
-        expect(
-          find.text('Notes in folders are under their folder chips.'),
-          findsOneWidget,
-        );
+        expect(find.text('No unfiled notes yet.'), findsOneWidget);
+        expect(find.text('Tap + to write one.'), findsOneWidget);
         expect(chip('Unfiled'), findsOneWidget);
         expect(
           tester.getTopLeft(chip('All')).dx,
@@ -81,6 +78,32 @@ void main() {
       await tester.tap(find.text('All'));
       await tester.pumpAndSettle();
       expect(s.services.settings.read('library.folder'), isNull);
+    });
+
+    testWidgets('selected folder chip scrolls into view on first layout', (
+      tester,
+    ) async {
+      final s = freshServices();
+      addTearDown(s.services.close);
+      String? selectedId;
+      for (var i = 0; i < 12; i++) {
+        selectedId = s.services.notes.createFolder('Folder $i').id;
+      }
+      s.services.settings.startupView = StartupView.last;
+      s.services.settings.write('library.folder', selectedId);
+
+      await pumpLibrary(tester, s, size: const Size(320, 640));
+      await tester.pumpAndSettle();
+
+      final selected = find.byKey(ValueKey('folder-$selectedId'));
+      final strip = find.descendant(
+        of: find.byType(FolderStrip),
+        matching: find.byType(ListView),
+      );
+      final selectedRect = tester.getRect(selected);
+      final stripRect = tester.getRect(strip);
+      expect(selectedRect.left, greaterThanOrEqualTo(stripRect.left));
+      expect(selectedRect.right, lessThanOrEqualTo(stripRect.right));
     });
 
     testWidgets('no Unfiled chip without folders', (tester) async {
@@ -759,7 +782,7 @@ void main() {
 
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.text('Notes'), findsOneWidget);
+      expect(find.text('All notes'), findsOneWidget);
       expect(find.text('Trash'), findsNothing);
       expect(find.byType(NoteCard), findsWidgets);
     });

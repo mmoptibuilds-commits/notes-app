@@ -658,7 +658,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  String _title(bool desktop) {
+  String _title() {
     switch (_c.scope) {
       case NoteScope.archived:
         return 'Archive';
@@ -668,7 +668,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return 'Conflicts';
       case NoteScope.active:
         if (_c.unfiled) return 'Unfiled';
-        return _c.currentFolder?.name ?? (desktop ? 'All notes' : 'Notes');
+        return _c.currentFolder?.name ?? 'All notes';
     }
   }
 
@@ -876,7 +876,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Padding(
               padding: EdgeInsets.only(left: back == null ? 8 : 4),
               child: Text(
-                _title(desktop),
+                _title(),
                 key: const ValueKey('library-title'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -992,9 +992,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       NoteScope.conflicts => 'No conflicts.',
       NoteScope.active =>
         c.unfiled
-            ? 'No unfiled notes.'
+            ? 'No unfiled notes yet.'
             : c.folderId != null
             ? 'No notes in this folder.'
+            : _desktop
+            ? 'No notes yet. Choose New note to write one.'
             : 'No notes yet. Tap + to write one.',
     };
   }
@@ -1002,9 +1004,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String? _emptyHint(bool desktop) {
     final c = _c;
     if (c.scope == NoteScope.active && c.unfiled) {
-      return desktop
-          ? 'Notes in folders are under their folder names.'
-          : 'Notes in folders are under their folder chips.';
+      return desktop ? 'Choose New note to write one.' : 'Tap + to write one.';
     }
     return null;
   }
@@ -1020,7 +1020,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final p = AppPalette.of(context);
     final c = _c;
     final items = c.items;
-    final layout = compact ? LibraryLayout.list : c.layout;
+    final phoneSearchList =
+        c.searching && width < wideBreakpoint && c.layout != LibraryLayout.list;
+    final layout = compact || phoneSearchList ? LibraryLayout.list : c.layout;
     final now = DateTime.now();
     final byCreated = c.sort == NoteSort.created;
     final scaler = MediaQuery.textScalerOf(context);
@@ -1222,16 +1224,38 @@ class _OverflowMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = controller;
     final counts = c.counts;
-    String? n(int v) => v > 0 ? '$v' : null;
+    final p = AppPalette.of(context);
+    final media = MediaQuery.of(context);
+    // Keep the popup below its anchor even when the landscape viewport is
+    // short. PopupMenuRoute otherwise moves an over-tall menu above the
+    // button to fit the whole overlay.
+    final maxMenuHeight = (media.size.height - media.viewPadding.vertical - 72)
+        .clamp(0.0, double.infinity)
+        .toDouble();
     return PopupMenuButton<String>(
+      key: const ValueKey('library-overflow-button'),
       tooltip: 'More',
       icon: const Icon(Icons.more_vert_rounded, size: 21),
       padding: EdgeInsets.zero,
       iconSize: 21,
+      iconColor: p.text,
+      position: PopupMenuPosition.under,
+      offset: const Offset(0, 4),
+      constraints: BoxConstraints(
+        minWidth: 224,
+        maxWidth: 288,
+        maxHeight: maxMenuHeight,
+      ),
+      color: p.raised,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: p.cardBorder),
+      ),
       style: IconButton.styleFrom(
         minimumSize: Size(size, size),
         fixedSize: Size(size, size),
         padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.standard,
       ),
       popUpAnimationStyle: animationStyleOf(context),
       onSelected: (v) {
@@ -1250,20 +1274,52 @@ class _OverflowMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
-        menuLabel(context, 'Layout'),
-        for (final (v, label) in [
-          (LibraryLayout.grid, 'Grid'),
-          (LibraryLayout.masonry, 'Masonry'),
-          (LibraryLayout.list, 'List'),
-        ])
-          menuItem(
-            context,
-            'layout:${v.name}',
-            label,
-            checked: c.layout == v,
-            reserveIcon: true,
-          ),
-        const PopupMenuDivider(height: 8),
+        if (!desktop) ...[
+          if (c.scope != NoteScope.active)
+            menuItem(
+              context,
+              'go:active',
+              'All notes',
+              icon: Icons.notes_rounded,
+            ),
+          if (c.scope != NoteScope.archived)
+            menuItem(
+              context,
+              'go:archived',
+              'Archive',
+              icon: Icons.archive_outlined,
+              trailing: '${counts.archived}',
+            ),
+          if (c.scope != NoteScope.trash)
+            menuItem(
+              context,
+              'go:trash',
+              'Trash',
+              icon: Icons.delete_outline_rounded,
+              trailing: '${counts.trash}',
+            ),
+          if (counts.conflicts > 0 && c.scope != NoteScope.conflicts)
+            menuItem(
+              context,
+              'go:conflicts',
+              'Conflicts',
+              icon: Icons.call_split_rounded,
+              trailing: '${counts.conflicts}',
+            ),
+          if (c.scope == NoteScope.trash && counts.trash > 0) ...[
+            const PopupMenuDivider(height: 8),
+            menuItem(
+              context,
+              'empty',
+              'Empty Trash',
+              icon: Icons.delete_forever_outlined,
+              danger: true,
+            ),
+          ],
+          const PopupMenuDivider(height: 8),
+        ],
+        menuLabel(context, 'View'),
+        _LayoutPopupMenuEntry(selected: c.layout),
         menuLabel(context, 'Sort by'),
         for (final (v, label) in [
           (NoteSort.modified, 'Modified'),
@@ -1279,50 +1335,6 @@ class _OverflowMenu extends StatelessWidget {
           ),
         if (!desktop) ...[
           const PopupMenuDivider(height: 8),
-          if (c.scope != NoteScope.active)
-            menuItem(
-              context,
-              'go:active',
-              'All notes',
-              icon: Icons.notes_rounded,
-            ),
-          if (c.scope != NoteScope.archived)
-            menuItem(
-              context,
-              'go:archived',
-              'Archive',
-              icon: Icons.archive_outlined,
-              trailing: n(counts.archived),
-            ),
-          if (c.scope != NoteScope.trash)
-            menuItem(
-              context,
-              'go:trash',
-              'Trash',
-              icon: Icons.delete_outline_rounded,
-              trailing: n(counts.trash),
-            ),
-          if (counts.conflicts > 0 && c.scope != NoteScope.conflicts)
-            menuItem(
-              context,
-              'go:conflicts',
-              'Conflicts',
-              icon: Icons.call_split_rounded,
-              trailing: n(counts.conflicts),
-            ),
-        ],
-        if (c.scope == NoteScope.trash && counts.trash > 0) ...[
-          if (desktop) const PopupMenuDivider(height: 8),
-          menuItem(
-            context,
-            'empty',
-            'Empty Trash',
-            icon: Icons.delete_forever_outlined,
-            danger: true,
-          ),
-        ],
-        if (!desktop) ...[
-          const PopupMenuDivider(height: 8),
           menuItem(
             context,
             'settings',
@@ -1331,6 +1343,91 @@ class _OverflowMenu extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _LayoutPopupMenuEntry extends PopupMenuEntry<String> {
+  const _LayoutPopupMenuEntry({required this.selected});
+
+  final LibraryLayout selected;
+
+  @override
+  double get height => 56;
+
+  @override
+  bool represents(String? value) => value?.startsWith('layout:') ?? false;
+
+  @override
+  State<_LayoutPopupMenuEntry> createState() => _LayoutPopupMenuEntryState();
+}
+
+class _LayoutPopupMenuEntryState extends State<_LayoutPopupMenuEntry> {
+  static const _choices = <(LibraryLayout, String, IconData)>[
+    (LibraryLayout.grid, 'Grid', Icons.grid_view_rounded),
+    (LibraryLayout.masonry, 'Masonry', Icons.view_quilt_rounded),
+    (LibraryLayout.list, 'List', Icons.view_list_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return SizedBox(
+      height: 56,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            for (final (layout, label, icon) in _choices)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Semantics(
+                    button: true,
+                    selected: widget.selected == layout,
+                    label: label,
+                    child: Tooltip(
+                      message: label,
+                      excludeFromSemantics: true,
+                      child: Material(
+                        color: widget.selected == layout
+                            ? p.accent.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(
+                            color: widget.selected == layout
+                                ? p.accent.withValues(alpha: 0.5)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () =>
+                              Navigator.of(context)
+                                  .pop<String>('layout:${layout.name}'),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: Center(
+                              child: Icon(
+                                icon,
+                                size: 20,
+                                color: widget.selected == layout
+                                    ? p.accent
+                                    : p.textMuted,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

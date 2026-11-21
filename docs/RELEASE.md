@@ -1,12 +1,14 @@
 # Stable release procedure
 
-Candidate version: `1.0.0+20261122` (versionName `1.0.0`, Android
-versionCode `20261122`). The phone's versionCode was checked read-only on
-2026-11-21 and was `20261121`; check it and any other installed versionCodes
-again before installing. The current previous-code file contains `1`, the
-preview code. `tool/last_release_version_code.txt` must remain the previous
-distributed code until the next release cycle. No stable release exists; only
-pre-release `v1.0.0-preview.1` exists, with no assets.
+Release candidate: `1.0.0+20261123` (versionName `1.0.0`, Android
+versionCode `20261123`). The latest recorded read-only phone check, on
+2026-11-21, found versionCode `20261122`; check installed versionCodes
+read-only again before installing, including on other target devices. Treat
+that phone value as a dated snapshot, not a permanent current value. The
+`tool/last_release_version_code.txt` file currently contains `1`, the preview
+code; leave it at the previous distributed code until a stable release is
+distributed. The first stable release is being prepared; only the
+`v1.0.0-preview.1` pre-release exists so far.
 
 ## 1. Preflight
 
@@ -30,8 +32,10 @@ upstream permission scope before distributing anything.
 
 ## 2. Set the version
 
-Change only the `version:` line in `pubspec.yaml` to the candidate version
-after a fresh read-only check of installed phone versionCodes:
+For this release, the candidate version in `pubspec.yaml` is
+`1.0.0+20261123`. Before changing it for a later release, make a fresh
+read-only check of installed phone versionCodes. Change only the `version:`
+line, then run:
 
 ```sh
 sed -i 's/^version: .*/version: <version>+<build>/' pubspec.yaml
@@ -53,11 +57,10 @@ Gradle task-graph guard blocks release packaging if those values or the file
 are missing. Do not print, paste, commit, or inspect the properties or
 keystore contents. Do not generate a replacement key for an update release.
 
-Before verification, place the expected **public** SHA-256 certificate
-fingerprint from a trusted record of the existing release certificate in
-`tool/release_cert_sha256.txt`. It records the certificate of the preview and the preview APK installed on the owner device (SHA-256 3a1730a6…c8ca1), taken from a prior release-signed APK and confirmed by the integrator against the installed app. Do not learn the
-expected value from the APK being verified; that would not check continuity
-with the installed app.
+Before verification, confirm that `tool/release_cert_sha256.txt` contains the
+expected **public** SHA-256 fingerprint from a trusted record of the existing
+release certificate. Do not learn the expected value from the APK being
+verified; that would not check continuity with the installed app.
 
 ## 4. Build and verify Android
 
@@ -71,7 +74,7 @@ The verifier calls Android SDK `apksigner verify --print-certs`, rejects a
 debug certificate, and checks the result against
 `tool/release_cert_sha256.txt`. It finds `apksigner` under the SDK named by
 `ANDROID_SDK_ROOT` or `ANDROID_HOME`. Confirm `apkanalyzer` reports
-`20261122` and the APK reports the expected package id,
+`20261123` and the APK reports the expected package id,
 `com.mmoptibuilds.notes`.
 
 ## 5. Package Linux and verify checksums
@@ -137,26 +140,24 @@ other asset whose name contains `apk`.
 
 ## 7. User release actions
 
-Before publication, the owner must settle the scope of the reported upstream
-permission and state whether they created the two icon files, generated them,
-or need permission. Confirm the expected certificate fingerprint and any
-installed versionCodes, and review the font and open-source notices. The app
+Before publication, review the provenance and permission records, confirm the
+expected certificate fingerprint and installed versionCodes, and review the
+font and open-source notices. The app
 has an in-app licences page at Settings > Open-source licences, the APK bundles
 the four font licence text files, and the Linux archive ships OFL texts beside
 the fonts. Orion's listing icon and screenshots load from
 `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png` and
-`docs/screenshots/*.png` on main; do not move or rename these paths. CI runs on
-every push; check that the run for the exact release commit has passed. After
-the release is reviewed,
-the user decides whether to create a tag, publish assets, or distribute the
+`docs/screenshots/*.png` in the release commit; keep these paths available to
+the listing. Check that CI passed for the exact release commit. After review,
+the owner decides whether to create a tag, publish assets, or distribute the
 Linux archive. This procedure does not publish or push anything.
 
 ## CI review
 
-`.github/workflows/ci.yml` is structurally valid and requests only
-`contents: read`. It uses Java 21 and Flutter 3.50.0 stable, matching the
-project toolchain. No signing secrets are configured or needed: release
-configuration tests exercise validation helpers and the Gradle release guard
-without building a signed release. The workflow runs formatting, analysis,
-and tests; caching is not configured. The actions are pinned to full commit SHAs (with the version in a comment). The
-workflow runs on every push and has passed.
+`.github/workflows/ci.yml` requests only `contents: read`. It uses Java 21 and
+Flutter 3.50.0 stable. No signing secrets are configured or needed:
+release-configuration tests exercise validation helpers and the Gradle release
+guard without building a signed release. The workflow runs formatting,
+analysis and tests on pushes; check the run for the exact release commit before
+distributing. Actions are pinned to full commit SHAs (with the version in a
+comment).

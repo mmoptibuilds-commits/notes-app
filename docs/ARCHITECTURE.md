@@ -19,7 +19,7 @@ of the owner's devices. There is no server and no account.
 | `lib/core/` | ids, hybrid logical clock, version vectors, app version | Dart SDK, `crypto` only |
 | `lib/data/` | SQLite wrapper, migrations, models, `NoteRepository`, `AppSettings` | `core`, `doc`, `sqlite3`, `package:flutter/foundation.dart` (for `ChangeNotifier`) |
 | `lib/doc/` | Quill Delta helpers: digest, checklist projection, Markdown | `dart_quill_delta`, `markdown` |
-| `lib/importer/` | legacy Notebook import, Notes JSON export and restore | `core`, `data`, `doc`, `sync/merge.dart` |
+| `lib/importer/` | legacy Notebook import, Markdown import, Notes JSON export and restore | `core`, `data`, `doc`, `sync/merge.dart` |
 | `lib/sync/` | pairing, secure channel, session protocol, merge, TCP/UDP service | `core`, `data`, `doc`, `cryptography` |
 | `lib/update/` | GitHub release check, manifest verification, download, installers | `core`, `data/app_settings.dart` |
 | `lib/platform/` | `bootstrap()` and `AppServices`; native save-file channel | everything below `ui` |
@@ -41,8 +41,6 @@ Dependency rules (a change that breaks one needs a reason):
 - State management is `ChangeNotifier`/`ValueNotifier`/`ListenableBuilder` plus
   constructor injection (D10). `AppScope` (an `InheritedWidget` in
   `lib/app.dart`) hands `AppServices` to the widget tree.
-- `CLAUDE.md` and `AGENTS.md` do not list `lib/update/`; it exists and follows
-  the rules above.
 
 ### 1.2 Startup
 
@@ -286,18 +284,11 @@ it at real data from automation.
 
 ### 3.3 Failure behaviour
 
-`StartupErrorApp` (`lib/ui/startup_error.dart`) replaces the app and offers no
-destructive action:
-
-| Exception | Cause | Screen |
-|---|---|---|
-| `DatabaseKeyMissingException` | `notes.db` exists, no key in the keystore | "Your notes are locked"; nothing is created over the file |
-| `DatabaseUnreadableException` | key does not open the file | "Your notes could not be opened" |
-| `DatabaseTooNewException` | schema newer than the app | "This version of Notes is too old" |
-| anything else (for example the keyring service is not running, `StateError` from the post-write key check) | | "Notes could not start" plus the error text |
-
-Losing the keyring loses the local copy; recovery is another paired device or
-an exported JSON file (D5).
+`StartupErrorApp` replaces the app without modifying the database. Missing key,
+wrong key and newer schema show “Your notes are locked”, “Your notes could not
+be opened” and “This version of Notes is too old”; other startup failures show
+“Notes could not start” plus the error. Losing the key requires recovery from a
+paired device or an exported JSON file (D5).
 
 ### 3.4 Android backup
 
@@ -599,35 +590,17 @@ channels and wins atomically over an in-flight batch.
 
 ### 6.8 Debugging sync
 
-Status text is in `SyncService.lastError[peerId]` (also `peers.last_error`,
-shown on the Sync screen) via `describeSyncError`; per-session counts are in
-`SyncOutcome`.
-
-Checklist, in order:
-
-1. Both devices running Notes and each on the same network (or both on
-   Tailscale)? Sync never works if two devices are never up at the same time.
-2. Does the Sync screen list an address for the peer, and is it current?
-   Stored endpoints go stale when DHCP changes; discovery repairs that only on
-   the same broadcast domain.
-3. Host firewall on the Linux machine: inbound TCP 47380 and UDP 47381 must be
-   allowed from the peer's subnet. A firewall rule that allows only an old
-   subnet silently drops inbound sync and discovery: the other device shows
-   "not reachable", this one logs nothing, and it works in one direction only
-   (real incident 2026-11-21, recorded by the maintainer; not derivable from the
-   repository). Check the rule's source subnet against the phone's current
-   address first.
-4. Networks that isolate clients (guest Wi-Fi, some hotspots) block both
-   directions; use Tailscale addresses.
-5. Discovery is IPv4 broadcast only; routed subnets and VPN interfaces without
-   broadcast need a stored endpoint.
-6. Second instance on one machine: `NOTES_DATA_DIR` instances listen on an
-   ephemeral port and normally lose the discovery port to the first instance;
-   pair them with a pasted code (the code carries the real port).
-7. "paired before with a different key": remove the old entry on the other
-   device, then pair again.
-8. Rows in `quarantine` mean a peer sent something this build could not parse
-   (newer app or damaged row); update the older device.
+`SyncService.lastError[peerId]` (also `peers.last_error`) is shown on the Sync
+screen; per-session counts are in `SyncOutcome`. Check that both devices are
+open on the same network, their saved addresses are current, and Linux allows
+inbound TCP 47380 and UDP 47381 from the current subnet. A stale firewall subnet
+caused one-way phone-to-laptop sync to fail on 2026-11-21; see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md). Discovery is IPv4 broadcast and does
+not cross routed subnets; client-isolated networks can block direct sync.
+Tailscale is not verified. `NOTES_DATA_DIR` instances use an ephemeral port, so
+pair them with a pasted code. If a peer was previously paired with another key,
+remove the old peer and pair again. Quarantined rows can mean the other app is
+newer or sent a damaged row.
 
 ## 7. Updates (`lib/update/`, `tool/linux/notes-update-helper`, `tool/release/`)
 
@@ -743,43 +716,22 @@ widgets. It owns the `QuillController`, the title controller, the
 - Note operations (pin, archive, trash, move) call `ensureStored()` first, then
   the repository.
 
-`EditorScreen` hosts the toolbar (`ToolbarItem` order from settings), the
-completed section, image embeds (`att:` sources through `getAttachment`), copy
-as text and copy as Markdown, and binds the editor shortcut scope.
+`EditorScreen` hosts the toolbar (`ToolbarItem` order from settings), completed
+items, image embeds (`att:` sources through `getAttachment`), copy as text and
+Markdown, and the editor shortcut scope. Quill's find-in-note handles Ctrl+F
+while the editor has focus.
 
 ### 8.4 Shortcuts (`lib/ui/shortcuts/`)
 
-- `shortcut_defs.dart`: `ShortcutId`, `ShortcutScope` (`global`, `library`,
-  `editor`), `ShortcutDef` (activators, intent, `requiresNoTextFocus`,
-  `implemented`). Help labels are derived from the activators, so Help cannot
-  drift from the bindings. Defined: new note (Ctrl/Meta+N), focus search
-  (Ctrl/Meta+F), `/` search, select all, Delete (trash/purge selected),
-  Alt+Left (back to All notes), Ctrl+Comma (Settings), F1 (Help), Escape,
-  Ctrl+S (save now). Quick navigation (Ctrl+K) is defined with
-  `implemented: false`: never bound, never listed.
-- `shortcut_intents.dart`: one `Intent` per shortcut (`EscapeIntent`, not
-  `DismissIntent`).
-- `shortcut_guards.dart`:
-  - `currentShortcutFocus` reads the focus: `routeAccepts` is false when the
-    route is not current or is a `PopupRoute` (dialog, sheet, menu), checked for
-    both the scope context and the focused widget's route; `editableTextFocused`
-    looks for an `EditableText` ancestor; `quillFocused` looks for
-    `QuillRawEditorState`, because Quill does not use `EditableText`.
-  - Rule: a bare key (`/`, Delete, and Ctrl+A in the library) must set
-    `requiresNoTextFocus`, so it never fires while a text field or the Quill
-    editor has focus or a dialog is open. Modifier shortcuts check only the route.
-  - `ScopedAction` puts the guard in `isEnabled`, so a disabled action lets the
-    key event continue and a typed character is never swallowed.
-  - `shortcutScope(...)` binds all implemented definitions of the requested
-    scopes that have a handler, wraps them in `Shortcuts`/`Actions` and a focus
-    node, and re-takes focus when focus falls to the route's bare scope (a
-    clicked-away text field otherwise leaves every shortcut dead).
-  - `backOnEscape` is for pushed screens with no other shortcuts: Escape leaves
-    a focused text field first, then pops.
-  - `resolveEscape` orders Escape: popup, clear search, clear selection,
-    unfocus search, back.
-- Pushed routes are not inside the library's `Focus`; each pushed screen that
-  needs shortcuts binds its own scope.
+- `shortcut_defs.dart` is the source for bindings and Help labels: Ctrl/Meta+N,
+  Ctrl/Meta+F, `/`, Ctrl+A, Delete, Alt+Left, Ctrl/Meta+Comma, F1, Escape and
+  Ctrl/Meta+S. Ctrl/Meta+K is unimplemented and not bound.
+- `shortcut_guards.dart` disables actions when a dialog, sheet, menu or another
+  route is above the scope. Bare keys and Ctrl+A also require no `EditableText`
+  or Quill focus; a disabled action lets typing continue. The scope restores
+  focus after a field is clicked away from. Pushed screens bind their own scope.
+- Escape closes a popup first, then clears search or selection, leaves search
+  focus, and finally closes the editor pane or returns from a sub-view.
 
 ### 8.5 Settings, data, sync, updates screens
 
@@ -799,8 +751,26 @@ as text and copy as Markdown, and binds the editor shortcut scope.
 
 ### 8.6 Desktop shell
 
-*(Placeholder. The wide-width desktop shell, with a sidebar and an editor pane,
-does not exist in this checkout and is described separately by the coordinator.)*
+`isDesktopSize` in `widgets/responsive.dart` enables the shell at 900 logical px
+wide and 480 px high. Below either threshold the single-column library and
+route-based editor are used. On desktop, `DesktopSidebar` is 232 px wide and
+replaces the folder strip and floating new-note button. It contains All notes,
+folders, Unfiled when applicable, Archive, Trash, Conflicts when present, and
+Sync, Settings and Help at the bottom.
+
+With no note open, the library uses the remaining width. Opening a note keeps
+the library beside an embedded `EditorScreen`: the list column is 28% of the
+window width, clamped to 280–340 px, and the editor takes the rest. New notes
+open in the pane and are stored only after real content is entered. Switching
+notes, closing the pane, or disposing it flushes the `EditorSession`; autosave
+runs 700 ms after edits and retries after failures. If sync removes the open
+note, the pane is dropped and disposing the editor flushes its session.
+
+Resizing below either desktop threshold disposes the pane and returns to the
+phone layout; the edit is flushed, but widening again does not reopen the pane.
+Ctrl+F in the focused Quill editor opens find-in-note; elsewhere Ctrl+F and `/`
+focus library search. The shared route and text-focus guards keep bare keys
+from acting in text fields, the editor, or dialogs.
 
 ## 9. Testing
 
@@ -815,45 +785,38 @@ does not exist in this checkout and is described separately by the coordinator.)
 | `ui/` | widget tests per screen; `ui/library/`, `ui/editor/`, `ui/settings/`, `ui/shortcuts/`, `ui/updates/`, `ui/onboarding/`, `ui/help/`, `ui/splash/` |
 | `e2e/persistence_test.dart` | real encrypted database and key file across close and reopen |
 | `perf/` | regression ceilings and the seed-dataset harness (JIT VM, generous bounds, not benchmarks); see [PERFORMANCE.md](PERFORMANCE.md) |
-| `private/` | verification over the owner's real backup; skipped when `private/*.json` is absent; prints counts and hashes only |
+| `private/` | optional legacy-backup audit; can read `private/*.json` unless `NOTES_PRIVATE_BACKUP` points to a missing file; synthetic cases are in the same test |
 | `support/`, `fixtures/` | shared helpers and synthetic data |
 
 ### 9.2 Helpers
 
-- `test/ui/library/support.dart`: `Seed` (services, `TestClock`, ids by short
-  name, folders by name), `checklistBody`, deterministic synthetic libraries
-  built on `AppServices.inMemory(clock:)`.
-- `test/support/screenshot.dart`: `loadAppFonts()` (real fonts and icons so text
-  renders), PNG capture of widget trees. Write images outside the repo and use
-  synthetic data only.
-- `test/support/memory_transport.dart`: in-memory `FrameTransport` pair with a
-  per-frame `filter` (drop, tamper, duplicate) and `cutAfterSending`.
-- `test/update/fake_http.dart`, `fake_installer.dart`, `fixtures.dart`,
-  `world.dart`: fakes for the updater.
-- `AppDatabase.open(null)` is an in-memory database; pass `wallClock` or `nowMs`
-  to make time deterministic.
+- `test/ui/library/support.dart`: deterministic synthetic `Seed` libraries;
+  `test/support/screenshot.dart`: app fonts and PNG capture.
+- `test/support/memory_transport.dart`: in-memory transport with frame fault
+  injection. `test/update/` provides fake HTTP, installers and fixtures.
+- `AppDatabase.open(null)` is in-memory; inject `wallClock`/`nowMs` for stable
+  timestamps. Screenshots use synthetic data.
 
-Tests use synthetic data only. Perf and sync tests that touch disk set
-`NOTES_DATA_DIR` to a temp directory.
+The normal tests use synthetic data. The optional `test/private/` audit can
+read a user backup if one is present, so disable that input when running this
+suite under the repository's no-real-data rule. Perf and sync tests that touch
+disk set `NOTES_DATA_DIR` to a temp directory.
 
 ### 9.3 Running
 
 ```bash
 export PATH="$HOME/development/flutter/bin:$PATH"   # Flutter 3.50.0
-flutter test                              # everything
+NOTES_PRIVATE_BACKUP=/path/that/does/not/exist flutter test  # all synthetic tests
 flutter test test/sync                    # one area
-flutter test test/ui/library/library_layout_test.dart
 flutter test --plain-name "substring of a test name" test/data
 ```
 
 ### 9.4 CI (`.github/workflows/ci.yml`)
 
-On every push and pull request (read-only token, actions pinned by SHA, Java 21,
-Flutter 3.50.0 stable): `flutter pub get`, `dart format --output=none
---set-exit-if-changed lib test tool`, `flutter analyze`, `flutter test`, then
-`flutter test test/android/release_signing_test.dart
-test/tool/release_validation_test.dart` again as a named release-configuration
-step. CI does not build the Linux bundle or the APK and has no signing key.
+CI runs `flutter pub get`, format, analyze and tests on pushes and pull
+requests (Java 21, Flutter 3.50.0; actions pinned by SHA). It repeats the
+Android release-signing and release-validation tests. CI does not build bundles
+or APKs and has no signing key.
 
 ## 10. Changing things safely
 
@@ -862,38 +825,25 @@ issues found"), `flutter test`.
 
 ### 10.1 Schema change
 
-1. Append a new list to `migrations` in `lib/data/migrations.dart`; never edit an
-   earlier one. `schemaVersion` follows automatically.
-2. Add a test that builds a database at the previous version
-   (`schema: migrations.sublist(0, n)`) with data, upgrades it, and checks the
-   data and the new shape (patterns in 2.8).
-3. Update `NoteRecord`/`FolderRecord` and `writeRecord` together if the row is
-   synced; decide whether older peers can parse the new fields (10.2).
-4. Remember the app writes `<db>.pre-v<N>.bak` before migrating, and an older app
-   will refuse the migrated database (`DatabaseTooNewException`); this limits
-   updater rollback (UPDATES.md).
-5. Derived columns are recomputed by `writeRecord`; a migration that changes how
-   they are computed must backfill them.
+1. Append a migration; never edit an earlier one. `schemaVersion` follows the
+   list length.
+2. Test an upgrade from the previous version with existing data (2.8).
+3. Update synced row models and `writeRecord` together; check older-peer
+   compatibility (10.2).
+4. Migrations create `<db>.pre-v<N>.bak`; older builds refuse newer schemas, so
+   rollback after migration may not start (UPDATES.md).
+5. Backfill derived columns if their calculation changes.
 
 ### 10.2 Sync protocol change
 
-- Wire formats: pairing text `notes-pair:1:`, channel version byte
-  `secureChannelVersion`, `hello.proto`, row JSON from `toJson`, discovery
-  `NTSD1`/`NTSR1` with `notes-discovery-v2` tag.
-- Additive row fields: old receivers read known keys with `fromJson`; unknown
-  keys are ignored, but a missing or malformed required key throws and the row
-  is quarantined. Do not remove or retype an existing key.
-- Because `hello.proto`/`hello.schema` are not enforced, an incompatible session
-  change needs explicit gating: check `proto` on receipt and fail with a clear
-  message, or bump `secureChannelVersion` (which fails the handshake with
-  `peerVersion`). Add the check before shipping the change, not after.
-- Keep merge symmetric and idempotent; extend `test/sync/merge_test.dart`
-  (including the randomised convergence test) and `sync_session_test.dart`
-  (cut-at-every-frame).
-- Keep the invariants of D13: batches applied atomically and in sender order,
-  cursors advance in the same transaction as the data, future clocks refused.
-- Never raise or weaken limits in `SyncLimits` or `PeerStore` without a
-  security reason in `docs/DECISIONS.md`.
+- Preserve existing wire fields and types. Receivers ignore unknown row keys;
+  missing or malformed required values are quarantined. `hello.proto` and
+  `hello.schema` are not enforced, so gate incompatible session changes or bump
+  `secureChannelVersion` before shipping.
+- Keep merge symmetric and idempotent; test convergence and session failures.
+  Batches and cursors stay atomic and in sender order, and future clocks remain
+  refused (D13). Do not weaken `SyncLimits` without a security reason in
+  `DECISIONS.md`.
 
 ### 10.3 New setting
 
@@ -911,16 +861,11 @@ Ed25519 for updates).
 
 ### 10.5 UI change
 
-Run the `notes-ui-qa` skill steps (`.claude/skills/notes-ui-qa/SKILL.md`):
-format/analyze/test gates; layout matrix 360x640, 800x360, 768x1024, 640x480,
-1024x768, 1920x1080 at text scale 1.0 and 1.4, three themes, three layouts,
-asserting no overflow exceptions and 48 dp targets on Android widths; keyboard
-order and Escape layering, and that bare keys never act while Quill is focused or
-a dialog is open; semantics labels for icon-only controls; reduced-motion;
-synthetic screenshots outside the repo; UI work must not write notes. Import
-Material through `lib/ui/material.dart`. Shared files (`lib/app.dart`,
-`lib/ui/theme/`, `pubspec.yaml`, `lib/platform/bootstrap.dart`, `lib/data/`) are
-changed by the coordinator only (CLAUDE.md).
+Follow `.claude/skills/notes-ui-qa/SKILL.md`: layout sizes, themes, text scales,
+keyboard/focus guards, semantics, reduced motion, and synthetic screenshots.
+UI review must not write notes. Import Material through
+`lib/ui/material.dart`. Shared files listed in `CLAUDE.md` require coordinator
+review.
 
 ### 10.6 Data paths
 

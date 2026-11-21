@@ -7,14 +7,18 @@ by your distribution. The app also needs a working desktop keyring for its
 local encryption key. Sync pairing may need TCP 47380 and UDP 47381 allowed on
 the local network.
 
+The first stable v1.0.0 release is being prepared; currently only the
+`v1.0.0-preview.1` pre-release exists. See [README Status](../README.md#status)
+for current release availability.
+
 ## Install or upgrade
 
 1. Download `notes-<version>-linux-x64.tar.gz` and its checksum sidecar from a
    stable GitHub release.
 2. Before extracting, verify the manifest signature with OpenSSL 3 or later.
    Follow the [Verify a Linux download](../README.md#verify-a-linux-download)
-   instructions. Once published, the public key will be `notes-release.pem`;
-   check its SHA-256 fingerprint against the published DER SPKI fingerprint.
+   instructions. Save the public key from the README as `notes-release.pem` and
+   check its SHA-256 fingerprint against the fingerprint printed there.
 3. Check that the archive's SHA-256 appears in the signed manifest. Do not
    continue if signature verification or the hash check fails. The checksum
    sidecar alone only detects a damaged download because it comes from the
@@ -32,11 +36,15 @@ If `~/.local/bin/notes` already exists and is not the Notes launcher, the
 installer stops without changing anything and names the file; `uninstall.sh`
 likewise leaves such a file alone. If another `notes` command comes earlier on
 your `PATH`, the installer warns you.
-It refuses to replace an existing program directory without the managed
-install marker. No administrator privileges are needed.
+It refuses symlinks, directories it cannot identify as a Notes install, or an
+install directory not owned by your user. No administrator privileges are
+needed.
 
 Maintainers can also use `dart tool/release/verify_manifest.dart`; ordinary
 Linux users do not need Dart or a source checkout.
+
+For keyring, firewall, update and installer errors, see
+[Troubleshooting](TROUBLESHOOTING.md).
 
 The encrypted database at `~/.local/share/com.mmoptibuilds.notes/notes.db`,
 its SQLite sidecar files, keyring key, backups, and pairing state are separate

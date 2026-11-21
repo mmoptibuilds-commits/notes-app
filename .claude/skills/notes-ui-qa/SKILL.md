@@ -12,5 +12,5 @@ Run from the repo root with `export PATH="$HOME/development/flutter/bin:$PATH"`.
 3. Keyboard: Tab/Shift+Tab order, visible focus, Escape layering (popup, dialog, search/selection, back), `/` and Delete never act while the Quill editor is focused or a dialog is open, Ctrl+S inserts no character.
 4. Semantics: `tester.ensureSemantics()`; icon-only controls have labels/tooltips; headings are marked.
 5. Reduced motion: AnimationLevel.off/reduced yields no running transitions.
-6. Screenshots: synthetic data only, via `test/support/screenshot.dart`; write PNGs outside the repo; never use real notes.
+6. Screenshots: synthetic data only, via `test/support/screenshot.dart`; keep temporary review PNGs outside the tracked repo. README assets are the exception: `test/visual/review_screens_test.dart` writes the selected phone and desktop renders to `docs/screenshots/`; inspect them before committing. Never use real notes.
 7. Data safety: UI work must not write notes; onboarding never creates sample notes; run `test/data/onboarding_state_test.dart`.

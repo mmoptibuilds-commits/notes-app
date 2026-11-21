@@ -1,8 +1,11 @@
 # Notes
 
-Notes is an offline-first personal notes app for Android and native Linux,
-built with Flutter. Notes are stored locally in an encrypted SQLite database;
-device-to-device sync is optional.
+Notes is an offline-first personal notes app for Android and Linux. Android
+uses a phone layout; on Linux, a desktop sidebar stays beside the library and
+notes open in an editor pane. Notes live in an encrypted local database, with
+optional direct sync between your own devices over a local network. No account
+or cloud service is required. Import and export Markdown notes as well as Notes
+and legacy Notebook backups.
 
 ## Download
 
@@ -11,8 +14,9 @@ device-to-device sync is optional.
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
 
-No stable release has been published yet. `v1.0.0-preview.1` is a pre-release,
-and the Orion Store listing offers a download only once a stable release exists.
+The first stable release, v1.0.0, is being prepared. Only the
+`v1.0.0-preview.1` pre-release exists so far; Notes does not offer pre-releases
+through its in-app updater or the Orion Store listing.
 
 You need Android 7.0 or later (in-app updates need Android 9 or later), or a
 Linux x64 desktop with GTK 3 and GLib runtime libraries.
@@ -74,14 +78,15 @@ Extract the verified archive and run `./install.sh` from the extracted folder.
 It installs for your user only, under `~/.local` (no root). Launch Notes from
 the app menu or run `notes`. To upgrade, install a newer archive the same way
 (the previous program files are kept as `~/.local/opt/notes.previous`), or use
-the in-app update once Linux updating is enabled. Remove the program with
+the in-app updater when a stable update is available. Remove the program with
 `uninstall.sh`. Your encrypted notes database and keyring entry stay in place
 when installing, upgrading or removing program files.
 
 If Notes will not start, install your distribution's GTK 3 and GLib runtime
 packages. Sync uses TCP port 47380 and UDP port 47381; allow those ports on the
-local network when pairing. On Wayland, screen scaling and clipboard behaviour
-depend on the compositor; XWayland may be needed on older desktops.
+local network when pairing. See [troubleshooting](docs/TROUBLESHOOTING.md) for
+firewall, keyring and update issues. On Wayland, screen scaling and clipboard
+behaviour depend on the compositor; XWayland may be needed on older desktops.
 
 ### Install on Android
 
@@ -92,20 +97,35 @@ updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
-The automated suite has over 1,200 tests and passes in GitHub Actions. On
-2026-11-20 the signed APK was installed in place on a Nothing Phone 2 (arm64,
-Android 16) with existing notes intact, paired with the Linux app by QR code,
-and synced both ways automatically. Tailscale has not been checked. No stable
-release has been published yet. See the [verification plan](docs/PLAN.md).
+Version `1.0.0+20261123` is being prepared as the first stable release. No
+stable release is published yet; `v1.0.0-preview.1` is the only pre-release.
+
+On 2026-11-20/21, the app was verified on the owner's Nothing Phone 2 (arm64,
+Android 16) and CachyOS/GNOME laptop: in-place APK upgrade and Linux install
+upgrade kept existing data; QR pairing and automatic LAN sync worked in both
+directions. Tailscale and a real in-app update (which needs a second signed
+release) have not been verified. A firewall subnet change that interrupted
+sync is documented in [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Screenshots
 
+On Linux, a sidebar holds your folders, Archive and Trash, and notes open in
+an editor pane beside the note list:
+
 <p align="center">
-  <img src="docs/screenshots/library.png" alt="Notes library with folders and note previews" width="205" />
-  <img src="docs/screenshots/note-editor.png" alt="Rich text and Markdown note editor" width="205" />
-  <img src="docs/screenshots/settings-appearance.png" alt="Appearance and library settings" width="205" />
-  <img src="docs/screenshots/settings-editor-data.png" alt="Editor, sync and data settings" width="205" />
+  <img src="docs/screenshots/desktop-editor-charcoal.png" alt="Linux desktop: sidebar, note list and editor pane" width="820" />
 </p>
+
+On Android, Notes keeps a phone layout with the formatting toolbar above the
+keyboard:
+
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Android library" width="205" />
+  <img src="docs/screenshots/note-editor.png" alt="Android editor" width="205" />
+  <img src="docs/screenshots/phone-library-light.png" alt="Android library, light theme" width="205" />
+</p>
+
+Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
 
 ## Features
 
@@ -113,25 +133,18 @@ release has been published yet. See the [verification plan](docs/PLAN.md).
 - **Rich text editing:** headings, lists, checklists, blockquotes, code blocks, links and inline formatting.
 - **Organized library:** folders, search, grid/masonry/list layouts, sorting and preview controls.
 - **Appearance:** AMOLED, charcoal and light themes; adjustable typography and animation preferences.
-- **Import and export:** legacy Notebook backup JSON import (the owner's real
-  backup was checked by counts only: 44 notes imported, 0 failures); Android
-  JSON export through the system save picker; Notes' own JSON exports restore
-  with a preview, confirmation, a pre-restore snapshot and one database
-  transaction; Markdown note export.
-- **Device sync:** optional direct device-to-device pairing by QR code and
-  encrypted sync on the local network.
-
-## Platforms
-
-| Platform | Verified |
-| --- | --- |
-| Android | arm64 phone (Android 16) with in-place APK update; x86_64 Android 15 emulator |
-| Linux | Native app, keyring persistence, Linux packaging, and end-to-end sync |
+- **Import and export:** import Markdown files (one note per file), export a
+  note as Markdown, import legacy Notebook backup JSON, and export or restore
+  Notes JSON with a preview and confirmation. JSON exports are not encrypted.
+- **Device sync:** pair your own devices by QR code or copied code, then sync
+  directly over the local network with an encrypted connection. No relay server
+  is used.
 
 ## Build from source
 
-Requires Flutter 3.50.0 stable and JDK 21 for Android. The setup and release
-steps are in [CLAUDE.md](CLAUDE.md) and [RELEASE.md](docs/RELEASE.md).
+Requires Flutter 3.50.0 stable. Android builds also need JDK 21 and an Android
+SDK. The [development guide](docs/DEVELOPMENT.md) covers setup and commands;
+the [release procedure](docs/RELEASE.md) is for maintainers.
 
 ```bash
 flutter pub get
@@ -139,6 +152,7 @@ dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
 flutter test
 flutter build linux --release
+flutter build apk --release --target-platform android-arm64
 ```
 
 An Android release build requires the existing signing configuration at
@@ -151,8 +165,12 @@ with a different key cannot update an existing installation. See
 ## Project documentation
 
 - [Product requirements](docs/PRODUCT.md)
-- [Implementation progress and verification](docs/PLAN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Installation](docs/INSTALL.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Development guide](docs/DEVELOPMENT.md)
+- [Release notes](docs/RELEASE_NOTES.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Provenance review](docs/PROVENANCE.md)
 - [Third-party licences](docs/THIRD_PARTY_LICENSES.md)
-- [Stable release procedure](docs/RELEASE.md)
+- [Release procedure](docs/RELEASE.md)

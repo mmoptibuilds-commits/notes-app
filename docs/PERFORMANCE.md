@@ -2,8 +2,8 @@
 
 These tools create and measure synthetic data only. The Dart tests run under the
 JIT test VM and use deliberately generous ceilings; their times are regression
-signals, not release benchmarks. No performance numbers are recorded here until
-the coordinator runs the harnesses on a named machine.
+signals, not release benchmarks. This guide contains no release benchmark
+results; record measurements with the machine and build details listed below.
 
 ## Create deterministic datasets
 
@@ -39,10 +39,11 @@ tool/perf/linux_startup.sh \
 The script runs the binary with `NOTES_DATA_DIR="$data_dir/500"`, records
 startup-to-visible-window time when `xdotool` can find the `Notes` window, then
 samples process CPU time and resident memory for the requested idle seconds. It
-stops only the process it launched. Startup observation is capped at 60 seconds
-and idle sampling at 300 seconds. Without `xdotool`, it reports time to the
-first nonzero `/proc` RSS sample as a startup proxy; this is **not** time to
-first frame. The CPU and memory figures are averaged over the idle sample.
+stops only the process it launched. It needs `getconf` and `/proc`; `xdotool` is
+optional. Startup observation is capped at 60 seconds and idle sampling at 300
+seconds. Without `xdotool`, it reports time to the first nonzero `/proc` RSS
+sample as a startup proxy; this is **not** time to first frame. CPU and memory
+figures are averaged over the idle sample.
 
 Use a temporary seeded directory. The script requires `500/notes.db` and
 refuses to run when the data directory equals the configured `NOTES_DATA_DIR`.
@@ -53,7 +54,7 @@ Install a test build containing synthetic data on an emulator, then supply its
 explicit adb serial and package id:
 
 ```sh
-tool/perf/android_startup.sh emulator-5554 com.example.notes.test
+tool/perf/android_startup.sh emulator-5554 com.mmoptibuilds.notes
 ```
 
 The target must be detected as an emulator. `--allow-physical` explicitly opts

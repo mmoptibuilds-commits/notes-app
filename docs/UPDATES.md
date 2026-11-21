@@ -12,8 +12,7 @@ the downloaded bytes against the signed SHA-256 and size. The pinned key is
 match the certificate pinned in the app, plus Android's own installer, which
 only accepts an update signed by the same key and always asks the user. The
 manifest signature is required because a key is pinned: there is no
-unsigned fallback on either Android or Linux. (Builds made before 2026-11-21
-had no key pinned and accepted unsigned metadata on Android only.)
+unsigned fallback on either Android or Linux.
 
 **Replay and downgrade.** The app records the highest signed manifest version
 and build it has verified and rejects anything lower. Retracting a newer
@@ -28,8 +27,9 @@ and then hashes the file against the signed manifest. The checksum sidecar
 alone only detects a damaged download.
 
 Stable releases use `notes-manifest.json` and `notes-manifest.json.sig`. The
-preview tag is a pre-release and does not count as a stable release. If GitHub
-has no stable release, the app says "No stable release published."
+first stable v1.0.0 release is being prepared; `v1.0.0-preview.1` is a
+pre-release and does not count as stable. Until a stable release is published,
+the app shows “No stable release published.”
 
 ## Production key
 
@@ -69,9 +69,10 @@ key. Never reuse a key id.
 ## Manifest expiry, re-signing and key rotation
 
 Expiry is enforced against the device clock. If the latest stable release's
-manifest has expired, every installed app reports “verification failed” on a
-check, including apps already up to date; nothing is installed. Use an expiry
-about 24 months after publication. Re-sign well before expiry, for example
+manifest has expired, the Updates screen reports “Could not verify the update”
+with “The manifest has expired”; nothing is installed, including when the app
+would otherwise be up to date. Use an expiry about 24 months after publication.
+Re-sign well before expiry, for example
 three months ahead: replace the manifest and signature assets on the same
 release with a new `expires` and `publishedAt` while keeping the same artifact
 bytes, or publish a new release. `publishedAt` does not affect replay checks.
@@ -83,11 +84,6 @@ verification.
 The app records the highest signed `(version, build)` it has verified and
 refuses older manifests. Retracting a newer release causes later checks to fail
 until a newer one is published.
-
-For rotation, `kPinnedKeys` can list multiple keys. Ship the new public key in
-a release signed by the old key, then sign later releases with the new key.
-Remove the old key only after users have moved to builds that trust the new
-key.
 
 If the private key is lost, nobody can sign updates for builds that trust only
 that key. Recovery requires a new key and a new build that users install

@@ -1288,7 +1288,7 @@ class _OverflowMenu extends StatelessWidget {
               'go:archived',
               'Archive',
               icon: Icons.archive_outlined,
-              trailing: '${counts.archived}',
+              trailing: counts.archived > 0 ? '${counts.archived}' : null,
             ),
           if (c.scope != NoteScope.trash)
             menuItem(
@@ -1296,7 +1296,7 @@ class _OverflowMenu extends StatelessWidget {
               'go:trash',
               'Trash',
               icon: Icons.delete_outline_rounded,
-              trailing: '${counts.trash}',
+              trailing: counts.trash > 0 ? '${counts.trash}' : null,
             ),
           if (counts.conflicts > 0 && c.scope != NoteScope.conflicts)
             menuItem(
@@ -1304,7 +1304,7 @@ class _OverflowMenu extends StatelessWidget {
               'go:conflicts',
               'Conflicts',
               icon: Icons.call_split_rounded,
-              trailing: '${counts.conflicts}',
+              trailing: counts.conflicts > 0 ? '${counts.conflicts}' : null,
             ),
           if (c.scope == NoteScope.trash && counts.trash > 0) ...[
             const PopupMenuDivider(height: 8),

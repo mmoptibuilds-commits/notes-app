@@ -21,7 +21,9 @@ PopupMenuItem<T> menuItem<T>(
     value: value,
     height: hitSize(context, desktop: 42),
     child: Row(
-      mainAxisSize: MainAxisSize.min,
+      // With a count, the label takes the free width so counts line up at the
+      // menu's trailing edge.
+      mainAxisSize: trailing == null ? MainAxisSize.min : MainAxisSize.max,
       children: [
         if (checked)
           Icon(Icons.check_rounded, size: 18, color: p.accent)
@@ -31,6 +33,7 @@ PopupMenuItem<T> menuItem<T>(
           const SizedBox(width: 18),
         if (checked || icon != null || reserveIcon) const SizedBox(width: 10),
         Flexible(
+          fit: trailing == null ? FlexFit.loose : FlexFit.tight,
           child: Text(label, style: TextStyle(fontSize: 13.5, color: color)),
         ),
         if (trailing != null) ...[

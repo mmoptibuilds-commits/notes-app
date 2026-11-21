@@ -3,7 +3,7 @@
 const appVersionName = '1.0.0';
 
 /// Android versionCode / the pubspec build number. Strictly increasing.
-const appBuildNumber = 20261122;
+const appBuildNumber = 20261123;
 
 /// The version shown in the UI.
 const appVersionText = appVersionName;

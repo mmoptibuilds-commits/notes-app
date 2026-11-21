@@ -32,11 +32,13 @@ downloads. Manual Check, Download and Install remain available.
 
 When an automatic check finds a newer signed release, Notes downloads the
 artifact in the background. A partial transfer has a small sidecar bound to its
-HTTPS URL, version, declared size and SHA-256; it records the server ETag when
-available. Resume sends `Range` and `If-Range`, accepts only a matching 206
-`Content-Range`, and restarts from byte zero if the server ignores the range or
-changes its ETag. Notes hashes the complete file before atomically renaming it.
-Cancellation, network loss and low storage leave a recoverable paused state.
+HTTPS URL, version, declared size and SHA-256. Resume is allowed only when the
+partial has a strong server ETag and the server confirms the same ETag and a
+matching 206 `Content-Range` for the requested byte range. If there is no strong
+ETag, the server ignores the range, or the ETag changes, Notes starts a fresh
+download from byte zero. It hashes the complete file before atomically renaming
+it. Cancellation, network loss and low storage leave a recoverable paused
+state; the next attempt still verifies the complete file.
 
 After verification Notes persists a compact ready record containing the raw
 manifest bytes and signature, artifact metadata and release address. Android
@@ -145,10 +147,11 @@ it. Status is written to
 The helper holds `${stateDir}/lock` with `flock` from before its process scan
 through the swap. Startup checks the same lock before opening the database,
 waiting up to ten seconds before showing a clear retry message. The helper
-checks free space on the install parent for extraction and staging before it
-creates either directory. The helper never accesses the notes database,
-keyring, backups, or pairing data. It requires GNU tar, `flock`, `sha256sum`,
-`df`, and `/proc`.
+relaunches the updated Notes app after a successful swap and reopens the
+previous app after a failed update. It checks free space on the install parent
+for extraction and staging before it creates either directory. The helper
+never accesses the notes database, keyring, backups, or pairing data. It
+requires GNU tar, `flock`, `sha256sum`, `df`, `/proc` and `setsid` for relaunch.
 
 Rollback is automatic only when the program-directory swap fails. After a new
 version has opened the database, an older version may reject that database
@@ -166,6 +169,7 @@ permission only after the user taps Install. After replacement, a private
 receiver checks that the pending versionCode matches the installed package and
 posts “Notes updated — tap to open” with an explicit Activity PendingIntent. It
 never launches an Activity from the background. If notifications are denied,
-the next launch shows the one-time “Updated to version X” result instead.
+the update still completes and the next launch shows the one-time “Updated to
+version X” result instead.
 Distribution through Google Play would need to use Play's update flow and
 signing identity rather than direct APK delivery.

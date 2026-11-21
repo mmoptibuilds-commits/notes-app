@@ -1,3 +1,43 @@
+# Notes 1.1.0
+
+Notes is a personal, offline-first notes app for Android and Linux. Notes stay
+in an encrypted database on your device. There are no accounts, analytics or
+cloud service.
+
+## What's new
+
+- Choose Unfiled, All notes or Last viewed as the library's start view. Unfiled
+  is selected by default.
+- Stable updates can download in the background when automatic updates are
+  enabled. A verified update stays ready across app restarts and Notes offers
+  **Install now** or **Later** when it is ready.
+- Android shows a “Notes updated” notification after an update. Android 13 and
+  newer may ask for notification permission when you confirm installation;
+  denying permission does not stop the update.
+- Linux in-app updates close and relaunch Notes after updating a managed
+  installation.
+- The library menus, phone search, text contrast and large-text settings layout
+  have been improved. Sync also follows up on edits made during a sync session.
+
+## Upgrading from 1.0.0
+
+Notes 1.0.0 finds 1.1.0 with its update check; open **Settings → Updates**, tap
+**Download**, then **Install…** and confirm. (1.0.0 only checks automatically;
+background downloads start with 1.1.0.) From 1.1.0 on, automatic updates are
+enabled by default and download in the background; you still confirm
+installation. Android hands the verified APK to its system installer. Linux
+updates relaunch the app after the managed program files are replaced. Your
+encrypted notes database and paired devices are kept when you update.
+
+For a manual installation, download the Android arm64 APK or Linux x64 archive
+from the [Notes releases page](https://github.com/mmoptibuilds-commits/notes-app/releases).
+Linux users should verify the signed manifest and archive hash using
+[Verify a Linux download](../README.md#verify-a-linux-download) before
+extracting. An Android APK must use the same signing certificate as your
+existing installation. Do not uninstall first if you need to keep local notes.
+
+---
+
 # Notes 1.0.0
 
 Notes is a personal, offline-first notes app for Android and Linux. Notes stay

@@ -42,6 +42,13 @@ simplicity and intuitive editing matter more than feature count.
 - Minimal navigation; advanced controls tucked away.
 - Desktop: keyboard shortcuts, context menus, hover, resizable window.
 
+### Updates
+- Check for stable releases automatically and download verified updates in the
+  background when automatic updates are enabled.
+- Always ask the user to confirm installation. Android uses the system package
+  installer; Linux in-app updates support managed installs and relaunch Notes.
+- Preserve the existing signed-manifest and platform-signing trust checks.
+
 ### Sync
 - Up to five paired devices, no accounts, no always-on server.
 - Each device fully usable offline; changes queue durably.

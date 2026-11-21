@@ -94,8 +94,9 @@ with `NOTES_DATA_DIR`. Deliberately different from upstream's
 ## D12. Upstream source is reference only
 `SaadhJawwadh/Everything-App` has no licence file (checked 2026-11-17), so by
 default all rights are reserved. Nothing is copied from it; behaviour and data
-formats are re-implemented. The user reports having the author's permission;
-its scope must be confirmed in writing before publishing anything.
+formats are re-implemented. Update 2026-11-21: the owner publishes Notes as
+independent work without relying on any permission from the upstream author
+(see PROVENANCE.md).
 
 ## D13. Sync protocol invariants the transport must keep
 Found while testing the merge (`test/sync/merge_test.dart`):

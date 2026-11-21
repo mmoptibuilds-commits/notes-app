@@ -155,15 +155,11 @@ licence text was identified in these package inputs.
 - Both packages carry Flutter's generated `NOTICES.Z` (the licence texts of
   the Dart and Flutter packages, shown on the in-app licences page): the APK at
   `assets/flutter_assets/NOTICES.Z`, the Linux archive at
-  `bundle/data/flutter_assets/NOTICES.Z` (checked in the a688e14 artifacts).
+  `bundle/data/flutter_assets/NOTICES.Z`.
   The Linux archive also copies the four font OFL texts to its root.
-- `assets/icon/icon_512.png` and `assets/icon/icon_1024.png` have no source or
-  licence documentation in the repository. Their origin is a separate open
-  publication item: the owner must state whether they created them, generated
-  them, or need permission.
-- No separate licence/source documentation was found for other bundled
-  artwork or generated icon assets. The asset inventory inspected was the
-  repository’s `assets/` tree.
+- The app icon, launcher icons and splash glyph are original, drawn by code in
+  this repository (`lib/ui/brand_mark.dart`, `tool/generate_icons.dart`); see
+  [PROVENANCE.md](PROVENANCE.md). There is no other bundled artwork.
 
 ## Limits
 

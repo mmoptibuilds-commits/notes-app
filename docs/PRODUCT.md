@@ -68,16 +68,8 @@ simplicity and intuitive editing matter more than feature count.
 - iOS and web builds (architecture only).
 - Upstream's six-digit-code sync encryption.
 
-## Unresolved (need the user)
+## Not built (deliberately)
 
-- Reference screenshots have not been provided; visual work follows the written
-  brief until they are.
-- The real backup file has not been provided; private import verification is
-  pending. Drop both into `private/`.
-- Upstream has no licence file. Written permission and its redistribution
-  scope must be confirmed before any publication. Until then: no code copied,
-  no public remote.
-- Legacy fields without a home yet (note colour, tags, reminders, lock flag):
-  preserved in the import record and reported, not shown in the UI. Decide
-  whether any should become features.
-- Note lock / app lock: not requested, not built.
+- Legacy fields without a home (note colour, tags, reminders, lock flag) are
+  preserved in the import record and reported, not shown in the UI.
+- Note lock / app lock: not requested.

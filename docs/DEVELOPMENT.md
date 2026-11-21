@@ -86,6 +86,24 @@ desktop sizes:
 flutter test test/visual/review_screens_test.dart && ls build/screens/
 ```
 
+For a real Android rendering pass (device insets, system fonts and density),
+run the screen tour on the Android 15 x86_64 emulator:
+
+```bash
+tool/android_tour.sh emulator-5554
+```
+
+The tour creates a fresh temporary database, seeds synthetic notes, and removes
+the database when it finishes. At each step the test prints an
+`ANDROID_TOUR_SHOT <name>` marker and holds still; the script takes an
+`adb screencap` (real system bars and fonts) into
+`build/screens/android/<name>.png`, with the full log in `tour.log` there. (The
+integration_test screenshot API hung on the emulator, so it is not used.) A
+failing step is logged and the tour continues, then the test fails at the end
+listing every failed step. The test build is installed on the emulator; use a
+disposable emulator, never the owner's phone. The tour never uses a real data
+directory.
+
 Look at the images after any UI change; they are review artefacts, not golden
 tests. Also check: the three themes (AMOLED, charcoal, light), text scale 1.4,
 keyboard focus order and Escape layering, and that Android touch targets stay

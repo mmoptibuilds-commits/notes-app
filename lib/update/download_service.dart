@@ -273,12 +273,11 @@ class DownloadService {
         await _discard(metadataFile);
         return null;
       }
-      if (metadata.etag != null &&
-          (!metadata.etag!.startsWith('"') ||
-              !metadata.etag!.endsWith('"') ||
-              metadata.etag!.startsWith('W/'))) {
-        // Weak entity tags cannot be used by If-Range.
-        return metadata.copyWith(etag: null);
+      if (!_isStrongEtag(metadata.etag)) {
+        // A partial without a strong validator cannot safely be resumed.
+        await _discard(part);
+        await _discard(metadataFile);
+        return null;
       }
       return metadata;
     } on Object {
@@ -301,8 +300,12 @@ class DownloadService {
   }) async {
     final headers = <String, String>{'Accept-Encoding': 'identity'};
     if (offset > 0) {
+      final etag = metadata.etag;
+      if (!_isStrongEtag(etag)) {
+        throw StateError('A partial update needs a strong ETag to resume.');
+      }
       headers['Range'] = 'bytes=$offset-';
-      if (metadata.etag != null) headers['If-Range'] = metadata.etag!;
+      headers['If-Range'] = etag!;
     }
     final response = await _open(url, headers, token);
     var append = false;
@@ -316,7 +319,7 @@ class DownloadService {
       final etag = response.headers['etag'];
       final validRange =
           offset > 0 && start == offset && end == size - 1 && total == size;
-      final validEtag = metadata.etag == null || etag == metadata.etag;
+      final validEtag = _isStrongEtag(metadata.etag) && etag == metadata.etag;
       if (!validRange || !validEtag) {
         await response.close();
         if (!allowRestart) {
@@ -439,6 +442,23 @@ class DownloadService {
       }
       await response.close();
     }
+  }
+
+  bool _isStrongEtag(String? etag) {
+    if (etag == null ||
+        etag.length < 2 ||
+        !etag.startsWith('"') ||
+        !etag.endsWith('"') ||
+        etag.startsWith('W/')) {
+      return false;
+    }
+    for (var i = 1; i < etag.length - 1; i++) {
+      final char = etag.codeUnitAt(i);
+      if (char < 0x21 || char == 0x22 || char == 0x7f || char > 0xff) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<UpdateResponse> _open(

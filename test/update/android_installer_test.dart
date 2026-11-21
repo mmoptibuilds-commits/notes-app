@@ -281,6 +281,22 @@ void main() {
     });
 
     test(
+      'does not hand off when the pending marker cannot be written',
+      () async {
+        File(info.updateDir.path).writeAsStringSync('not a directory');
+
+        final result = await installer.install(await ready(), info);
+
+        expect(result, isA<InstallFailed>());
+        expect(
+          (result as InstallFailed).message,
+          "Couldn't prepare the update. Free some space and try again.",
+        );
+        expect(calls.where((call) => call.method == 'install'), isEmpty);
+      },
+    );
+
+    test(
       'without permission it asks to open settings and installs nothing',
       () async {
         handlers['canInstall'] = (_) => false;

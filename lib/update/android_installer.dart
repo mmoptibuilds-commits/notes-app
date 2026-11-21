@@ -177,9 +177,9 @@ class AndroidUpdateInstaller implements UpdateInstaller {
 
     final candidate = update.candidate;
     final pending = _pendingFile(info.updateDir);
+    final temporary = File('${pending.path}.tmp');
     try {
       await pending.parent.create(recursive: true);
-      final temporary = File('${pending.path}.tmp');
       await temporary.writeAsString(
         jsonEncode({
           'toVersion': candidate.version,
@@ -191,7 +191,11 @@ class AndroidUpdateInstaller implements UpdateInstaller {
       if (await pending.exists()) await pending.delete();
       await temporary.rename(pending.path);
     } on FileSystemException {
-      // Without the marker the next launch just shows nothing; keep going.
+      await _clear(temporary);
+      await _clear(pending);
+      return const InstallFailed(
+        "Couldn't prepare the update. Free some space and try again.",
+      );
     }
     try {
       final r = await _map('install', {

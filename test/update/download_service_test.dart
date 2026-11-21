@@ -214,8 +214,42 @@ void main() {
     expect(http.requests.last.headers['If-Range'], '"payload-v1"');
   });
 
-  test('a server that ignores Range restarts from byte zero', () async {
+  test('a partial without a saved ETag restarts from byte zero', () async {
     http.on(url.toString(), FakeReply(200, body: payload.sublist(0, 4000)));
+    await expectLater(run(svc()), fails(DownloadFailure.interrupted));
+    http.replace(url.toString(), FakeReply(200, body: payload));
+
+    expect((await run(svc())).readAsBytesSync(), payload);
+    expect(http.requests.last.headers.containsKey('Range'), isFalse);
+    expect(http.requests.last.headers.containsKey('If-Range'), isFalse);
+  });
+
+  test('a partial with a weak ETag restarts from byte zero', () async {
+    http.on(
+      url.toString(),
+      FakeReply(
+        200,
+        body: payload.sublist(0, 4000),
+        headers: {'etag': 'W/"payload-v1"'},
+      ),
+    );
+    await expectLater(run(svc()), fails(DownloadFailure.interrupted));
+    http.replace(url.toString(), FakeReply(200, body: payload));
+
+    expect((await run(svc())).readAsBytesSync(), payload);
+    expect(http.requests.last.headers.containsKey('Range'), isFalse);
+    expect(http.requests.last.headers.containsKey('If-Range'), isFalse);
+  });
+
+  test('a server that ignores Range restarts from byte zero', () async {
+    http.on(
+      url.toString(),
+      FakeReply(
+        200,
+        body: payload.sublist(0, 4000),
+        headers: {'etag': '"payload-v1"'},
+      ),
+    );
     await expectLater(run(svc()), fails(DownloadFailure.interrupted));
     http.replace(url.toString(), FakeReply(200, body: payload));
     expect((await run(svc())).readAsBytesSync(), payload);

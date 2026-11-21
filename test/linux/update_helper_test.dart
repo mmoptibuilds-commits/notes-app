@@ -448,7 +448,8 @@ t.close()
           File('${state.path}/update.json').readAsStringSync(),
         );
         expect(status['ok'], isFalse);
-        expect(status['phase'], 'verified', reason: 'never reached staging');
+        expect(status['phase'], 'failed');
+        expect(status['error'], 'verification_failed');
         // Nothing escaped the archive: no files outside the fake home.
         expect(File('${temp.path}/notes-evil-dotdot').existsSync(), isFalse);
         expect(File('/tmp/notes-evil-abs').existsSync(), isFalse);

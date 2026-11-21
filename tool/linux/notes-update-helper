@@ -5,10 +5,23 @@ set -eu
 umask 077
 
 usage() { echo 'usage: notes-update-helper apply --pid N --archive PATH --sha256 HEX --size BYTES --install DIR --state-dir DIR --version VER [--build N] [--relaunch] | rollback --install DIR --state-dir DIR' >&2; exit 2; }
-refused() { echo "$*" >&2; exit 10; }
-verifyfail() { echo "$*" >&2; exit 11; }
+refused() {
+  echo "$*" >&2
+  if [ "${app_exited:-no}" = yes ] && [ -z "${failure_reason:-}" ]; then
+    failure_reason=update_refused
+  fi
+  exit 10
+}
+verifyfail() {
+  echo "$*" >&2
+  if [ "${app_exited:-no}" = yes ] && [ -z "${failure_reason:-}" ]; then
+    failure_reason=verification_failed
+  fi
+  exit 11
+}
 status_write() {
   phase=$1; ok=$2; error=$3
+  if [ "$phase" = failed ] && [ -n "$error" ]; then failure_reason=$error; fi
   tmp="${state_dir}/.update.json.$$"
   printf '{"phase":"%s","fromVersion":"%s","toVersion":"%s","ok":%s,"error":"%s","time":"%s"}\n' \
     "$phase" "$from_version" "$version" "$ok" "$error" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp"
@@ -58,6 +71,71 @@ flock -n 9 || exit 12
 previous="${install_dir}.previous"
 parent=$(dirname "$install_dir")
 from_version=unknown
+app_exited=no
+old_moved=no
+update_succeeded=no
+failure_reason=
+unpack=
+stage=
+listing=
+
+finish_failed_update() {
+  result=$?
+  trap - EXIT
+  if [ "$app_exited" != yes ] || [ "$result" -eq 0 ] || \
+      [ "$update_succeeded" = yes ]; then
+    exit "$result"
+  fi
+
+  # A failure after the initiating app exits must leave the old program
+  # available and start it again. During a failed second rename the old tree
+  # may still be in .previous; restore it when possible, otherwise run it from
+  # there without deleting it.
+  set +e
+  old_app=
+  if [ "$old_moved" = yes ] && [ -d "$previous" ]; then
+    failed_install="${parent}/.notes-failed-$$"
+    if [ -e "$install_dir" ]; then
+      if [ ! -e "$failed_install" ] && mv "$install_dir" "$failed_install"; then
+        if mv "$previous" "$install_dir"; then
+          rm -rf "$failed_install"
+          old_moved=no
+        else
+          mv "$failed_install" "$install_dir" 2>/dev/null || true
+        fi
+      fi
+    else
+      if mv "$previous" "$install_dir"; then old_moved=no; fi
+    fi
+  elif [ ! -e "$install_dir" ] && notes_tree "$previous"; then
+    if mv "$previous" "$install_dir"; then old_moved=no; fi
+  fi
+
+  if [ -n "$unpack" ]; then rm -rf "$unpack"; fi
+  if [ -n "$stage" ] && [ -d "$stage" ]; then rm -rf "$stage"; fi
+  if [ -n "$listing" ]; then rm -f "$listing"; fi
+  [ -n "$failure_reason" ] || failure_reason=helper_failed
+  status_write failed false "$failure_reason" || true
+
+  flock -u 9 2>/dev/null || true
+  exec 9>&-
+  if [ "$old_moved" = yes ] && [ -x "${previous}/notes" ]; then
+    old_app="${previous}/notes"
+  elif [ -x "${install_dir}/notes" ]; then
+    old_app="${install_dir}/notes"
+  elif [ -x "${previous}/notes" ]; then
+    old_app="${previous}/notes"
+  fi
+  if [ "$relaunch" = yes ] && [ -n "$old_app" ]; then
+    if command -v setsid >/dev/null 2>&1; then
+      setsid "$old_app" >/dev/null 2>&1 </dev/null 9>&- &
+    else
+      "$old_app" >/dev/null 2>&1 </dev/null 9>&- &
+    fi
+  fi
+  exit "$result"
+}
+trap finish_failed_update EXIT
 
 recover() {
   if [ -e "$previous" ] && [ ! -e "$install_dir" ]; then
@@ -71,6 +149,7 @@ recover() {
   fi
 }
 recover
+failure_reason=
 [ -d "$install_dir" ] && [ -f "$install_dir/.managed-install" ] || refused 'Unmanaged install refused'
 [ "$(stat -c %u "$install_dir")" = "$(id -u)" ] || refused 'Install is not owned by current user'
 from_version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$install_dir/.managed-install" | head -n 1)
@@ -124,6 +203,7 @@ while kill -0 "$pid" 2>/dev/null; do
   [ "$i" -lt 300 ] || exit 13
   sleep 1; i=$((i + 1))
 done
+app_exited=yes
 actual_size=$(wc -c < "$archive" | tr -d ' ')
 [ "$actual_size" = "$size" ] || verifyfail 'Archive size mismatch'
 actual_sha=$(sha256sum "$archive" | awk '{print $1}')
@@ -135,7 +215,7 @@ status_write verified false ''
 # traversal, setuid/setgid, and malformed layout.
 tar -tzf "$archive" >/dev/null 2>&1 || verifyfail 'Corrupted archive'
 listing="${state_dir}/.tar-list.$$"
-trap 'rm -f "$listing"' EXIT HUP INT TERM
+trap 'rm -f "$listing"; exit 1' HUP INT TERM
 tar -tvzf "$archive" > "$listing" || verifyfail 'Cannot list archive'
 awk '
 function unsafe(p, n,a,i) { if (p ~ /^\//) return 1; n=split(p,a,"/"); for(i=1;i<=n;i++) if(a[i]=="..") return 1; return 0 }
@@ -195,13 +275,15 @@ if [ -e "$previous" ]; then
   rm -rf "$previous"
 fi
 if ! mv "$install_dir" "$previous"; then rm -rf "$stage"; status_write failed false first_rename_failed; exit 14; fi
+old_moved=yes
 if ! mv "$stage" "$install_dir"; then
-  if mv "$previous" "$install_dir"; then status_write failed false second_rename_rolled_back; exit 14; fi
+  if mv "$previous" "$install_dir"; then old_moved=no; status_write failed false second_rename_rolled_back; exit 14; fi
   status_write failed false rollback_failed; exit 15
 fi
 status_write done true ''
 if [ "$relaunch" = yes ]; then
   command -v setsid >/dev/null 2>&1 || exit 14
-  setsid "$install_dir/notes" >/dev/null 2>&1 </dev/null &
+  setsid "$install_dir/notes" >/dev/null 2>&1 </dev/null 9>&- &
 fi
+update_succeeded=yes
 exit 0

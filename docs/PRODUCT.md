@@ -15,6 +15,9 @@ simplicity and intuitive editing matter more than feature count.
 ### Library
 - Compact cards; grid, masonry and list layouts; responsive column count.
 - Folders (flat), pinned notes, archive, recoverable Trash.
+- Starts in Unfiled by default; Settings can choose Unfiled, All notes or Last
+  viewed.
+- With no folders, Unfiled opens as All notes because every note is unfiled.
 - Bulk operations: pin, archive, move to folder, trash, restore, delete forever.
 - Fast full-text search across title and body.
 - Library scroll position survives opening and closing a note.

@@ -62,7 +62,9 @@ Future<Seed> _library(
   bool largeText = false,
   bool empty = false,
 }) async {
-  final seed = empty ? freshServices() : seedLibrary();
+  final seed = empty
+      ? freshServices()
+      : seedLibrary(startupView: StartupView.unfiled);
   addTearDown(seed.services.close);
   seed.services.settings.theme = theme;
   if (largeText) seed.services.settings.textScale = 1.4;
@@ -153,11 +155,43 @@ void main() {
             entry.key,
             theme,
             '01-library-${layout.name}',
-            'All notes in ${layout.name} layout${fullThemes && theme == AppTheme.amoled ? ', text scale 1.4' : ''}.',
+            'Unfiled home in ${layout.name} layout${fullThemes && theme == AppTheme.amoled ? ', text scale 1.4' : ''}.',
           );
         }
       });
     }
+  }
+
+  for (final form in ['phone', 'desktop']) {
+    testWidgets('$form empty Unfiled home', (tester) async {
+      final seed = freshServices();
+      addTearDown(seed.services.close);
+      seed.services.notes.createFolder('Work');
+      seed.services.settings.theme = AppTheme.amoled;
+      final ratio = form == 'phone' ? 2.625 : 1.0;
+      await setWindow(tester, _forms[form]!, pixelRatio: ratio);
+      await pumpApp(tester, seed.services);
+      await tester.pumpAndSettle();
+
+      expect(seed.services.settings.startupView, StartupView.unfiled);
+      expect(libraryTitle('Unfiled'), findsOneWidget);
+      expect(find.text('No unfiled notes.'), findsOneWidget);
+      expect(
+        find.text(
+          form == 'phone'
+              ? 'Notes in folders are under their folder chips.'
+              : 'Notes in folders are under their folder names.',
+        ),
+        findsOneWidget,
+      );
+      await _capture(
+        tester,
+        form,
+        AppTheme.amoled,
+        '00-unfiled-empty',
+        'Unfiled home with no unfiled notes and one empty folder.',
+      );
+    });
   }
 
   testWidgets('phone library scopes menus and dialogs', (tester) async {
@@ -167,7 +201,7 @@ void main() {
       'phone',
       AppTheme.charcoal,
       '02-library',
-      'Seed library with folders, pinned notes and checklists.',
+      'Unfiled home with folders, pinned notes and checklists.',
     );
 
     await tester.tap(find.text('Home'));
@@ -363,6 +397,8 @@ void main() {
       'Desktop library overflow menu open.',
     );
     await tester.tapAt(const Offset(400, 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('All notes'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Groceries'));
     await tester.pumpAndSettle();

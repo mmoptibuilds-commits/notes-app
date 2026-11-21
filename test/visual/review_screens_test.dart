@@ -45,6 +45,7 @@ void main() {
   ) async {
     final services = AppServices.inMemory();
     addTearDown(services.close);
+    services.settings.startupView = StartupView.all;
     services.settings.theme = theme;
 
     final projects = services.notes.createFolder('Projects');

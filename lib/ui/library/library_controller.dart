@@ -22,11 +22,19 @@ const unfiledKey = 'unfiled';
 /// change (not per build) and never reads note bodies.
 class LibraryController extends ChangeNotifier {
   LibraryController(this.notes, this.settings) {
-    final saved = settings.read(folderSettingKey);
-    if (saved == unfiledKey) {
-      _unfiled = true;
-    } else if (saved != null && saved.isNotEmpty) {
-      _folderId = saved;
+    switch (settings.startupView) {
+      case StartupView.unfiled:
+        _unfiled = true;
+        break;
+      case StartupView.all:
+        break;
+      case StartupView.last:
+        final saved = settings.read(folderSettingKey);
+        if (saved == unfiledKey) {
+          _unfiled = true;
+        } else if (saved != null && saved.isNotEmpty) {
+          _folderId = saved;
+        }
     }
     _layout = settings.layout;
     _sort = settings.sort;

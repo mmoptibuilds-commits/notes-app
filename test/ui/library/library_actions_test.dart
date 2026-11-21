@@ -25,6 +25,31 @@ void main() {
   setUpAll(loadAppFonts);
 
   group('folders', () {
+    testWidgets(
+      'empty Unfiled home stays visible after All and before folders',
+      (tester) async {
+        final s = freshServices();
+        addTearDown(s.services.close);
+        s.services.notes.createFolder('Work');
+        await pumpLibrary(tester, s);
+
+        expect(find.text('No unfiled notes.'), findsOneWidget);
+        expect(
+          find.text('Notes in folders are under their folder chips.'),
+          findsOneWidget,
+        );
+        expect(chip('Unfiled'), findsOneWidget);
+        expect(
+          tester.getTopLeft(chip('All')).dx,
+          lessThan(tester.getTopLeft(chip('Unfiled')).dx),
+        );
+        expect(
+          tester.getTopLeft(chip('Unfiled')).dx,
+          lessThan(tester.getTopLeft(chip('Work')).dx),
+        );
+      },
+    );
+
     testWidgets('chips filter, show counts and the choice persists', (
       tester,
     ) async {
@@ -65,6 +90,44 @@ void main() {
       await pumpLibrary(tester, s);
       expect(find.text('Unfiled'), findsNothing);
       expect(find.byTooltip('New folder'), findsOneWidget);
+    });
+
+    testWidgets('Unfiled appears when a folder is added to an empty home', (
+      tester,
+    ) async {
+      final s = freshServices();
+      addTearDown(s.services.close);
+      await pumpLibrary(tester, s);
+      expect(s.services.settings.startupView, StartupView.unfiled);
+      expect(chip('Unfiled'), findsNothing);
+
+      s.services.notes.createFolder('Work');
+      await tester.pumpAndSettle();
+      expect(chip('Unfiled'), findsOneWidget);
+      expect(chip('Work'), findsOneWidget);
+      expect(find.text('No notes yet. Tap + to write one.'), findsOneWidget);
+    });
+
+    testWidgets('a new note created from Unfiled remains unfiled', (
+      tester,
+    ) async {
+      final s = seedLibrary(startupView: StartupView.unfiled);
+      addTearDown(s.services.close);
+      await pumpLibrary(tester, s);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      final editor = tester.widget<EditorScreen>(find.byType(EditorScreen));
+      expect(editor.folderId, isNull);
+
+      await tester.enterText(find.byType(TextField).last, 'Unfiled draft');
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      final saved = s.services.notes.listNotes().singleWhere(
+        (note) => note.title == 'Unfiled draft',
+      );
+      expect(saved.folderId, isNull);
     });
 
     testWidgets('+ creates a folder and opens it', (tester) async {

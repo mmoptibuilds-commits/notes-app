@@ -11,6 +11,9 @@ enum AppTheme { amoled, charcoal, light }
 
 enum LibraryLayout { grid, masonry, list }
 
+/// Which active library view opens when Notes starts.
+enum StartupView { unfiled, all, last }
+
 enum AnimationLevel { off, reduced, full }
 
 /// Font choices. [system] uses the platform default; the rest are bundled.
@@ -108,6 +111,12 @@ class AppSettings extends ChangeNotifier {
   LibraryLayout get layout =>
       _enum('layout', LibraryLayout.values, LibraryLayout.masonry);
   set layout(LibraryLayout v) => _set('layout', v.name);
+
+  /// Active library view to show on startup. Upgraded installs default to
+  /// Unfiled when this setting has never been written.
+  StartupView get startupView =>
+      _enum('startupView', StartupView.values, StartupView.unfiled);
+  set startupView(StartupView v) => _set('startupView', v.name);
 
   NoteSort get sort => _enum('sort', NoteSort.values, NoteSort.modified);
   set sort(NoteSort v) => _set('sort', v.name);

@@ -17,6 +17,7 @@ class DesktopSidebar extends StatelessWidget {
     required this.scope,
     required this.folderId,
     required this.unfiled,
+    required this.unfiledStartup,
     required this.sync,
     required this.onNewNote,
     required this.onAll,
@@ -35,6 +36,7 @@ class DesktopSidebar extends StatelessWidget {
   final NoteScope scope;
   final String? folderId;
   final bool unfiled;
+  final bool unfiledStartup;
 
   /// Null when this build has no sync (the row is then hidden).
   final SyncService? sync;
@@ -56,7 +58,8 @@ class DesktopSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    final showUnfiled = folders.isNotEmpty && (counts.unfiled > 0 || unfiled);
+    final showUnfiled =
+        folders.isNotEmpty && (counts.unfiled > 0 || unfiled || unfiledStartup);
     final inActive = scope == NoteScope.active;
     return Container(
       width: sidebarWidth,
@@ -96,6 +99,14 @@ class DesktopSidebar extends StatelessWidget {
                     selected: inActive && folderId == null && !unfiled,
                     onTap: onAll,
                   ),
+                  if (showUnfiled)
+                    _NavItem(
+                      icon: Icons.folder_off_outlined,
+                      label: 'Unfiled',
+                      count: counts.unfiled,
+                      selected: inActive && unfiled,
+                      onTap: onUnfiled,
+                    ),
                   _SectionHeader(
                     label: 'Folders',
                     action: IconButton(
@@ -120,14 +131,6 @@ class DesktopSidebar extends StatelessWidget {
                       selected: inActive && folderId == f.id,
                       onTap: () => onFolder(f),
                       onMenu: (pos) => onFolderMenu(f, pos),
-                    ),
-                  if (showUnfiled)
-                    _NavItem(
-                      icon: Icons.folder_off_outlined,
-                      label: 'Unfiled',
-                      count: counts.unfiled,
-                      selected: inActive && unfiled,
-                      onTap: onUnfiled,
                     ),
                   if (folders.isEmpty)
                     Padding(

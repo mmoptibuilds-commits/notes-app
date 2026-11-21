@@ -167,6 +167,25 @@ void main() {
     expect(st.previewLines, 10);
   });
 
+  testWidgets('Start in offers all startup views', (tester) async {
+    final s = await openSettings(tester);
+    expect(s.settings.startupView, StartupView.unfiled);
+    expect(find.text('Start in'), findsOneWidget);
+    for (final label in ['Unfiled', 'All notes', 'Last viewed']) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+
+    await tester.tap(find.text('Last viewed'));
+    await tester.pumpAndSettle();
+    expect(s.settings.startupView, StartupView.last);
+    await tester.tap(find.text('All notes'));
+    await tester.pumpAndSettle();
+    expect(s.settings.startupView, StartupView.all);
+    await tester.tap(find.text('Unfiled'));
+    await tester.pumpAndSettle();
+    expect(s.settings.startupView, StartupView.unfiled);
+  });
+
   testWidgets('editor controls write their settings', (tester) async {
     final s = await openSettings(tester);
     final st = s.settings;

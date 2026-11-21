@@ -208,9 +208,13 @@ Rules, enforced by convention and by review:
 `AppSettings` is a `ChangeNotifier` over the `settings` table, loaded fully at
 construction. Typed getters have defaults and clamp numeric ranges (text scale
 0.85-1.4, editor font 12-28, line height 1.1-2.0, preview lines 0-10). Enums
-(`AppTheme`, `AppFont`, `LibraryLayout`, `NoteSort`, `AnimationLevel`) are
-stored by `name`; an unknown stored value falls back to the default, so removing
-an enum value is safe only if the fallback is acceptable.
+(`AppTheme`, `AppFont`, `LibraryLayout`, `StartupView`, `NoteSort`,
+`AnimationLevel`) are stored by `name`; an unknown stored value falls back to
+the default, so removing an enum value is safe only if the fallback is
+acceptable. `StartupView` defaults to `unfiled`, including when its key is
+missing on an upgraded install; `all` opens All notes and `last` restores the
+view in `library.folder` (a folder id, `unfiled`, or absent for All). The
+setting is per-device and does not sync.
 
 | Mechanism | Use |
 |---|---|
@@ -218,7 +222,8 @@ an enum value is safe only if the fallback is acceptable.
 | `read(key)` / `write(key, value)` | small UI state such as the selected folder; notifies |
 | `writeSilently(key, value)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); does not notify |
 
-Settings never sync. Keys used by code: appearance and editor keys above,
+Settings never sync. Keys used by code: appearance, editor and `startupView`
+keys above, `library.folder` (the most recently selected active folder/view),
 `toolbar` (JSON list of `ToolbarItem` names), `deviceName`, `onboarding`
 (`pending` or `done`), `autoCheckUpdates`, and the `update.*` keys in
 `UpdateKeys`.
@@ -686,8 +691,18 @@ for controls so Android keeps 48 dp targets.
 
 `LibraryController` (`library_controller.dart`) holds what is shown (scope,
 folder or unfiled, query, layout, sort, preview lines) and the selection. It
-loads the list once per change, not per build, and reads summaries only (never
-bodies). `repo.changes` and `AppSettings` changes schedule a debounced reload;
+chooses its initial active view from `AppSettings.startupView`: Unfiled by
+default, All notes, or the last active folder/view from `library.folder`. With
+no live folders, Unfiled is represented by All notes because every active note
+is unfiled; the saved startup preference remains Unfiled. Selecting a folder,
+Unfiled or All updates `library.folder`, so Last viewed can restore it. New
+notes opened from Unfiled have no folder. The folder strip and desktop sidebar
+place Unfiled after All and before user folders; when folders exist, Unfiled
+stays visible while selected or configured as the startup view, even at count
+zero, and explains where foldered notes are shown. The controller loads the
+list once per change, not per build, and reads summaries only (never bodies).
+`repo.changes` and
+`AppSettings` changes schedule a debounced reload;
 while a route covers the library (`setCovered`) changes are only noted and the
 reload runs when it is visible again. Each view (`viewKey`) keeps its own scroll
 offset. Search is `NoteRepository.search`: every word must match, the last word
@@ -755,7 +770,7 @@ while the editor has focus.
 wide and 480 px high. Below either threshold the single-column library and
 route-based editor are used. On desktop, `DesktopSidebar` is 232 px wide and
 replaces the folder strip and floating new-note button. It contains All notes,
-folders, Unfiled when applicable, Archive, Trash, Conflicts when present, and
+Unfiled when applicable, folders, Archive, Trash, Conflicts when present, and
 Sync, Settings and Help at the bottom.
 
 With no note open, the library uses the remaining width. Opening a note keeps

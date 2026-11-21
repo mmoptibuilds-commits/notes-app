@@ -96,6 +96,26 @@ void main() {
       }
     });
 
+    testWidgets('Unfiled is visible after All and before folders when empty', (
+      tester,
+    ) async {
+      final s = freshServices();
+      addTearDown(s.services.close);
+      s.services.notes.createFolder('Work');
+      await pumpLibrary(tester, s, size: desktop);
+
+      expect(sidebar('Unfiled'), findsOneWidget);
+      expect(find.text('No unfiled notes.'), findsOneWidget);
+      expect(
+        tester.getTopLeft(sidebar('All notes')).dy,
+        lessThan(tester.getTopLeft(sidebar('Unfiled')).dy),
+      );
+      expect(
+        tester.getTopLeft(sidebar('Unfiled')).dy,
+        lessThan(tester.getTopLeft(sidebar('Work')).dy),
+      );
+    });
+
     testWidgets('navigates: folder, Archive, Trash, All notes', (tester) async {
       final s = await open(tester);
       s.services.notes.setArchived([s.ids['wifi']!], true);

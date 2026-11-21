@@ -167,6 +167,7 @@ void main() {
   group('scroll position', () {
     Seed many() {
       final s = freshServices();
+      s.services.settings.startupView = StartupView.all;
       for (var i = 0; i < 80; i++) {
         s.clock.ms += 1000;
         s.services.notes.createNote(

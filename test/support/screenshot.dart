@@ -39,9 +39,15 @@ Future<void> loadAppFonts() async {
   final flutterRoot =
       Platform.environment['FLUTTER_ROOT'] ??
       File(Platform.resolvedExecutable).parent.parent.parent.parent.parent.path;
-  final icons = File(
-    '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  );
+  final materialFonts = '$flutterRoot/bin/cache/artifacts/material_fonts';
+  await load('Roboto', [
+    '$materialFonts/Roboto-Regular.ttf',
+    '$materialFonts/Roboto-Medium.ttf',
+    '$materialFonts/Roboto-Bold.ttf',
+    '$materialFonts/Roboto-Italic.ttf',
+    '$materialFonts/Roboto-BoldItalic.ttf',
+  ]);
+  final icons = File('$materialFonts/MaterialIcons-Regular.otf');
   if (icons.existsSync()) await load('MaterialIcons', [icons.path]);
 }
 
@@ -62,28 +68,23 @@ Future<void> pumpApp(WidgetTester tester, AppServices services) async {
   await tester.pump();
 }
 
-/// Writes what is on screen to `build/screens/<name>.png` for visual review.
+/// Writes the complete test view (including Navigator routes and overlays) to
+/// [path], or `build/screens/<name>.png` when [path] is omitted.
 /// These are review artefacts, not golden comparisons.
-Future<void> screenshot(WidgetTester tester, String name) async {
-  final boundary = tester.binding.rootElement!.renderObject!;
-  RenderRepaintBoundary? found;
-  void visit(RenderObject o) {
-    if (found != null) return;
-    if (o is RenderRepaintBoundary) {
-      found = o;
-      return;
-    }
-    o.visitChildren(visit);
-  }
-
-  visit(boundary);
-  final target = found!;
+Future<void> screenshot(
+  WidgetTester tester,
+  String name, {
+  String? path,
+}) async {
+  final view = tester.binding.renderViews.first;
+  final layer = view.debugLayer! as OffsetLayer;
   await tester.runAsync(() async {
-    final image = await target.toImage(
-      pixelRatio: tester.view.devicePixelRatio,
+    final image = await layer.toImage(
+      Offset.zero & (view.size * tester.view.devicePixelRatio),
     );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    final file = File('build/screens/$name.png')..createSync(recursive: true);
+    final file = File(path ?? 'build/screens/$name.png')
+      ..createSync(recursive: true);
     file.writeAsBytesSync(bytes!.buffer.asUint8List());
     image.dispose();
   });

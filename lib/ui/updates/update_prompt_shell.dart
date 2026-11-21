@@ -175,42 +175,70 @@ class _BannerSurface extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 1040),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-              child: Row(
-                children: [
-                  Icon(icon, color: iconColor, size: 22),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Semantics(
-                      container: true,
-                      liveRegion: true,
-                      label: '$label. $message',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            label,
-                            style: TextStyle(
-                              color: palette.text,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final status = Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, color: iconColor, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Semantics(
+                          container: true,
+                          liveRegion: true,
+                          label: '$label. $message',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                label,
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                message,
+                                style: TextStyle(
+                                  color: palette.textMuted,
+                                  fontSize: 12.5,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            message,
-                            style: TextStyle(
-                              color: palette.textMuted,
-                              fontSize: 12.5,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Wrap(spacing: 4, children: actions),
-                ],
+                    ],
+                  );
+                  // Narrow windows or large text: actions go below the copy
+                  // so the message keeps the full width.
+                  final narrow =
+                      constraints.maxWidth <
+                      520 * MediaQuery.textScalerOf(context).scale(1);
+                  if (narrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        status,
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: Wrap(spacing: 4, children: actions),
+                        ),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: status),
+                      const SizedBox(width: 12),
+                      Wrap(spacing: 4, children: actions),
+                    ],
+                  );
+                },
               ),
             ),
           ),

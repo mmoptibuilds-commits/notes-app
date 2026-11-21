@@ -37,8 +37,10 @@ partial has a strong server ETag and the server confirms the same ETag and a
 matching 206 `Content-Range` for the requested byte range. If there is no strong
 ETag, the server ignores the range, or the ETag changes, Notes starts a fresh
 download from byte zero. It hashes the complete file before atomically renaming
-it. Cancellation, network loss and low storage leave a recoverable paused
-state; the next attempt still verifies the complete file.
+it. Cancellation and network loss leave a paused download that resumes (or
+restarts) on the next attempt. Too little free space is a failure, not a pause:
+Notes shows how much space it needs and offers **Retry download**. Either way
+the next attempt verifies the complete file.
 
 After verification Notes persists a compact ready record containing the raw
 manifest bytes and signature, artifact metadata and release address. Android

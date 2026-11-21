@@ -493,6 +493,15 @@ void main() {
       await tester.pump();
       expect(services.settings.autoCheckUpdates, isFalse);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      // Off must not still promise background downloads.
+      expect(
+        find.textContaining('downloads it in the background'),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('never contacts GitHub on its own'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('long release notes are truncated safely', (tester) async {

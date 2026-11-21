@@ -88,6 +88,56 @@ void main() {
     expect(editable.focusNode.hasFocus, isTrue);
   });
 
+  testWidgets('on a phone at large text the actions sit below the message', (
+    tester,
+  ) async {
+    await createReady(tester);
+    await setWindow(tester, const Size(412, 915));
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(412, 915),
+          textScaler: TextScaler.linear(1.4),
+        ),
+        child: MaterialApp(
+          theme: buildTheme(services.settings),
+          home: UpdatePromptShell(
+            controller: world.controller,
+            child: const Scaffold(body: SizedBox.expand()),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final title = tester.getRect(find.text('Update ready'));
+    final install = tester.getRect(find.text('Install now'));
+    expect(install.top, greaterThan(title.bottom));
+    // The title keeps one line: it is not squeezed beside the buttons.
+    expect(title.height, lessThan(14 * 1.4 * 2));
+  });
+
+  testWidgets('on a wide window the actions stay beside the message', (
+    tester,
+  ) async {
+    await createReady(tester);
+    await setWindow(tester, const Size(1440, 900));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(services.settings),
+        home: UpdatePromptShell(
+          controller: world.controller,
+          child: const Scaffold(body: SizedBox.expand()),
+        ),
+      ),
+    );
+    await tester.pump();
+    final title = tester.getRect(find.text('Update ready'));
+    final install = tester.getRect(find.text('Install now'));
+    expect(install.left, greaterThan(title.right));
+    expect(install.top, lessThan(title.bottom + 20));
+  });
+
   testWidgets('Later snoozes the banner while Updates still offers Install', (
     tester,
   ) async {

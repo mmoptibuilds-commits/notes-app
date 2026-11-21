@@ -183,13 +183,16 @@ class _Body extends StatelessWidget {
           children: [
             SwitchRow(
               title: 'Automatically check and download updates',
-              subtitle:
-                  'Contacts api.github.com over HTTPS to ask for the latest '
-                  'release. No notes or account details are sent; GitHub sees '
-                  'your IP address and a generic user agent, as with any web '
-                  'request. When a signed update is available, Notes downloads '
-                  'it in the background. Installation always waits for your '
-                  'confirmation.',
+              subtitle: settings.autoCheckUpdates
+                  ? 'Contacts api.github.com over HTTPS to ask for the latest '
+                        'release. No notes or account details are sent; GitHub '
+                        'sees your IP address and a generic user agent, as '
+                        'with any web request. When a signed update is '
+                        'available, Notes downloads it in the background. '
+                        'Installation always waits for your confirmation.'
+                  : 'Off: Notes never contacts GitHub on its own and downloads '
+                        'nothing in the background. Use the check button above '
+                        'to check, download and install by hand.',
               value: settings.autoCheckUpdates,
               onChanged: (v) => settings.autoCheckUpdates = v,
             ),

@@ -122,8 +122,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     _lastQuery = _c.query;
     final open = _pane?.noteId;
-    if (open != null && _repo.getRecord(open) == null) {
-      // The open note was removed for good (e.g. by a sync): drop the pane.
+    final record = open == null ? null : _repo.getRecord(open);
+    if (open != null && (record == null || record.purged)) {
+      // A purged record remains as a tombstone. Discard pending editor text so
+      // disposing the pane cannot save over and resurrect that tombstone.
+      _paneSession?.discardPendingChanges();
       _pane = null;
       _paneSession = null;
     }
@@ -186,6 +189,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _focusSearch() {
+    // Ctrl+F is editor-owned while focus is anywhere in the embedded pane.
+    // Quill can open its find UI; title-field focus must not jump to the list.
+    if (_pane != null && _paneFocus.hasFocus) return;
     if (_wide) {
       _searchFocus.requestFocus();
       _searchCtl.selection = TextSelection(
@@ -211,6 +217,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // ------------------------------------------------------------ navigation
 
   void _go(NoteScope scope) {
+    if (_pane != null &&
+        (scope != _c.scope || _hasSearch || _searchCtl.text.isNotEmpty)) {
+      _closePane();
+    }
     _debounce?.cancel();
     _searchCtl.clear();
     if (_searchOpen) setState(() => _searchOpen = false);
@@ -218,6 +228,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _pickFolder({String? id, bool unfiled = false}) {
+    if (_pane != null &&
+        (_c.scope != NoteScope.active ||
+            _c.folderId != id ||
+            _c.unfiled != unfiled ||
+            _hasSearch ||
+            _searchCtl.text.isNotEmpty)) {
+      _closePane();
+    }
     _debounce?.cancel();
     _searchCtl.clear();
     if (_searchOpen) setState(() => _searchOpen = false);
@@ -262,11 +280,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _closePane() {
+    if (_pane == null) return;
+    // Selection can have been started in the list while the pane has focus.
+    // Clear it before returning focus so the next Delete has no stale target.
+    _c.clearSelection();
     _paneSession?.flush();
     _paneSession = null;
-    if (_pane == null) return;
     setState(() => _pane = null);
     _rootFocus.requestFocus();
+  }
+
+  void _reloadPane(String noteId) {
+    final current = _pane;
+    if (current == null || current.noteId != noteId) return;
+    setState(() {
+      _pane = _PaneTarget(++_paneSeq, noteId, current.folderId);
+      _paneSession = null;
+    });
   }
 
   void _newNote() => _openNote(folderId: _c.folderId);
@@ -398,6 +428,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
       case 'restore':
         _repo.restore(ids);
+        if (open != null && ids.contains(open)) _reloadPane(open);
         if (mounted) {
           showUndoSnack(
             context,

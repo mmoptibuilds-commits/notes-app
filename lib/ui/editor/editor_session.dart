@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dart_quill_delta/dart_quill_delta.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
@@ -147,7 +148,23 @@ class EditorSession extends ChangeNotifier {
       // from under the editor while it is still finishing this edit (cursor
       // placement, checkbox handling). Do it as soon as the edit is over.
       _extractScheduled = true;
-      scheduleMicrotask(_extract);
+      // Quill restores its selection in a post-frame callback after handling
+      // a checklist tap. Register our callback from a microtask so Quill's
+      // callback is already queued and the final selection is transformed
+      // against the removed line.
+      scheduleMicrotask(() {
+        if (_disposed) {
+          _extractScheduled = false;
+          return;
+        }
+        try {
+          SchedulerBinding.instance.addPostFrameCallback((_) => _extract());
+        } on FlutterError {
+          // EditorSession is also exercised without a WidgetsBinding in its
+          // pure session tests; there is no frame ordering to wait for there.
+          _extract();
+        }
+      });
     }
     _markDirty();
   }
@@ -212,6 +229,17 @@ class EditorSession extends ChangeNotifier {
     _timer?.cancel();
     _timer = Timer(autosaveDelay, flush);
     if (!wasPending) notifyListeners();
+  }
+
+  /// Drops pending edits after the repository reports a permanent deletion.
+  /// Disposing this session must not flush those edits over the tombstone.
+  void discardPendingChanges() {
+    _timer?.cancel();
+    _timer = null;
+    _dirty = false;
+    _readOnly = true;
+    quill.readOnly = true;
+    status = SaveStatus.idle;
   }
 
   /// The complete document as it should be stored.

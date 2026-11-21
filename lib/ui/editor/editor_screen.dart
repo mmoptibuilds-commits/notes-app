@@ -648,7 +648,9 @@ class _EditorScreenState extends State<EditorScreen>
                     textCapitalization: TextCapitalization.sentences,
                     textInputAction: TextInputAction.next,
                     onSubmitted: (_) {
-                      session.quill.moveCursorToStart();
+                      if (session.quill.document.toPlainText().trim().isEmpty) {
+                        session.quill.moveCursorToStart();
+                      }
                       _editorFocus.requestFocus();
                     },
                     style: TextStyle(

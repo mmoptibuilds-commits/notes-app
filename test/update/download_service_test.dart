@@ -141,33 +141,112 @@ void main() {
       ),
     );
     await expectLater(run(svc()), fails(DownloadFailure.interrupted));
-    expect(files(), isEmpty);
+    expect(files(), contains('$name.part'));
+    expect(files(), contains('$name.part.json'));
   });
 
   test('a download that ends early is an interruption', () async {
     http.on(url.toString(), FakeReply(200, body: payload.sublist(0, 5000)));
     await expectLater(run(svc()), fails(DownloadFailure.interrupted));
-    expect(files(), isEmpty);
+    expect(files(), contains('$name.part'));
+    expect(files(), contains('$name.part.json'));
   });
 
-  test('cancelling mid-stream deletes the partial file', () async {
+  test(
+    'cancelling mid-stream keeps a partial that can resume with Range',
+    () async {
+      http.on(
+        url.toString(),
+        FakeReply(
+          200,
+          body: payload.sublist(0, 2000),
+          headers: {'etag': '"payload-v1"'},
+        ),
+      );
+      final token = CancelToken();
+      await expectLater(
+        run(svc(), cancel: token, onProgress: (r, t) => token.cancel()),
+        fails(DownloadFailure.cancelled),
+      );
+      expect(files(), contains('$name.part'));
+      http.replace(
+        url.toString(),
+        FakeReply(
+          206,
+          body: payload.sublist(2000),
+          headers: {
+            'content-range': 'bytes 2000-9999/10000',
+            'content-length': '8000',
+            'etag': '"payload-v1"',
+          },
+        ),
+      );
+      final completed = await run(svc());
+      expect(completed.readAsBytesSync(), payload);
+      expect(http.requests.last.headers['Range'], 'bytes=2000-');
+      expect(http.requests.last.headers['If-Range'], '"payload-v1"');
+    },
+  );
+
+  test('resumes a matching partial after validating Content-Range', () async {
     http.on(
       url.toString(),
       FakeReply(
         200,
-        chunks: [
-          payload.sublist(0, 2000),
-          payload.sublist(2000, 4000),
-          payload.sublist(4000),
-        ],
+        body: payload.sublist(0, 4000),
+        headers: {'etag': '"payload-v1"'},
       ),
     );
-    final token = CancelToken();
-    await expectLater(
-      run(svc(), cancel: token, onProgress: (r, t) => token.cancel()),
-      fails(DownloadFailure.cancelled),
+    await expectLater(run(svc()), fails(DownloadFailure.interrupted));
+    http.replace(
+      url.toString(),
+      FakeReply(
+        206,
+        body: payload.sublist(4000),
+        headers: {
+          'content-range': 'bytes 4000-9999/10000',
+          'etag': '"payload-v1"',
+        },
+      ),
     );
-    expect(files(), isEmpty);
+    expect((await run(svc())).readAsBytesSync(), payload);
+    expect(http.requests.last.headers['Range'], 'bytes=4000-');
+    expect(http.requests.last.headers['If-Range'], '"payload-v1"');
+  });
+
+  test('a server that ignores Range restarts from byte zero', () async {
+    http.on(url.toString(), FakeReply(200, body: payload.sublist(0, 4000)));
+    await expectLater(run(svc()), fails(DownloadFailure.interrupted));
+    http.replace(url.toString(), FakeReply(200, body: payload));
+    expect((await run(svc())).readAsBytesSync(), payload);
+    expect(http.requests.last.headers['Range'], 'bytes=4000-');
+  });
+
+  test('a changed ETag restarts with a full request', () async {
+    http.on(
+      url.toString(),
+      FakeReply(
+        200,
+        body: payload.sublist(0, 4000),
+        headers: {'etag': '"payload-v1"'},
+      ),
+    );
+    await expectLater(run(svc()), fails(DownloadFailure.interrupted));
+    http.replace(
+      url.toString(),
+      FakeReply(
+        206,
+        body: payload.sublist(4000),
+        headers: {
+          'content-range': 'bytes 4000-9999/10000',
+          'etag': '"payload-v2"',
+        },
+      ),
+    );
+    http.on(url.toString(), FakeReply(200, body: payload));
+    expect((await run(svc())).readAsBytesSync(), payload);
+    expect(http.requests[1].headers['Range'], 'bytes=4000-');
+    expect(http.requests[2].headers.containsKey('Range'), isFalse);
   });
 
   test(
@@ -263,7 +342,8 @@ void main() {
       ),
       fails(DownloadFailure.interrupted),
     );
-    expect(files(), isEmpty);
+    expect(files(), contains('$name.part'));
+    expect(files(), contains('$name.part.json'));
   });
 
   test(
@@ -286,7 +366,8 @@ void main() {
         ),
         fails(DownloadFailure.interrupted),
       );
-      expect(files(), isEmpty, reason: 'no partial file survives');
+      expect(files(), contains('$name.part'));
+      expect(files(), contains('$name.part.json'));
     },
   );
 

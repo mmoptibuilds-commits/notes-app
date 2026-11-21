@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
@@ -265,7 +266,7 @@ void main() {
       statusIs<UpdateDownloading>();
       w.controller.cancelDownload();
       await done;
-      statusIs<UpdateAvailable>();
+      statusIs<UpdateDownloadPaused>();
       expect(w.installer.updateDir.listSync(), isEmpty);
     });
   });
@@ -494,36 +495,36 @@ void main() {
       expect(w.installer.updateDir.listSync(), isEmpty);
     });
 
-    test(
-      'cancelling returns to "available" and leaves nothing behind',
-      () async {
-        await setUpWorld();
-        await available();
-        w.http.replace(
-          assetUrl('1.0.1', 'notes-1.0.1-linux-x64.tar.gz'),
-          FakeReply(
-            200,
-            chunks: [
-              w.payload.sublist(0, 2000),
-              w.payload.sublist(2000, 4000),
-              w.payload.sublist(4000),
-            ],
-            headers: {'content-length': '${w.payload.length}'},
-          ),
-        );
-        w.controller.addListener(() {
-          if (w.controller.status is UpdateDownloading) {
-            w.controller.cancelDownload();
-          }
-        });
-        await w.controller.download();
-        statusIs<UpdateAvailable>();
-        expect(w.installer.updateDir.listSync(), isEmpty);
-      },
-    );
+    test('cancelling pauses and retains resumable partial data', () async {
+      await setUpWorld();
+      await available();
+      w.http.replace(
+        assetUrl('1.0.1', 'notes-1.0.1-linux-x64.tar.gz'),
+        FakeReply(
+          200,
+          chunks: [
+            w.payload.sublist(0, 2000),
+            w.payload.sublist(2000, 4000),
+            w.payload.sublist(4000),
+          ],
+          headers: {'content-length': '${w.payload.length}'},
+        ),
+      );
+      w.controller.addListener(() {
+        if (w.controller.status case UpdateDownloading(received: > 0)) {
+          w.controller.cancelDownload();
+        }
+      });
+      await w.controller.download();
+      statusIs<UpdateDownloadPaused>();
+      expect(
+        w.installer.updateDir.listSync().where((f) => f.path.endsWith('.part')),
+        isNotEmpty,
+      );
+    });
 
     test(
-      'an interrupted download offers Retry, which resumes at the download',
+      'an interrupted download offers Resume and reuses its partial',
       () async {
         await setUpWorld();
         await available();
@@ -537,8 +538,8 @@ void main() {
           ),
         );
         await w.controller.download();
-        expect(statusIs<UpdateFailed>().candidate, isNotNull);
-        expect(w.installer.updateDir.listSync(), isEmpty);
+        final paused = statusIs<UpdateDownloadPaused>();
+        expect(paused.received, 1000);
         await w.publish(); // network is back
         await w.controller.download();
         statusIs<UpdateReadyToInstall>();
@@ -680,6 +681,103 @@ void main() {
     });
   });
 
+  group('restoring verified ready updates', () {
+    Future<void> makeReady({
+      UpdatePlatform platform = linuxPlatform,
+      String expires = '2027-06-01T00:00:00Z',
+    }) async {
+      await setUpWorld(platform: platform);
+      await w.publish(expires: expires);
+      await w.controller.check();
+      await w.controller.download();
+      statusIs<UpdateReadyToInstall>();
+    }
+
+    UpdateController restartController() {
+      w.controller.dispose();
+      w.controller = w.makeController();
+      return w.controller;
+    }
+
+    test('restores a verified artifact and shows its ready prompt', () async {
+      await makeReady();
+      final next = restartController();
+      expect(await next.restoreReady(), isTrue);
+      expect(next.status, isA<UpdateReadyToInstall>());
+      expect(next.shouldShowReadyPrompt, isTrue);
+    });
+
+    test('rejects a tampered saved manifest', () async {
+      await makeReady();
+      final record = jsonDecode(
+        w.store.read(UpdateKeys.readyRecord)!,
+      ) as Map<String, dynamic>;
+      final bytes = base64Decode(record['manifest'] as String);
+      bytes[bytes.length - 2] ^= 1;
+      record['manifest'] = base64Encode(bytes);
+      w.store.write(UpdateKeys.readyRecord, jsonEncode(record));
+      final next = restartController();
+      expect(await next.restoreReady(), isFalse);
+      expect(next.status, isA<UpdateVerificationFailed>());
+    });
+
+    test('rejects a ready manifest after expiry', () async {
+      await makeReady(expires: '2026-12-03T00:00:00Z');
+      w.now = DateTime.utc(2026, 12, 3);
+      final next = restartController();
+      expect(await next.restoreReady(), isFalse);
+      expect(
+        (next.status as UpdateVerificationFailed).reason,
+        contains('expired'),
+      );
+    });
+
+    test('rejects an artifact whose bytes changed after download', () async {
+      await makeReady();
+      final file = File(
+        '${w.installer.updateDir.path}/notes-1.0.1-linux-x64.tar.gz',
+      );
+      file.writeAsBytesSync([1, 2, 3]);
+      final next = restartController();
+      expect(await next.restoreReady(), isFalse);
+      expect(next.status, isA<UpdateVerificationFailed>());
+    });
+
+    test(
+      'rejects a saved update that is stale for the installed version',
+      () async {
+        await makeReady();
+        w.installer.installedVersion = '1.0.1';
+        w.installer.installedBuild = 20261123;
+        final next = restartController();
+        expect(await next.restoreReady(), isFalse);
+        expect(next.status, isA<UpdateVerificationFailed>());
+      },
+    );
+
+    test('rejects a ready APK with the wrong signer on restore', () async {
+      await makeReady(platform: androidPlatform);
+      w.installer.verifyFailure = const UpdateVerificationFailure(
+        'Wrong signing certificate.',
+      );
+      final next = restartController();
+      expect(await next.restoreReady(), isFalse);
+      expect(
+        (next.status as UpdateVerificationFailed).reason,
+        contains('certificate'),
+      );
+    });
+
+    test('install rechecks the artifact immediately before handoff', () async {
+      await makeReady();
+      File('${w.installer.updateDir.path}/notes-1.0.1-linux-x64.tar.gz')
+          .writeAsBytesSync([9]);
+      await w.controller.install();
+      expect(w.controller.status, isA<UpdateVerificationFailed>());
+      expect(w.installer.installs, 0);
+    });
+  });
+
   group('next launch', () {
     InstallOutcome outcome(String id, {bool updated = true}) => InstallOutcome(
       id: id,
@@ -732,16 +830,16 @@ void main() {
       w.controller = w.makeController();
     }
 
-    test('one automatic check about 30 seconds after start', () async {
+    test('one automatic check starts a few seconds after start', () async {
       await prepare();
       fakeAsync((async) {
         w.controller.scheduleStartupCheck();
-        async.elapse(const Duration(seconds: 29));
+        async.elapse(const Duration(seconds: 2));
         expect(w.http.requests, isEmpty);
         async.elapse(const Duration(seconds: 2));
         async.flushMicrotasks();
         expect(w.http.count(w.apiUrl), 1);
-        expect(w.controller.status, isA<UpdateAvailable>());
+        expect(w.controller.status, isA<UpdateDownloading>());
         // Scheduling twice does not schedule twice.
         w.controller.scheduleStartupCheck();
         async.elapse(const Duration(hours: 5));
@@ -749,18 +847,15 @@ void main() {
       });
     });
 
-    test('automatic checks never download or install', () async {
+    test('automatic checks download but never install', () async {
       await prepare();
-      fakeAsync((async) {
-        w.controller.scheduleStartupCheck();
-        async.elapse(const Duration(minutes: 1));
-        async.flushMicrotasks();
-        expect(
-          w.http.requests.any((r) => r.url.pathSegments.last.endsWith('.gz')),
-          isFalse,
-        );
-        expect(w.installer.installs, 0);
-      });
+      await w.controller.check(manual: false);
+      expect(
+        w.http.requests.any((r) => r.url.pathSegments.last.endsWith('.gz')),
+        isTrue,
+      );
+      expect(w.installer.installs, 0);
+      expect(w.controller.status, isA<UpdateReadyToInstall>());
     });
 
     test(
@@ -777,6 +872,56 @@ void main() {
       },
     );
 
+    test(
+      'turning automatic updates off cancels a queued startup check',
+      () async {
+        await prepare();
+        fakeAsync((async) {
+          w.controller.scheduleStartupCheck();
+          w.autoCheck = false;
+          w.controller.automaticSettingChanged();
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+          expect(w.http.requests, isEmpty);
+        });
+      },
+    );
+
+    test(
+      'turning automatic updates off cancels an automatic download',
+      () async {
+        await prepare();
+        final artifact = assetUrl('1.0.1', 'notes-1.0.1-linux-x64.tar.gz');
+        w.http.replace(artifact, FakeReply(200, hang: true));
+        final check = w.controller.check(manual: false);
+        for (var i = 0; i < 50 && w.http.count(artifact) == 0; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(w.http.count(artifact), 1);
+        expect(w.controller.status, isA<UpdateDownloading>());
+        w.autoCheck = false;
+        w.controller.automaticSettingChanged();
+        await check;
+        expect(w.controller.status, isA<UpdateDownloadPaused>());
+        expect(w.installer.installs, 0);
+      },
+    );
+
+    test(
+      'manual check, download and install remain available when off',
+      () async {
+        await prepare();
+        w.autoCheck = false;
+        w.controller.automaticSettingChanged();
+        await w.controller.check();
+        statusIs<UpdateAvailable>();
+        await w.controller.download();
+        statusIs<UpdateReadyToInstall>();
+        await w.controller.install();
+        statusIs<UpdateInstallationHandedToOs>();
+      },
+    );
+
     test('a dev instance never checks by itself', () async {
       await prepare(dev: true);
       fakeAsync((async) {
@@ -787,10 +932,10 @@ void main() {
       });
     });
 
-    test('at most once per 24 hours, counted from the last attempt', () async {
+    test('successful checks use the 24 hour automatic interval', () async {
       await prepare();
       w.store.write(
-        UpdateKeys.lastAttempt,
+        UpdateKeys.lastCheck,
         w.now.subtract(const Duration(hours: 23)).toIso8601String(),
       );
       fakeAsync((async) {
@@ -800,7 +945,7 @@ void main() {
         expect(w.http.requests, isEmpty);
       });
       w.store.write(
-        UpdateKeys.lastAttempt,
+        UpdateKeys.lastCheck,
         w.now.subtract(const Duration(hours: 25)).toIso8601String(),
       );
       final later = w.makeController();
@@ -813,32 +958,24 @@ void main() {
       });
     });
 
-    test(
-      'a failed attempt is not retried until 24 hours have passed',
-      () async {
-        await prepare();
-        w.http.replace(
-          w.apiUrl,
-          FakeReply(0, error: const UpdateOfflineException()),
-        );
-        fakeAsync((async) {
-          w.controller.scheduleStartupCheck();
-          async.elapse(const Duration(minutes: 1));
-          async.flushMicrotasks();
-          expect(w.controller.status, isA<UpdateOffline>());
-          async.elapse(const Duration(hours: 10));
-          expect(w.http.count(w.apiUrl), 1, reason: 'no retry loop');
-        });
-        final nextLaunch = w.makeController();
-        addTearDown(nextLaunch.dispose);
-        fakeAsync((async) {
-          nextLaunch.scheduleStartupCheck();
-          async.elapse(const Duration(minutes: 1));
-          async.flushMicrotasks();
-          expect(w.http.count(w.apiUrl), 1, reason: 'still inside 24 h');
-        });
-      },
-    );
+    test('offline failure retries after its one hour backoff', () async {
+      await prepare();
+      w.http.replace(
+        w.apiUrl,
+        FakeReply(0, error: const UpdateOfflineException()),
+      );
+      await w.controller.check(manual: false);
+      expect(w.controller.status, isA<UpdateOffline>());
+      expect(
+        DateTime.parse(w.store.read(UpdateKeys.retryAfter)!),
+        w.now.add(const Duration(hours: 1)),
+      );
+      await w.controller.checkAutomatically();
+      expect(w.http.count(w.apiUrl), 1);
+      w.now = w.now.add(const Duration(hours: 1));
+      await w.controller.checkAutomatically();
+      expect(w.http.count(w.apiUrl), 2);
+    });
 
     test('a rate limit is respected by the next automatic check', () async {
       await prepare();
@@ -856,7 +993,7 @@ void main() {
 
     test('a manual check ignores the 24 hour gate', () async {
       await prepare();
-      w.store.write(UpdateKeys.lastAttempt, w.now.toIso8601String());
+      w.store.write(UpdateKeys.lastCheck, w.now.toIso8601String());
       await w.controller.check();
       expect(w.http.count(w.apiUrl), 1);
     });

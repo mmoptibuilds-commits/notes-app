@@ -17,10 +17,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingBytes: ByteArray? = null
+    private var updaterPlugin: UpdaterPlugin? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        UpdaterPlugin.register(flutterEngine, this)
+        updaterPlugin = UpdaterPlugin.register(flutterEngine, this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method != "saveFile") {
@@ -51,6 +52,17 @@ class MainActivity : FlutterActivity() {
                     finishSave { it.error("no_picker", e.message, null) }
                 }
             }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (updaterPlugin?.onRequestPermissionsResult(requestCode) == true) return
+        @Suppress("DEPRECATION")
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     @Deprecated("Deprecated in Java")

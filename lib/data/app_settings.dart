@@ -186,8 +186,8 @@ class AppSettings extends ChangeNotifier {
     return false;
   }
 
-  /// Whether the app may check GitHub for a newer release about once a day.
-  /// On by default (the person can turn it off in Settings, About, Updates).
+  /// Whether the app may check for and download signed updates automatically.
+  /// On by default; installation still requires the person's confirmation.
   bool get autoCheckUpdates => _values['autoCheckUpdates'] != 'false';
   set autoCheckUpdates(bool v) => _set('autoCheckUpdates', '$v');
 

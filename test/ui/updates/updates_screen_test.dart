@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/update/installer.dart';
 import 'package:notes/update/update_http.dart';
+import 'package:notes/update/update_status.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/theme/app_theme.dart';
 import 'package:notes/ui/updates/updates_screen.dart';
@@ -79,6 +80,12 @@ void main() {
 
   Future<void> run(WidgetTester tester, Future<void> Function() f) async {
     await tester.runAsync(f);
+    await settle(tester);
+  }
+
+  Future<void> confirmInstall(WidgetTester tester) async {
+    await tester.tap(find.text('Install'));
+    await tester.pump();
     await settle(tester);
   }
 
@@ -282,9 +289,7 @@ void main() {
       await screenshot(tester, 'updates_ready_phone');
     });
 
-    testWidgets('Cancel stops a download and returns to Download', (
-      tester,
-    ) async {
+    testWidgets('Cancel pauses a download and offers Resume', (tester) async {
       await create();
       await w.publish();
       await pump(tester);
@@ -300,7 +305,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 200)),
       );
       await settle(tester);
-      expect(find.text('Download'), findsOneWidget);
+      expect(find.text('Resume download'), findsOneWidget);
     });
 
     testWidgets(
@@ -325,13 +330,13 @@ void main() {
         // Confirm: handed over, never "success".
         await tester.tap(find.text('Install…'));
         await tester.pumpAndSettle();
-        await tester.runAsync(() async {
-          await tester.tap(find.text('Install'));
-          await Future<void>.delayed(const Duration(milliseconds: 100));
-        });
-        await settle(tester);
-        expect(w.installer.installs, 1);
-        expect(find.textContaining('restarting'), findsOneWidget);
+        await confirmInstall(tester);
+        expect(w.installer.installs, 0);
+        expect(w.controller.status, isA<UpdateInstalling>());
+        expect(
+          find.textContaining('Starting the installation'),
+          findsOneWidget,
+        );
         expect(find.textContaining('Updated to'), findsNothing);
         expect(find.textContaining('success'), findsNothing);
       },
@@ -391,12 +396,9 @@ void main() {
       );
       await tester.tap(find.text('Install again'));
       await tester.pumpAndSettle();
-      await tester.runAsync(() async {
-        await tester.tap(find.text('Install'));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      });
-      await settle(tester);
-      expect(w.installer.installs, 2);
+      await confirmInstall(tester);
+      expect(w.installer.installs, 1);
+      expect(w.controller.status, isA<UpdateInstalling>());
     });
 
     testWidgets('Linux: restarting hand-over has no actions', (tester) async {
@@ -446,7 +448,7 @@ void main() {
       expect(find.text('The update failed'), findsOneWidget);
       await w.publish();
       await tester.runAsync(() async {
-        await tester.tap(find.text('Retry'));
+        await tester.tap(find.text('Retry download'));
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await settle(tester);

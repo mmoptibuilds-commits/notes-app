@@ -1,6 +1,8 @@
 package com.mmoptibuilds.notes.update
 
 import android.app.PendingIntent
+import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -26,7 +28,7 @@ import java.security.MessageDigest
  * What it does: reports the installed version, reads an APK's package name,
  * versionCode and signing certificates, and installs an APK through a
  * PackageInstaller session. What it never does: install silently, use root,
- * hand out file:// or content:// URIs, or write outside the app's cache
+ * hand out file:// or content:// URIs, or write outside the app's private
  * directory. The Dart side decides whether an APK is acceptable (package id,
  * versionCode, pinned certificate); this class only reports facts and moves
  * bytes.
@@ -35,6 +37,9 @@ class UpdaterPlugin private constructor(private val context: Context) :
     MethodChannel.MethodCallHandler {
 
     private val main = Handler(Looper.getMainLooper())
+    private val activity = context as? Activity
+    private var pendingNotificationPath: String? = null
+    private var pendingNotificationResult: MethodChannel.Result? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -48,7 +53,10 @@ class UpdaterPlugin private constructor(private val context: Context) :
                     openInstallSettings()
                     result.success(null)
                 }
-                "install" -> install(call.argument<String>("path"), result)
+                "install" -> requestNotificationsThenInstall(
+                    call.argument<String>("path"),
+                    result
+                )
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -56,10 +64,9 @@ class UpdaterPlugin private constructor(private val context: Context) :
         }
     }
 
-    private fun updatesDir(): File =
-        File(context.applicationContext.cacheDir, "updates").also { it.mkdirs() }
+    private fun updatesDir(): File = appUpdatesDirectory(context)
 
-    /** The APK must be a regular .apk file inside the updates cache directory. */
+    /** The APK must be a regular .apk file inside app-private update storage. */
     private fun checkedApk(path: String?): File {
         require(!path.isNullOrEmpty()) { "path is required" }
         val dir = updatesDir().canonicalFile
@@ -105,6 +112,55 @@ class UpdaterPlugin private constructor(private val context: Context) :
             Uri.parse("package:" + context.packageName)
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
+    }
+
+    /** Notification permission is requested in the context of a confirmed
+     * install. Denial only disables the replacement notification. */
+    private fun requestNotificationsThenInstall(
+        path: String?,
+        result: MethodChannel.Result
+    ) {
+        val file = checkedApk(path)
+        if (Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            install(file.absolutePath, result)
+            return
+        }
+        val owner = activity
+        if (owner == null) {
+            install(file.absolutePath, result)
+            return
+        }
+        if (pendingNotificationResult != null) {
+            result.error("busy", "A notification permission request is already in progress.", null)
+            return
+        }
+        pendingNotificationPath = file.absolutePath
+        pendingNotificationResult = result
+        try {
+            owner.requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_POST_NOTIFICATIONS
+            )
+        } catch (e: Exception) {
+            pendingNotificationPath = null
+            pendingNotificationResult = null
+            install(file.absolutePath, result)
+        }
+    }
+
+    /** Continues the user-requested install whether permission was granted or
+     * denied. Notification permission never blocks the package flow. */
+    fun onRequestPermissionsResult(requestCode: Int): Boolean {
+        if (requestCode != REQUEST_POST_NOTIFICATIONS) return false
+        val path = pendingNotificationPath
+        val result = pendingNotificationResult
+        pendingNotificationPath = null
+        pendingNotificationResult = null
+        if (path != null && result != null) install(path, result)
+        return true
     }
 
     private fun inspectApk(path: String?, result: MethodChannel.Result) {
@@ -211,11 +267,14 @@ class UpdaterPlugin private constructor(private val context: Context) :
         const val CHANNEL = "com.mmoptibuilds.notes/updater"
         private const val APP_ID = "com.mmoptibuilds.notes"
         private const val ACTION_RESULT = "com.mmoptibuilds.notes.update.INSTALL_RESULT"
+        private const val REQUEST_POST_NOTIFICATIONS = 8124
 
         @JvmStatic
-        fun register(flutterEngine: FlutterEngine, context: Context) {
+        fun register(flutterEngine: FlutterEngine, context: Context): UpdaterPlugin {
+            val plugin = UpdaterPlugin(context)
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-                .setMethodCallHandler(UpdaterPlugin(context))
+                .setMethodCallHandler(plugin)
+            return plugin
         }
     }
 }

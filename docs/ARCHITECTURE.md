@@ -609,22 +609,36 @@ this section is the code map.
 
 | Piece | File | Role |
 |---|---|---|
-| `UpdateController` | `update_controller.dart` | state machine behind the Updates screen: `check`, `download`, `install`, startup check, last-install outcome |
+| `UpdateController` | `update_controller.dart` | state machine behind automatic/manual checks and downloads, persisted ready state, explicit install, startup outcome |
 | GitHub client | `github_release_client.dart` | `GET releases/latest` for `mmoptibuilds-commits/notes-app` over HTTPS, ETag-conditional, 1 MiB cap; 404 = "no stable release"; drafts and pre-releases excluded |
 | HTTP seam | `update_http.dart` | `UpdateHttp` interface; `IoUpdateHttp` real, fakes in tests |
 | Manifest | `manifest.dart` | verifies Ed25519 signature over the raw bytes of `notes-manifest.json` first, then validates schema, app id, channel, expiry, version, per-artifact platform/arch/filename/SHA-256/size |
 | Pinned keys | `pinned_keys.dart` | `kPinnedKeys` (id `notes-release-1`), `kReleaseCertSha256`, `kUpdateAppId` |
-| Download | `download_service.dart` | size and free-space checks, hash verification, cancel |
+| Download | `download_service.dart` | free-space check, manifest-scoped Range resume, complete-file hash before atomic rename, cancel |
 | Installers | `android_installer.dart`, `linux_installer.dart`, `installer.dart`, `platform_installer.dart` | `UpdateInstaller` per platform |
 | Versions | `version_compare.dart` | semver plus build number ordering |
 
-Flow: scheduled check (30 s after the first frame, at most once per 24 h, only
-if `autoCheckUpdates`, never in a `NOTES_DATA_DIR` instance, one attempt per
-launch, never downloads) or manual check -> fetch release -> fetch manifest and
-signature (bounded sizes) -> verify -> replay guard (a signed manifest lower than
-the highest `(version, build)` ever verified is rejected; the mark moves only
-for signed manifests) -> platform and architecture selection -> status. Download
-and install happen only from explicit user actions on the Updates screen.
+Flow: automatic updates default on. After the first frame Notes restores any
+ready artifact and starts a check a few seconds later; resume checks are gated
+by the last successful check (24 h) and bounded failure backoff (one hour to
+24 h, respecting GitHub `Retry-After`). Automatic work is disabled in a
+`NOTES_DATA_DIR` instance and can be switched off in Updates settings. A manual
+check is always available. The check fetches the stable release, manifest and
+signature (bounded sizes), verifies the Ed25519 signature over the raw manifest
+bytes, applies replay protection, and selects the platform artifact. A newer
+signed release downloads in the background. Installation always needs the
+user's confirmation.
+
+Interrupted, cancelled or offline downloads keep a small metadata file with the
+URL, release version, expected size, digest and ETag. Resume uses `Range` and
+accepts only a matching `206 Content-Range`; ignored ranges or changed ETags
+restart from byte zero. The complete artifact is hashed before atomic rename.
+The ready record stores the raw manifest and signature, notes and asset address.
+Android artifacts live in app-private `filesDir/updates`; Linux artifacts live
+under XDG state. Restore and every install recheck signature, expiry, ordering,
+size and digest. Android also repeats package, versionCode and pinned signer
+checks. The root-screen banner takes its own layout space, offers **Install now**
+and **Later**, and leaves Notes usable; Later hides it until the next launch.
 
 Android: `AndroidUpdateInstaller` talks to the Kotlin `UpdaterPlugin` over the
 method channel `com.mmoptibuilds.notes/updater`. It checks artifact hash, size,
@@ -633,15 +647,24 @@ versionCode, package id and that the single signing certificate matches
 then hands the APK to a `PackageInstaller` session with user action required.
 Needs `REQUEST_INSTALL_PACKAGES`; without the per-app permission the controller
 reports `BlockKind.installPermission`. `InstallResultReceiver` and
-`InstallStatusHub` carry the result back.
+`InstallStatusHub` carry the result back. On Android 13+, Notes requests
+`POST_NOTIFICATIONS` only after the user confirms Install. A private
+`ACTION_MY_PACKAGE_REPLACED` receiver posts a notification only when the durable
+pending-install versionCode matches the installed package, and its explicit
+Activity `PendingIntent` returns to Notes on tap. If notifications are denied,
+the next launch shows the one-time update result instead; the receiver never
+starts an Activity in the background.
 
 Linux: `LinuxUpdateInstaller` only updates a managed install (directory
 `~/.local/opt/notes` containing `.managed-install`, written by
 `tool/linux/install.sh`). After verification it starts the helper detached and
 calls `onQuit` (`AppServices.quitForUpdate`). The helper copies itself to a
 private temp directory, waits for the app PID, validates the archive hash and
-size it was given, stages beside the install, swaps directories with a retained
-`notes.previous`, and writes status to `update.json`. It has no network or
+size it was given, checks free space on the install parent before staging,
+stages beside the install, swaps directories with a retained `notes.previous`,
+and writes status to `update.json`. It holds the per-user `flock` lock across
+the swap. Linux startup checks that same lock before opening the database and
+waits briefly for a running update to finish. The helper has no network or
 signature code and never touches data, keyring or backups. A package-manager or
 unmanaged install gets `BlockKind.unmanagedInstall`.
 

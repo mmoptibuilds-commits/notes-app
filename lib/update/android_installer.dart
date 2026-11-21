@@ -178,13 +178,18 @@ class AndroidUpdateInstaller implements UpdateInstaller {
     final candidate = update.candidate;
     final pending = _pendingFile(info.updateDir);
     try {
-      await pending.writeAsString(
+      await pending.parent.create(recursive: true);
+      final temporary = File('${pending.path}.tmp');
+      await temporary.writeAsString(
         jsonEncode({
           'toVersion': candidate.version,
           'toVersionCode': candidate.artifact.versionCode,
           'time': _now().toUtc().toIso8601String(),
         }),
+        flush: true,
       );
+      if (await pending.exists()) await pending.delete();
+      await temporary.rename(pending.path);
     } on FileSystemException {
       // Without the marker the next launch just shows nothing; keep going.
     }
@@ -231,7 +236,7 @@ class AndroidUpdateInstaller implements UpdateInstaller {
       final code = j['toVersionCode'];
       final time = j['time'];
       if (version is! String || code is! int || time is! String) return null;
-      if (info.installedBuild >= code) {
+      if (info.installedBuild == code) {
         return InstallOutcome(
           id: 'android:$time',
           updated: true,
@@ -239,6 +244,7 @@ class AndroidUpdateInstaller implements UpdateInstaller {
           message: 'Updated to $version.',
         );
       }
+      if (info.installedBuild > code) return null;
       return InstallOutcome(
         id: 'android:$time',
         updated: false,

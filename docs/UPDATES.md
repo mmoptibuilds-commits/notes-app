@@ -20,6 +20,34 @@ release therefore makes later checks fail until a newer release is published.
 The `publishedAt` field is informational; it is not used for replay checks.
 Bookkeeping is persisted silently.
 
+## Automatic checks, downloads and ready state
+
+Automatic updates are on by default. Notes restores a saved ready update and
+starts its first check a few seconds after the first frame. It also checks on
+resume when the last successful check is at least 24 hours old. Failed checks
+use bounded exponential backoff starting at one hour and capped at 24 hours;
+GitHub `Retry-After` is respected. Automatic work does not run in an instance
+started with `NOTES_DATA_DIR`. Turning the setting off cancels queued automatic
+downloads. Manual Check, Download and Install remain available.
+
+When an automatic check finds a newer signed release, Notes downloads the
+artifact in the background. A partial transfer has a small sidecar bound to its
+HTTPS URL, version, declared size and SHA-256; it records the server ETag when
+available. Resume sends `Range` and `If-Range`, accepts only a matching 206
+`Content-Range`, and restarts from byte zero if the server ignores the range or
+changes its ETag. Notes hashes the complete file before atomically renaming it.
+Cancellation, network loss and low storage leave a recoverable paused state.
+
+After verification Notes persists a compact ready record containing the raw
+manifest bytes and signature, artifact metadata and release address. Android
+keeps the artifact under app-private `filesDir/updates` (not cache); Linux uses
+the XDG state updates directory. Restore and every install repeat signature,
+expiry, replay-order, file-size and SHA-256 checks. Android also repeats package
+id, versionCode and pinned signing-certificate checks. The app-level ready
+banner offers **Install now** and **Later**; Later hides it for the rest of that
+launch, while Settings → Updates continues to offer Install. Installation always
+waits for the app confirmation and the platform installer confirmation.
+
 **Manual installs.** Users verify with OpenSSL 3 as described in README
 "Verify a Linux download". Maintainers can also run
 `tool/release/verify_manifest.dart --artifact FILE`, which checks the signature
@@ -114,8 +142,13 @@ user ownership, and never runs `sudo`. It has no network or signature
 verification code: the app is responsible for verification before invoking
 it. Status is written to
 `${XDG_STATE_HOME:-~/.local/state}/com.mmoptibuilds.notes/updater/update.json`.
-The helper never accesses the notes database, keyring, backups, or pairing
-data. It requires GNU tar, `flock`, `sha256sum`, and `/proc`.
+The helper holds `${stateDir}/lock` with `flock` from before its process scan
+through the swap. Startup checks the same lock before opening the database,
+waiting up to ten seconds before showing a clear retry message. The helper
+checks free space on the install parent for extraction and staging before it
+creates either directory. The helper never accesses the notes database,
+keyring, backups, or pairing data. It requires GNU tar, `flock`, `sha256sum`,
+`df`, and `/proc`.
 
 Rollback is automatic only when the program-directory swap fails. After a new
 version has opened the database, an older version may reject that database
@@ -127,5 +160,12 @@ to restore a launchable app after database migration.
 The signed manifest pins the expected APK signing-certificate SHA-256. The app
 checks artifact hash, size, versionCode and certificate pin, then hands the APK
 to Android's package installer. Android still displays its install/update UI.
+Artifacts and the durable pending-install marker live in app-private
+`filesDir/updates`. On Android 13 and newer, Notes asks for notification
+permission only after the user taps Install. After replacement, a private
+receiver checks that the pending versionCode matches the installed package and
+posts “Notes updated — tap to open” with an explicit Activity PendingIntent. It
+never launches an Activity from the background. If notifications are denied,
+the next launch shows the one-time “Updated to version X” result instead.
 Distribution through Google Play would need to use Play's update flow and
 signing identity rather than direct APK delivery.

@@ -81,6 +81,70 @@ class DatabaseKeyMissingException implements Exception {
       'not in the system keystore.';
 }
 
+/// Startup stopped because the Linux update helper is still replacing program
+/// files. The app can be opened again after the swap finishes.
+class UpdateSwapInProgressException implements Exception {
+  const UpdateSwapInProgressException();
+
+  @override
+  String toString() =>
+      'Notes is finishing an update. Wait a few seconds, then open Notes again.';
+}
+
+/// Waits for another process holding the updater's per-user lock. The caller
+/// must run this before opening the database or other app state.
+Future<void> waitForUpdateSwapLock(
+  File lockFile, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final directory = lockFile.parent;
+  if (FileSystemEntity.typeSync(directory.path, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw StateError('The Notes update state directory is a symlink.');
+  }
+  await directory.create(recursive: true);
+  if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw StateError('The Notes update lock is a symlink.');
+  }
+  if (!lockFile.existsSync()) lockFile.createSync();
+  final seconds = timeout.inSeconds.clamp(1, 60);
+  final result = await Process.run('flock', [
+    '-w',
+    '$seconds',
+    lockFile.path,
+    '/bin/true',
+  ]);
+  if (result.exitCode == 1) throw const UpdateSwapInProgressException();
+  if (result.exitCode != 0) {
+    throw StateError('Notes could not check its Linux update lock safely.');
+  }
+}
+
+Future<void> _waitForLinuxUpdateSwap(String? dataOverride) async {
+  if (!Platform.isLinux || dataOverride != null) return;
+  final home = Platform.environment['HOME'];
+  if (home == null || home.isEmpty) return;
+  final stateHome = Platform.environment['XDG_STATE_HOME'];
+  final stateBase = stateHome != null && stateHome.isNotEmpty
+      ? stateHome
+      : p.join(home, '.local/state');
+  final dataHome = Platform.environment['XDG_DATA_HOME'];
+  final dataBase = dataHome != null && dataHome.isNotEmpty
+      ? dataHome
+      : p.join(home, '.local/share');
+  var stateRoot = p.normalize(p.join(stateBase, 'com.mmoptibuilds.notes'));
+  final dataRoot = p.normalize(p.join(dataBase, 'com.mmoptibuilds.notes'));
+  if (stateRoot == dataRoot ||
+      p.isWithin(dataRoot, stateRoot) ||
+      p.isWithin(stateRoot, dataRoot)) {
+    stateRoot = p.normalize(
+      p.join(home, '.local/state/com.mmoptibuilds.notes'),
+    );
+  }
+  await waitForUpdateSwapLock(File(p.join(stateRoot, 'updater/lock')));
+}
+
 /// Where the 32-byte database key is kept.
 abstract interface class KeyStore {
   Future<Uint8List?> read();
@@ -128,6 +192,7 @@ class FileKeyStore implements KeyStore {
 /// and [DatabaseUnreadableException] when the key does not fit.
 Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   final override = dataDir ?? Platform.environment['NOTES_DATA_DIR'];
+  await _waitForLinuxUpdateSwap(override);
   final dir = override ?? (await getApplicationSupportDirectory()).path;
   Directory(dir).createSync(recursive: true);
   final store =

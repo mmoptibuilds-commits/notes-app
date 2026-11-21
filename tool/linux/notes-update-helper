@@ -145,6 +145,20 @@ function unsafe(p, n,a,i) { if (p ~ /^\//) return 1; n=split(p,a,"/"); for(i=1;i
   if (unsafe(name)) exit 1; if (name ~ /(^|\/)bundle\/notes$/ && type=="-") notes=1; if (name ~ /(^|\/)bundle\/lib\/?$/) lib=1; if (name ~ /(^|\/)bundle\/data\/?$/) data=1
 } END { if (!notes || !lib || !data) exit 1 }
 ' "$listing" || verifyfail 'Unsafe archive entries or unexpected layout'
+# The archive is extracted and then copied into a same-filesystem staging
+# directory before the atomic swap. Bound expansion and check that parent
+# volume before creating either tree, leaving the old install untouched.
+unpacked_bytes=$(awk '
+  $1 ~ /^-/ { total += $3; if (total > 3221225472) bad=1 }
+  END { if (bad) exit 1; printf "%.0f\n", total }
+' "$listing") || verifyfail 'Archive expands beyond the supported size'
+required_space=$((unpacked_bytes * 2 + 16777216))
+available_space=$(df -B1 --output=avail "$parent" | tail -n 1 | tr -d ' ')
+case "$available_space" in ''|*[!0-9]*) refused 'Could not check free space for the update';; esac
+if [ "$available_space" -lt "$required_space" ]; then
+  status_write failed false insufficient_space
+  refused 'Not enough free space beside the Notes install to stage this update'
+fi
 status_write staged false ''
 # Refuse to replace files while any process executes from the install tree.
 # Checked now, and again right before the swap (a second instance could have

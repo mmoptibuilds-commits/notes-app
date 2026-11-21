@@ -182,13 +182,14 @@ class _Body extends StatelessWidget {
         _Card(
           children: [
             SwitchRow(
-              title: 'Automatically check about once a day',
+              title: 'Automatically check and download updates',
               subtitle:
                   'Contacts api.github.com over HTTPS to ask for the latest '
                   'release. No notes or account details are sent; GitHub sees '
                   'your IP address and a generic user agent, as with any web '
-                  'request. Updates are never downloaded or installed '
-                  'without you asking.',
+                  'request. When a signed update is available, Notes downloads '
+                  'it in the background. Installation always waits for your '
+                  'confirmation.',
               value: settings.autoCheckUpdates,
               onChanged: (v) => settings.autoCheckUpdates = v,
             ),
@@ -242,6 +243,20 @@ class _StatusCard extends StatelessWidget {
     final line = _lineFor(s);
     final candidate = _candidateOf(s);
     final last = controller.lastSuccessfulCheck;
+    final progress = switch (s) {
+      UpdateDownloading(:final fraction) => fraction,
+      UpdateDownloadPaused(:final received, :final total) =>
+        total <= 0 ? 0.0 : (received / total).clamp(0.0, 1.0),
+      _ => null,
+    };
+    final progressLabel = switch (s) {
+      UpdateDownloading(:final received, :final total) ||
+      UpdateDownloadPaused(
+        :final received,
+        :final total,
+      ) => '${formatSize(received)} of ${formatSize(total)}',
+      _ => null,
+    };
     return _Card(
       children: [
         Padding(
@@ -298,15 +313,15 @@ class _StatusCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (s is UpdateDownloading) ...[
+              if (progress != null && progressLabel != null) ...[
                 const SizedBox(height: 12),
                 LinearProgressIndicator(
-                  value: s.fraction,
+                  value: progress,
                   semanticsLabel: 'Download progress',
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${formatSize(s.received)} of ${formatSize(s.total)}',
+                  progressLabel,
                   style: TextStyle(fontSize: 12, color: p.textMuted),
                 ),
               ],
@@ -333,6 +348,8 @@ class _StatusCard extends StatelessWidget {
   UpdateCandidate? _candidateOf(UpdateStatus s) => switch (s) {
     UpdateAvailable(:final candidate) => candidate,
     UpdateDownloading(:final candidate) => candidate,
+    UpdateDownloadPaused(:final candidate) => candidate,
+    UpdateOffline(:final candidate?) => candidate,
     UpdateReadyToInstall(:final candidate) => candidate,
     UpdateInstalling(:final candidate) => candidate,
     UpdateInstallationHandedToOs(:final candidate) => candidate,
@@ -367,6 +384,14 @@ class _StatusCard extends StatelessWidget {
       'No download for this device',
       detail: 'The latest release has no file for this device yet.',
     ),
+    UpdateOffline(:final candidate?) => _Line(
+      Icons.cloud_off_rounded,
+      'Download paused while offline',
+      detail:
+          'Version ${candidate.version} is saved. Check your connection, '
+          'then resume the download.',
+      error: true,
+    ),
     UpdateOffline() => const _Line(
       Icons.cloud_off_rounded,
       'Cannot reach GitHub',
@@ -389,12 +414,21 @@ class _StatusCard extends StatelessWidget {
     UpdateAvailable(:final candidate) => _Line(
       Icons.system_update_alt_rounded,
       'Version ${candidate.version} is available',
-      detail: 'Nothing is downloaded until you choose to.',
+      detail: 'Download the verified update before installing it.',
     ),
     UpdateDownloading(:final candidate) => _Line(
       Icons.download_rounded,
       'Downloading version ${candidate.version}…',
     ),
+    UpdateDownloadPaused(:final candidate, :final received, :final total) =>
+      _Line(
+        Icons.pause_circle_outline_rounded,
+        'Download paused',
+        detail: received == 0
+            ? 'Version ${candidate.version} can be downloaded again.'
+            : '${formatSize(received)} of ${formatSize(total)} saved. Resume '
+                  'when you are ready.',
+      ),
     UpdateReadyToInstall(:final candidate, :final message) => _Line(
       Icons.verified_outlined,
       'Version ${candidate.version} is ready to install',
@@ -492,6 +526,14 @@ class _StatusCard extends StatelessWidget {
           child: const Text('Cancel'),
         ),
       ],
+      UpdateDownloadPaused() => [
+        FilledButton(
+          style: _filled(context),
+          onPressed: c.download,
+          child: const Text('Resume download'),
+        ),
+        check('Check again'),
+      ],
       UpdateReadyToInstall(:final candidate) => [
         FilledButton(
           style: _filled(context),
@@ -512,11 +554,19 @@ class _StatusCard extends StatelessWidget {
                 ),
                 check('Check again'),
               ],
+      UpdateOffline(candidate: != null) => [
+        FilledButton(
+          style: _filled(context),
+          onPressed: c.download,
+          child: const Text('Resume download'),
+        ),
+        check('Check again'),
+      ],
       UpdateFailed(candidate: != null) => [
         FilledButton(
           style: _filled(context),
           onPressed: c.download,
-          child: const Text('Retry'),
+          child: const Text('Retry download'),
         ),
         check('Check again'),
       ],

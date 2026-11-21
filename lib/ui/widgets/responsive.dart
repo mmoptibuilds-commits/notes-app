@@ -2,6 +2,21 @@ import 'dart:math' as math;
 
 import '../material.dart';
 
+/// Window width (logical px) from which the desktop layout applies: a
+/// persistent sidebar replaces the folder strip and the floating button, and
+/// a note opens in a pane beside the list instead of a new screen. Narrower
+/// windows (phones, split screen) keep the single-column layout unchanged.
+const desktopBreakpoint = 900.0;
+
+/// Shortest window that gets the desktop layout: a phone held sideways is
+/// wide but short, and keeps the phone layout.
+const desktopMinHeight = 480.0;
+
+bool isDesktopWidth(double width) => width >= desktopBreakpoint;
+
+bool isDesktopSize(Size size) =>
+    isDesktopWidth(size.width) && size.height >= desktopMinHeight;
+
 /// Widest a single-column page body (Settings, Help, Sync, Data, toolbar
 /// customisation) gets on a large window. Narrower windows use all the width
 /// minus [pageMinGutter] on each side.

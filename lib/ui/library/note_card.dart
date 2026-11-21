@@ -186,6 +186,7 @@ class _ItemSurface extends StatefulWidget {
   const _ItemSurface({
     required this.note,
     required this.selected,
+    this.active = false,
     required this.radius,
     required this.onTap,
     required this.onLongPress,
@@ -195,6 +196,9 @@ class _ItemSurface extends StatefulWidget {
 
   final NoteSummary note;
   final bool selected;
+
+  /// The note open in the desktop editor pane (distinct from selection).
+  final bool active;
   final double radius;
   final ItemTapCallback onTap;
   final ItemTapCallback onLongPress;
@@ -219,6 +223,8 @@ class _ItemSurfaceState extends State<_ItemSurface> {
     final Color border;
     if (ring || widget.selected) {
       border = p.accent;
+    } else if (widget.active) {
+      border = p.accent.withValues(alpha: 0.55);
     } else if (_hover) {
       border = p.textFaint;
     } else {
@@ -226,6 +232,8 @@ class _ItemSurfaceState extends State<_ItemSurface> {
     }
     final fill = widget.selected
         ? Color.alphaBlend(p.accent.withValues(alpha: 0.10), p.card)
+        : widget.active
+        ? Color.alphaBlend(p.accent.withValues(alpha: 0.14), p.card)
         : p.card;
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(widget.radius),
@@ -411,6 +419,7 @@ class NoteRow extends StatelessWidget {
     required this.item,
     required this.showPreview,
     required this.selected,
+    this.active = false,
     required this.now,
     required this.byCreated,
     required this.searching,
@@ -422,6 +431,7 @@ class NoteRow extends StatelessWidget {
   final LibraryItem item;
   final bool showPreview;
   final bool selected;
+  final bool active;
   final DateTime now;
   final bool byCreated;
   final bool searching;
@@ -539,6 +549,7 @@ class NoteRow extends StatelessWidget {
     return _ItemSurface(
       note: n,
       selected: selected,
+      active: active,
       radius: 12,
       onTap: onTap,
       onLongPress: onLongPress,

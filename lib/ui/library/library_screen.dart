@@ -10,13 +10,17 @@ import '../../data/models.dart';
 import '../../data/note_repository.dart';
 import '../editor/editor_screen.dart';
 import '../material.dart';
+import '../editor/editor_session.dart';
 import '../settings/settings_screen.dart';
+import '../sync/sync_screen.dart';
 import '../shortcuts/shortcut_defs.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/format.dart';
 import '../widgets/menus.dart';
+import '../widgets/responsive.dart';
+import 'desktop_sidebar.dart';
 import '../widgets/touch.dart';
 import 'folder_strip.dart';
 import 'library_controller.dart';
@@ -24,6 +28,16 @@ import 'library_header.dart';
 import 'library_layout.dart';
 import 'move_dialog.dart';
 import 'note_card.dart';
+
+/// The note open in the desktop editor pane. [token] makes every opening a
+/// fresh editor (two new notes in a row must not share a draft); [noteId]
+/// fills in once a new note is first stored.
+class _PaneTarget {
+  _PaneTarget(this.token, this.noteId, this.folderId);
+  final int token;
+  String? noteId;
+  final String? folderId;
+}
 
 /// The home screen: folders, notes in three layouts, search, selection.
 class LibraryScreen extends StatefulWidget {
@@ -44,6 +58,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _searchOpen = false;
   String _lastKey = '';
   String _lastQuery = '';
+
+  // Desktop editor pane.
+  _PaneTarget? _pane;
+  EditorSession? _paneSession;
+  int _paneSeq = 0;
+  final _paneFocus = FocusNode(
+    debugLabel: 'editor pane',
+    canRequestFocus: false,
+    skipTraversal: true,
+  );
 
   LibraryController get _c => _ctl!;
   NoteRepository get _repo => AppScope.of(context).notes;
@@ -79,6 +103,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _searchCtl.dispose();
     _searchFocus.dispose();
     _rootFocus.dispose();
+    _paneFocus.dispose();
     super.dispose();
   }
 
@@ -96,6 +121,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _holdOffset(_scroll.offset);
     }
     _lastQuery = _c.query;
+    final open = _pane?.noteId;
+    if (open != null && _repo.getRecord(open) == null) {
+      // The open note was removed for good (e.g. by a sync): drop the pane.
+      _pane = null;
+      _paneSession = null;
+    }
     if (mounted) setState(() {});
   }
 
@@ -204,6 +235,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _closeSearch();
       return true;
     }
+    if (_pane != null) {
+      _closePane();
+      return true;
+    }
     if (_c.scope != NoteScope.active) {
       _go(NoteScope.active);
       return true;
@@ -211,7 +246,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return false;
   }
 
-  void _newNote() => openEditor(context, folderId: _c.folderId);
+  bool get _desktop => isDesktopSize(MediaQuery.sizeOf(context));
+
+  /// Opens a note: in the pane on desktop, as a route on a phone.
+  void _openNote({String? noteId, String? folderId}) {
+    if (!_desktop) {
+      openEditor(context, noteId: noteId, folderId: folderId);
+      return;
+    }
+    if (noteId != null && _pane?.noteId == noteId) return;
+    // The old editor is disposed (and saves) when the pane is rebuilt; flush
+    // now so the text is stored before anything else happens.
+    _paneSession?.flush();
+    setState(() => _pane = _PaneTarget(++_paneSeq, noteId, folderId));
+  }
+
+  void _closePane() {
+    _paneSession?.flush();
+    _paneSession = null;
+    if (_pane == null) return;
+    setState(() => _pane = null);
+    _rootFocus.requestFocus();
+  }
+
+  void _newNote() => _openNote(folderId: _c.folderId);
+
+  void _openSync() =>
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const SyncScreen()));
 
   void _openSettings() => Navigator.of(context)
       .push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
@@ -227,7 +289,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_c.selecting || _modifierHeld) {
       _c.toggle(n.id);
     } else {
-      openEditor(context, noteId: n.id, folderId: n.folderId);
+      _openNote(noteId: n.id, folderId: n.folderId);
     }
   }
 
@@ -292,7 +354,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted || choice == null) return;
     switch (choice) {
       case 'open':
-        openEditor(context, noteId: n.id, folderId: n.folderId);
+        _openNote(noteId: n.id, folderId: n.folderId);
       case 'select':
         _c.selectOnly(n.id);
       default:
@@ -305,6 +367,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _apply(String action, List<NoteSummary> ns) async {
     if (ns.isEmpty) return;
     final ids = [for (final n in ns) n.id];
+    final open = _pane?.noteId;
+    if (open != null &&
+        ids.contains(open) &&
+        const {'trash', 'archive', 'purge'}.contains(action)) {
+      // Save the open note's text before it changes state, then close it.
+      _closePane();
+    }
     switch (action) {
       case 'pin':
         _repo.setPinned(ids, !ns.every((n) => n.pinned));
@@ -450,6 +519,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       selecting: _c.selecting,
       searchFocused: _searchFocus.hasFocus,
       canGoBack: _c.scope != NoteScope.active,
+      paneOpen: _pane != null,
     )) {
       case EscapeOutcome.clearSearch:
         _closeSearch();
@@ -457,6 +527,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _c.clearSelection();
       case EscapeOutcome.unfocusSearch:
         _rootFocus.requestFocus();
+      case EscapeOutcome.closePane:
+        _closePane();
       case EscapeOutcome.back:
         _go(NoteScope.active);
       case EscapeOutcome.closePopup:
@@ -492,7 +564,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     final c = _c;
-    final canPop = !(c.selecting || _hasSearch || c.scope != NoteScope.active);
+    final canPop =
+        !(c.selecting ||
+            _hasSearch ||
+            _pane != null ||
+            c.scope != NoteScope.active);
     return PopScope(
       canPop: canPop,
       onPopInvokedWithResult: (didPop, _) {
@@ -512,7 +588,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           },
           child: Scaffold(
             backgroundColor: p.background,
-            floatingActionButton: c.scope == NoteScope.active && !c.selecting
+            floatingActionButton:
+                !_desktop && c.scope == NoteScope.active && !c.selecting
                 ? FloatingActionButton(
                     tooltip: 'New note',
                     onPressed: _newNote,
@@ -522,8 +599,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
             body: SafeArea(
               bottom: false,
               child: LayoutBuilder(
-                builder: (context, cons) =>
-                    _buildContent(context, cons.maxWidth),
+                builder: (context, cons) {
+                  if (isDesktopSize(MediaQuery.sizeOf(context))) {
+                    return _buildDesktop(context, cons.maxWidth);
+                  }
+                  if (_pane != null) {
+                    // Narrowed below the desktop width: the pane is not built
+                    // (its editor saves as it is disposed); forget it.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted || _pane == null) return;
+                      if (isDesktopSize(MediaQuery.sizeOf(context))) {
+                        return;
+                      }
+                      setState(() {
+                        _pane = null;
+                        _paneSession = null;
+                      });
+                    });
+                  }
+                  return _buildContent(context, cons.maxWidth);
+                },
               ),
             ),
           ),
@@ -532,7 +627,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  String get _title {
+  String _title(bool desktop) {
     switch (_c.scope) {
       case NoteScope.archived:
         return 'Archive';
@@ -542,21 +637,108 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return 'Conflicts';
       case NoteScope.active:
         if (_c.unfiled) return 'Unfiled';
-        return _c.currentFolder?.name ?? 'Notes';
+        return _c.currentFolder?.name ?? (desktop ? 'All notes' : 'Notes');
     }
   }
 
-  Widget _buildContent(BuildContext context, double width) {
+  /// Width of the note-list column while the editor pane is open.
+  double _listColumnWidth(double width) =>
+      (width * 0.28).clamp(280.0, 340.0).toDouble();
+
+  Widget _buildDesktop(BuildContext context, double width) {
+    final p = AppPalette.of(context);
+    final c = _c;
+    final pane = _pane;
+    final contentWidth = width - sidebarWidth;
+    final sidebar = DesktopSidebar(
+      folders: c.folders,
+      counts: c.counts,
+      scope: c.scope,
+      folderId: c.folderId,
+      unfiled: c.unfiled,
+      sync: AppScope.of(context).sync,
+      onNewNote: _newNote,
+      onAll: _pickFolder,
+      onFolder: (f) => _pickFolder(id: f.id),
+      onUnfiled: () => _pickFolder(unfiled: true),
+      onScope: _go,
+      onNewFolder: _newFolder,
+      onFolderMenu: _folderMenu,
+      onSync: _openSync,
+      onSettings: _openSettings,
+      onHelp: () => openHelp(context),
+    );
+    Widget content;
+    if (pane == null) {
+      content = _buildContent(context, contentWidth, desktop: true);
+    } else {
+      final listWidth = _listColumnWidth(width);
+      content = Row(
+        children: [
+          SizedBox(
+            width: listWidth,
+            child: _buildContent(
+              context,
+              listWidth,
+              desktop: true,
+              compact: true,
+            ),
+          ),
+          VerticalDivider(width: 1, thickness: 1, color: p.cardBorder),
+          Expanded(
+            child: Focus(
+              focusNode: _paneFocus,
+              canRequestFocus: false,
+              skipTraversal: true,
+              child: EditorScreen(
+                key: ValueKey(pane.token),
+                embedded: true,
+                noteId: pane.noteId,
+                folderId: pane.folderId,
+                onClose: _closePane,
+                onSession: (s) => _paneSession = s,
+                onStored: (id) {
+                  if (mounted && _pane == pane) {
+                    setState(() => pane.noteId = id);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        sidebar,
+        Expanded(child: content),
+      ],
+    );
+  }
+
+  Widget _buildContent(
+    BuildContext context,
+    double width, {
+    bool desktop = false,
+    bool compact = false,
+  }) {
     final c = _c;
     final s = _settings;
     final wide = width >= wideBreakpoint;
-    final list = c.layout == LibraryLayout.list;
-    final inset = contentInset(width, list: list);
+    final list = compact || c.layout == LibraryLayout.list;
+    final inset = compact ? 10.0 : contentInset(width, list: list);
     final subview = c.scope != NoteScope.active;
     return Column(
       children: [
-        _buildHeader(context, wide, inset, subview),
-        if (!subview && !c.searching)
+        _buildHeader(
+          context,
+          wide,
+          inset,
+          subview,
+          desktop: desktop,
+          compact: compact,
+        ),
+        if (!desktop && !subview && !c.searching)
           FolderStrip(
             folders: c.folders,
             counts: c.counts,
@@ -569,7 +751,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onNew: _newFolder,
             onFolderMenu: _folderMenu,
           ),
-        Expanded(child: _buildNotes(context, width, inset, s)),
+        Expanded(
+          child: _buildNotes(context, width, inset, s, compact: compact),
+        ),
       ],
     );
   }
@@ -578,8 +762,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     BuildContext context,
     bool wide,
     double inset,
-    bool subview,
-  ) {
+    bool subview, {
+    bool desktop = false,
+    bool compact = false,
+  }) {
     final p = AppPalette.of(context);
     final c = _c;
     final btn = hitSize(context);
@@ -593,9 +779,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       onGo: _go,
       onSettings: _openSettings,
       onEmptyTrash: _emptyTrash,
+      desktop: desktop,
     );
     final side = inset - 8 < 0 ? 0.0 : inset - 8;
-    final back = subview
+    final back = subview && !desktop
         ? HeaderIconButton(
             icon: Icons.arrow_back_rounded,
             tooltip: 'Back to notes',
@@ -605,7 +792,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
         : null;
 
     Widget row;
-    if (!wide && _searchOpen) {
+    if (compact) {
+      // Narrow list column beside the editor: search takes the whole row.
+      row = Row(
+        children: [
+          Expanded(
+            child: LibrarySearchField(
+              controller: _searchCtl,
+              focusNode: _searchFocus,
+              onChanged: _onQueryChanged,
+              onSubmitted: _rootFocus.requestFocus,
+            ),
+          ),
+          const SizedBox(width: 2),
+          menu,
+        ],
+      );
+    } else if (!wide && _searchOpen) {
       row = Row(
         children: [
           HeaderIconButton(
@@ -633,7 +836,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Padding(
               padding: EdgeInsets.only(left: back == null ? 8 : 4),
               child: Text(
-                _title,
+                _title(desktop),
+                key: const ValueKey('library-title'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 // The title lives in a fixed 56 dp bar: past this scale it
@@ -759,12 +963,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     BuildContext context,
     double width,
     double inset,
-    AppSettings s,
-  ) {
+    AppSettings s, {
+    bool compact = false,
+  }) {
     final p = AppPalette.of(context);
     final c = _c;
     final items = c.items;
-    final layout = c.layout;
+    final layout = compact ? LibraryLayout.list : c.layout;
     final now = DateTime.now();
     final byCreated = c.sort == NoteSort.created;
     final scaler = MediaQuery.textScalerOf(context);
@@ -779,6 +984,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               item: item,
               showPreview: c.previewLines > 0,
               selected: sel,
+              active: compact && id == _pane?.noteId,
               now: now,
               byCreated: byCreated,
               searching: c.searching,
@@ -934,6 +1140,7 @@ class _OverflowMenu extends StatelessWidget {
     required this.onGo,
     required this.onSettings,
     required this.onEmptyTrash,
+    this.desktop = false,
   });
 
   final LibraryController controller;
@@ -943,6 +1150,9 @@ class _OverflowMenu extends StatelessWidget {
   final ValueChanged<NoteScope> onGo;
   final VoidCallback onSettings;
   final VoidCallback onEmptyTrash;
+
+  /// On desktop the sidebar navigates; the menu keeps view options only.
+  final bool desktop;
 
   @override
   Widget build(BuildContext context) {
@@ -1003,39 +1213,42 @@ class _OverflowMenu extends StatelessWidget {
             checked: c.sort == v,
             reserveIcon: true,
           ),
-        const PopupMenuDivider(height: 8),
-        if (c.scope != NoteScope.active)
-          menuItem(
-            context,
-            'go:active',
-            'All notes',
-            icon: Icons.notes_rounded,
-          ),
-        if (c.scope != NoteScope.archived)
-          menuItem(
-            context,
-            'go:archived',
-            'Archive',
-            icon: Icons.archive_outlined,
-            trailing: n(counts.archived),
-          ),
-        if (c.scope != NoteScope.trash)
-          menuItem(
-            context,
-            'go:trash',
-            'Trash',
-            icon: Icons.delete_outline_rounded,
-            trailing: n(counts.trash),
-          ),
-        if (counts.conflicts > 0 && c.scope != NoteScope.conflicts)
-          menuItem(
-            context,
-            'go:conflicts',
-            'Conflicts',
-            icon: Icons.call_split_rounded,
-            trailing: n(counts.conflicts),
-          ),
-        if (c.scope == NoteScope.trash && counts.trash > 0)
+        if (!desktop) ...[
+          const PopupMenuDivider(height: 8),
+          if (c.scope != NoteScope.active)
+            menuItem(
+              context,
+              'go:active',
+              'All notes',
+              icon: Icons.notes_rounded,
+            ),
+          if (c.scope != NoteScope.archived)
+            menuItem(
+              context,
+              'go:archived',
+              'Archive',
+              icon: Icons.archive_outlined,
+              trailing: n(counts.archived),
+            ),
+          if (c.scope != NoteScope.trash)
+            menuItem(
+              context,
+              'go:trash',
+              'Trash',
+              icon: Icons.delete_outline_rounded,
+              trailing: n(counts.trash),
+            ),
+          if (counts.conflicts > 0 && c.scope != NoteScope.conflicts)
+            menuItem(
+              context,
+              'go:conflicts',
+              'Conflicts',
+              icon: Icons.call_split_rounded,
+              trailing: n(counts.conflicts),
+            ),
+        ],
+        if (c.scope == NoteScope.trash && counts.trash > 0) ...[
+          if (desktop) const PopupMenuDivider(height: 8),
           menuItem(
             context,
             'empty',
@@ -1043,13 +1256,16 @@ class _OverflowMenu extends StatelessWidget {
             icon: Icons.delete_forever_outlined,
             danger: true,
           ),
-        const PopupMenuDivider(height: 8),
-        menuItem(
-          context,
-          'settings',
-          'Settings',
-          icon: Icons.settings_outlined,
-        ),
+        ],
+        if (!desktop) ...[
+          const PopupMenuDivider(height: 8),
+          menuItem(
+            context,
+            'settings',
+            'Settings',
+            icon: Icons.settings_outlined,
+          ),
+        ],
       ],
     );
   }

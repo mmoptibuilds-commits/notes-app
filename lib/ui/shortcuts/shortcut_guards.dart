@@ -49,6 +49,7 @@ enum EscapeOutcome {
   clearSearch,
   clearSelection,
   unfocusSearch,
+  closePane,
   back,
   unhandled,
 }
@@ -62,11 +63,13 @@ EscapeOutcome resolveEscape({
   required bool selecting,
   required bool searchFocused,
   required bool canGoBack,
+  bool paneOpen = false,
 }) {
   if (popupOpen) return EscapeOutcome.closePopup;
   if (hasSearch) return EscapeOutcome.clearSearch;
   if (selecting) return EscapeOutcome.clearSelection;
   if (searchFocused) return EscapeOutcome.unfocusSearch;
+  if (paneOpen) return EscapeOutcome.closePane;
   if (canGoBack) return EscapeOutcome.back;
   return EscapeOutcome.unhandled;
 }
@@ -199,6 +202,11 @@ class _ShortcutScopeHost extends StatefulWidget {
 }
 
 class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
+  /// Every mounted scope. When scopes are nested (the desktop editor pane
+  /// inside the library) only the innermost one reclaims stranded focus, so
+  /// its shortcuts work and the outer ones still do by bubbling.
+  static final _live = <_ShortcutScopeHostState>{};
+
   FocusNode? _own;
   FocusNode get _node =>
       widget.focusNode ??
@@ -223,12 +231,14 @@ class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
   @override
   void initState() {
     super.initState();
+    _live.add(this);
     // Covers a screen that is already stranded when it first appears.
     WidgetsBinding.instance.addPostFrameCallback((_) => _onRouteScopeChanged());
   }
 
   @override
   void dispose() {
+    _live.remove(this);
     _routeScope?.removeListener(_onRouteScopeChanged);
     _own?.dispose();
     super.dispose();
@@ -244,6 +254,13 @@ class _ShortcutScopeHostState extends State<_ShortcutScopeHost> {
       if (!stranded) return;
       final route = ModalRoute.of(context);
       if (route != null && !route.isCurrent) return;
+      for (final other in _live) {
+        if (other != this &&
+            other._routeScope == _routeScope &&
+            other._node.ancestors.contains(_node)) {
+          return; // a scope nested inside this one takes the focus instead
+        }
+      }
       _node.requestFocus();
     });
   }

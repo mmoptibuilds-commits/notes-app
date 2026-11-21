@@ -40,10 +40,34 @@ Future<void> openEditor(
 );
 
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, this.noteId, this.folderId});
+  const EditorScreen({
+    super.key,
+    this.noteId,
+    this.folderId,
+    this.embedded = false,
+    this.onClose,
+    this.onSession,
+    this.onStored,
+  });
 
   final String? noteId;
   final String? folderId;
+
+  /// True when shown as a pane inside another screen (desktop) rather than as
+  /// a route: the back arrow becomes a close button, no Scaffold is used (the
+  /// host's snack bars stay single) and leaving calls [onClose] instead of
+  /// popping the navigator.
+  final bool embedded;
+
+  /// Asks the host to remove the pane. Used only when [embedded].
+  final VoidCallback? onClose;
+
+  /// Hands the host the session so it can flush pending text before it acts
+  /// on the open note (trash, archive, delete).
+  final ValueChanged<EditorSession>? onSession;
+
+  /// Called once when a new note is first stored, with its id.
+  final ValueChanged<String>? onStored;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -57,6 +81,7 @@ class _EditorScreenState extends State<EditorScreen>
   late bool _completedCollapsed;
   AttachmentImageEmbedBuilder? _images;
   bool _started = false;
+  bool _reportedId = false;
 
   @override
   void didChangeDependencies() {
@@ -74,6 +99,29 @@ class _EditorScreenState extends State<EditorScreen>
       onConflictCopy: _onConflictCopy,
     );
     WidgetsBinding.instance.addObserver(this);
+    widget.onSession?.call(session);
+    if (widget.embedded && widget.onStored != null) {
+      _reportedId = widget.noteId != null;
+      session.addListener(_reportStored);
+    }
+  }
+
+  void _reportStored() {
+    final id = session.noteId;
+    if (_reportedId || id == null || !mounted) return;
+    _reportedId = true;
+    widget.onStored?.call(id);
+  }
+
+  /// Leaves the editor: closes the pane, or pops the route.
+  void _leave({bool maybe = false}) {
+    if (widget.embedded) {
+      widget.onClose?.call();
+    } else if (maybe) {
+      Navigator.of(context).maybePop();
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   void _onConflictCopy(String id) {
@@ -97,6 +145,7 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    session.removeListener(_reportStored);
     session.dispose();
     _editorFocus.dispose();
     _titleFocus.dispose();
@@ -167,7 +216,7 @@ class _EditorScreenState extends State<EditorScreen>
     final repo = AppScope.of(context).notes;
     session.trash();
     final id = session.noteId;
-    Navigator.of(context).pop();
+    _leave();
     if (id != null) {
       // The library's messenger outlives this route.
       ScaffoldMessenger.of(context)
@@ -211,7 +260,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (ok != true || !mounted) return;
     final id = session.noteId;
     if (id != null) AppScope.of(context).notes.purge([id]);
-    Navigator.of(context).pop();
+    _leave();
   }
 
   Future<void> _moveToFolder() async {
@@ -369,6 +418,93 @@ class _EditorScreenState extends State<EditorScreen>
 
   // ------------------------------------------------------------ build
 
+  /// Copy, pin and the overflow menu: the same in the route and the pane.
+  List<Widget> _actions(AppServices app, AppPalette p, ButtonStyle? tap) => [
+    IconButton(
+      tooltip: 'Copy note',
+      style: tap,
+      icon: const Icon(Icons.copy_rounded),
+      onPressed: _copy,
+    ),
+    ListenableBuilder(
+      listenable: Listenable.merge([app.notes.changes, session]),
+      builder: (context, _) {
+        final pinned = session.stored?.pinned ?? false;
+        return IconButton(
+          tooltip: pinned ? 'Unpin' : 'Pin',
+          style: tap,
+          icon: Icon(
+            pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+            color: pinned ? p.accent : null,
+          ),
+          onPressed: session.readOnly ? null : () => session.setPinned(!pinned),
+        );
+      },
+    ),
+    PopupMenuButton<String>(
+      tooltip: 'More',
+      style: tap,
+      onSelected: (v) {
+        switch (v) {
+          case 'archive':
+            final archived = session.stored?.archived ?? false;
+            session.setArchived(!archived);
+            _leave();
+          case 'folder':
+            _moveToFolder();
+          case 'trash':
+            _trash();
+          case 'copy-md':
+            _copyMarkdown();
+          case 'save-md':
+            _saveMarkdown();
+        }
+      },
+      itemBuilder: (context) {
+        final archived = session.stored?.archived ?? false;
+        return [
+          const PopupMenuItem(
+            value: 'copy-md',
+            child: Text('Copy as Markdown'),
+          ),
+          const PopupMenuItem(
+            value: 'save-md',
+            child: Text('Save as Markdown file…'),
+          ),
+          if (!session.readOnly) ...[
+            PopupMenuItem(
+              value: 'folder',
+              child: const Text('Move to folder…'),
+            ),
+            PopupMenuItem(
+              value: 'archive',
+              child: Text(archived ? 'Unarchive' : 'Archive'),
+            ),
+            PopupMenuItem(
+              value: 'trash',
+              child: Text('Move to Trash', style: TextStyle(color: p.danger)),
+            ),
+          ],
+        ];
+      },
+    ),
+  ];
+
+  Widget _statusText(AppPalette p) => ListenableBuilder(
+    listenable: session,
+    builder: (context, _) => session.status == SaveStatus.failed
+        ? Text(
+            'Not saved yet, retrying…',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            // Two lines at most must fit the 52 dp bar.
+            textScaler: MediaQuery.textScalerOf(context)
+                .clamp(maxScaleFactor: 1.3),
+            style: TextStyle(color: p.danger, fontSize: 13),
+          )
+        : const SizedBox.shrink(),
+  );
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -376,7 +512,7 @@ class _EditorScreenState extends State<EditorScreen>
     final isNew = widget.noteId == null;
     // On a wide window the bar sits under the app bar, near the text; on a
     // phone it rides above the keyboard.
-    final wide = MediaQuery.sizeOf(context).width > 640;
+    final wide = widget.embedded || MediaQuery.sizeOf(context).width > 640;
     // Theme density makes app bar buttons 40 dp; a finger needs 48.
     final tap = isTouchPlatform(context)
         ? IconButton.styleFrom(minimumSize: const Size.square(touchTarget))
@@ -393,12 +529,80 @@ class _EditorScreenState extends State<EditorScreen>
               bottom: !wide,
             ),
     );
+    final body = Column(
+      children: [
+        ListenableBuilder(
+          listenable: session,
+          builder: (context, _) {
+            if (session.loadError != null) {
+              return _Banner(text: session.loadError!);
+            }
+            if (session.readOnly) {
+              return _Banner(
+                text: 'This note is in Trash',
+                actions: [
+                  TextButton(
+                    onPressed: session.restoreFromTrash,
+                    child: const Text('Restore'),
+                  ),
+                  TextButton(
+                    onPressed: _deleteForever,
+                    child: Text(
+                      'Delete forever',
+                      style: TextStyle(color: p.danger),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+        if (wide) toolbar,
+        Expanded(child: _page(context, app, isNew)),
+        if (!wide) toolbar,
+      ],
+    );
+    final handlers = {
+      ShortcutId.saveNow: session.flush,
+      ShortcutId.escape: () => _leave(maybe: true),
+    };
+    const scopes = {ShortcutScope.editor, ShortcutScope.global};
+    if (widget.embedded) {
+      // A pane, not a screen: the host's Scaffold owns snack bars.
+      return shortcutScope(
+        scopes: scopes,
+        handlers: handlers,
+        child: Material(
+          color: p.background,
+          child: Column(
+            children: [
+              SizedBox(
+                height: 52,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Close note',
+                      style: tap,
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: _leave,
+                    ),
+                    Expanded(child: _statusText(p)),
+                    ..._actions(app, p, tap),
+                    const SizedBox(width: 8),
+                  ],
+                ),
+              ),
+              Expanded(child: body),
+            ],
+          ),
+        ),
+      );
+    }
     return shortcutScope(
-      scopes: const {ShortcutScope.editor, ShortcutScope.global},
-      handlers: {
-        ShortcutId.saveNow: session.flush,
-        ShortcutId.escape: () => Navigator.of(context).maybePop(),
-      },
+      scopes: scopes,
+      handlers: handlers,
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
@@ -407,130 +611,10 @@ class _EditorScreenState extends State<EditorScreen>
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () => Navigator.of(context).maybePop(),
           ),
-          title: ListenableBuilder(
-            listenable: session,
-            builder: (context, _) => session.status == SaveStatus.failed
-                ? Text(
-                    'Not saved yet, retrying…',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    // Two lines at most must fit the 52 dp bar.
-                    textScaler: MediaQuery.textScalerOf(context)
-                        .clamp(maxScaleFactor: 1.3),
-                    style: TextStyle(color: p.danger, fontSize: 13),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          actions: [
-            IconButton(
-              tooltip: 'Copy note',
-              style: tap,
-              icon: const Icon(Icons.copy_rounded),
-              onPressed: _copy,
-            ),
-            ListenableBuilder(
-              listenable: Listenable.merge([app.notes.changes, session]),
-              builder: (context, _) {
-                final pinned = session.stored?.pinned ?? false;
-                return IconButton(
-                  tooltip: pinned ? 'Unpin' : 'Pin',
-                  style: tap,
-                  icon: Icon(
-                    pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                    color: pinned ? p.accent : null,
-                  ),
-                  onPressed: session.readOnly
-                      ? null
-                      : () => session.setPinned(!pinned),
-                );
-              },
-            ),
-            PopupMenuButton<String>(
-              tooltip: 'More',
-              style: tap,
-              onSelected: (v) {
-                switch (v) {
-                  case 'archive':
-                    final archived = session.stored?.archived ?? false;
-                    session.setArchived(!archived);
-                    Navigator.of(context).pop();
-                  case 'folder':
-                    _moveToFolder();
-                  case 'trash':
-                    _trash();
-                  case 'copy-md':
-                    _copyMarkdown();
-                  case 'save-md':
-                    _saveMarkdown();
-                }
-              },
-              itemBuilder: (context) {
-                final archived = session.stored?.archived ?? false;
-                return [
-                  const PopupMenuItem(
-                    value: 'copy-md',
-                    child: Text('Copy as Markdown'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'save-md',
-                    child: Text('Save as Markdown file…'),
-                  ),
-                  if (!session.readOnly) ...[
-                    PopupMenuItem(
-                      value: 'folder',
-                      child: const Text('Move to folder…'),
-                    ),
-                    PopupMenuItem(
-                      value: 'archive',
-                      child: Text(archived ? 'Unarchive' : 'Archive'),
-                    ),
-                    PopupMenuItem(
-                      value: 'trash',
-                      child: Text(
-                        'Move to Trash',
-                        style: TextStyle(color: p.danger),
-                      ),
-                    ),
-                  ],
-                ];
-              },
-            ),
-          ],
+          title: _statusText(p),
+          actions: _actions(app, p, tap),
         ),
-        body: Column(
-          children: [
-            ListenableBuilder(
-              listenable: session,
-              builder: (context, _) {
-                if (session.loadError != null) {
-                  return _Banner(text: session.loadError!);
-                }
-                if (session.readOnly) {
-                  return _Banner(
-                    text: 'This note is in Trash',
-                    actions: [
-                      TextButton(
-                        onPressed: session.restoreFromTrash,
-                        child: const Text('Restore'),
-                      ),
-                      TextButton(
-                        onPressed: _deleteForever,
-                        child: Text(
-                          'Delete forever',
-                          style: TextStyle(color: p.danger),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
-            if (wide) toolbar,
-            Expanded(child: _page(context, app, isNew)),
-            if (!wide) toolbar,
-          ],
-        ),
+        body: body,
       ),
     );
   }
@@ -538,7 +622,7 @@ class _EditorScreenState extends State<EditorScreen>
   Widget _page(BuildContext context, AppServices app, bool isNew) {
     final p = AppPalette.of(context);
     final settings = app.settings;
-    final wide = MediaQuery.sizeOf(context).width > 640;
+    final wide = widget.embedded || MediaQuery.sizeOf(context).width > 640;
     return Scrollbar(
       controller: session.scroll,
       child: SingleChildScrollView(
@@ -607,7 +691,7 @@ class _EditorScreenState extends State<EditorScreen>
                       customActions: {
                         HideSelectionToolbarIntent:
                             CallbackAction<HideSelectionToolbarIntent>(
-                              onInvoke: (_) => Navigator.of(context).maybePop(),
+                              onInvoke: (_) => _leave(maybe: true),
                             ),
                       },
                       textSelectionThemeData: TextSelectionThemeData(

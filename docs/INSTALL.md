@@ -7,9 +7,8 @@ by your distribution. The app also needs a working desktop keyring for its
 local encryption key. Sync pairing may need TCP 47380 and UDP 47381 allowed on
 the local network.
 
-The first stable v1.0.0 release is being prepared; currently only the
-`v1.0.0-preview.1` pre-release exists. See [README Status](../README.md#status)
-for current release availability.
+Download the files from the latest release on the
+[Releases page](https://github.com/mmoptibuilds-commits/notes-app/releases/latest).
 
 ## Install or upgrade
 

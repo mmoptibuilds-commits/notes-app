@@ -14,9 +14,9 @@ and legacy Notebook backups.
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
 
-The first stable release, v1.0.0, is being prepared. Only the
-`v1.0.0-preview.1` pre-release exists so far; Notes does not offer pre-releases
-through its in-app updater or the Orion Store listing.
+The current stable release is [Notes 1.0.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0) (build 20261123). Installed
+copies of Notes find later stable releases themselves (Settings → About → App
+updates); pre-releases are never offered.
 
 You need Android 7.0 or later (in-app updates need Android 9 or later), or a
 Linux x64 desktop with GTK 3 and GLib runtime libraries.
@@ -97,8 +97,8 @@ updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
-Version `1.0.0+20261123` is being prepared as the first stable release. No
-stable release is published yet; `v1.0.0-preview.1` is the only pre-release.
+Notes 1.0.0 (build 20261123) is the first stable release, published
+2026-11-21: [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0).
 
 On 2026-11-20/21, the app was verified on the owner's Nothing Phone 2 (arm64,
 Android 16) and CachyOS/GNOME laptop: in-place APK upgrade and Linux install

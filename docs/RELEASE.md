@@ -5,10 +5,9 @@ versionCode `20261123`). The latest recorded read-only phone check, on
 2026-11-21, found versionCode `20261122`; check installed versionCodes
 read-only again before installing, including on other target devices. Treat
 that phone value as a dated snapshot, not a permanent current value. The
-`tool/last_release_version_code.txt` file currently contains `1`, the preview
-code; leave it at the previous distributed code until a stable release is
-distributed. The first stable release is being prepared; only the
-`v1.0.0-preview.1` pre-release exists so far.
+`tool/last_release_version_code.txt` holds the build number of the last
+distributed stable release (`20261123`, Notes 1.0.0, published 2026-11-21).
+Update it in the commit that follows each published release.
 
 ## 1. Preflight
 

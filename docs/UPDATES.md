@@ -27,9 +27,9 @@ and then hashes the file against the signed manifest. The checksum sidecar
 alone only detects a damaged download.
 
 Stable releases use `notes-manifest.json` and `notes-manifest.json.sig`. The
-first stable v1.0.0 release is being prepared; `v1.0.0-preview.1` is a
-pre-release and does not count as stable. Until a stable release is published,
-the app shows “No stable release published.”
+first stable release is v1.0.0 (build 20261123). Pre-releases such as
+`v1.0.0-preview.1` never count as stable. If GitHub has no stable release, the
+app shows “No stable release published.”
 
 ## Production key
 

@@ -86,8 +86,9 @@ unrelated command.
 **Cause:** The release page has no published stable release. Notes does not
 offer pre-releases through the in-app updater.
 
-**Fix:** Use the download page when a stable release is published. Until then,
-there is no in-app update to install.
+**Fix:** Nothing to do unless you expected a release: check the
+[Releases page](https://github.com/mmoptibuilds-commits/notes-app/releases).
+A pre-release is never offered as an update.
 
 ## Update check says “Could not verify the update”
 

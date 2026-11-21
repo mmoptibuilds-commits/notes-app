@@ -91,6 +91,18 @@ tests. Also check: the three themes (AMOLED, charcoal, light), text scale 1.4,
 keyboard focus order and Escape layering, and that Android touch targets stay
 at least 48 dp.
 
+For a broader state-by-state atlas, run:
+
+```bash
+flutter test test/visual/atlas_test.dart
+```
+
+The PNGs are written under `build/screens/atlas/<form>/<theme>/`; the generated
+`build/screens/atlas/INDEX.md` describes each captured state. The atlas uses
+in-memory synthetic notes and includes the full view layer so pushed routes,
+menus and dialogs remain visible. Android-only camera scanning and native OS
+dialogs cannot be rendered on the Linux test host.
+
 ## Icons and brand
 
 The icon and launch glyph are drawn in code (`lib/ui/brand_mark.dart`).

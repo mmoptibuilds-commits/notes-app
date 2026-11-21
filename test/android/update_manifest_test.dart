@@ -59,7 +59,11 @@ void main() {
     final plugin = File(
       'android/app/src/main/kotlin/com/mmoptibuilds/notes/update/UpdaterPlugin.kt',
     ).readAsStringSync();
-    expect(plugin, contains('context.applicationContext.filesDir'));
+    final storage = File(
+      'android/app/src/main/kotlin/com/mmoptibuilds/notes/update/UpdateStorage.kt',
+    ).readAsStringSync();
+    expect(storage, contains('context.applicationContext'));
+    expect(storage, contains('app.filesDir, "updates"'));
     expect(plugin, contains('REQUEST_POST_NOTIFICATIONS'));
     expect(plugin, contains('owner.requestPermissions'));
   });

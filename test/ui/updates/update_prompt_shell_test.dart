@@ -15,16 +15,18 @@ void main() {
   late World world;
   late AppServices services;
 
-  Future<void> createReady() async {
+  Future<void> createReady(WidgetTester tester) async {
     world = await World.create();
     services = AppServices.inMemory();
     addTearDown(() {
       world.dispose();
       services.close();
     });
-    await world.publish();
-    await world.controller.check();
-    await world.controller.download();
+    await tester.runAsync(() async {
+      await world.publish();
+      await world.controller.check();
+      await world.controller.download();
+    });
     expect(world.controller.status, isA<UpdateReadyToInstall>());
   }
 
@@ -69,7 +71,7 @@ void main() {
   testWidgets('ready banner is accessible and leaves the editor usable', (
     tester,
   ) async {
-    await createReady();
+    await createReady(tester);
     await pump(tester);
     expect(find.text('Update ready'), findsOneWidget);
     expect(find.text('Install now'), findsOneWidget);
@@ -79,22 +81,17 @@ void main() {
     final banner = tester.getRect(find.text('Update ready'));
     final editor = tester.getRect(find.byKey(const Key('editor-field')));
     expect(editor.top, greaterThan(banner.top));
-    // ignore: avoid_print
-    print('prompt test reached editor tap');
     final editorField = find.byKey(const Key('editor-field'));
     await tester.tap(editorField);
-    // ignore: avoid_print
-    print('prompt test completed editor tap');
     await tester.pump();
-    // ignore: avoid_print
-    print('prompt test completed pump');
-    expect(Focus.of(tester.element(editorField)).hasFocus, isTrue);
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    expect(editable.focusNode.hasFocus, isTrue);
   });
 
   testWidgets('Later snoozes the banner while Updates still offers Install', (
     tester,
   ) async {
-    await createReady();
+    await createReady(tester);
     await pump(tester);
     await tester.tap(find.text('Later'));
     await tester.pump();
@@ -117,7 +114,7 @@ void main() {
   testWidgets('restoring ready state in a new launch shows the banner again', (
     tester,
   ) async {
-    await createReady();
+    await createReady(tester);
     await pump(tester);
     world.controller.snoozeReadyPrompt();
     await tester.pump();
@@ -125,7 +122,7 @@ void main() {
 
     world.controller.dispose();
     world.controller = world.makeController();
-    expect(await world.controller.restoreReady(), isTrue);
+    expect(await tester.runAsync(world.controller.restoreReady), isTrue);
     await pump(tester);
     expect(find.text('Update ready'), findsOneWidget);
   });
@@ -133,7 +130,7 @@ void main() {
   testWidgets('Install now shows the existing confirmation before handoff', (
     tester,
   ) async {
-    await createReady();
+    await createReady(tester);
     await pump(tester);
     await tester.tap(find.text('Install now'));
     await tester.pumpAndSettle();

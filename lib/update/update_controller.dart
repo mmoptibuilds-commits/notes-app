@@ -708,6 +708,11 @@ class UpdateController extends ChangeNotifier {
         _set(UpdateBlocked(block, candidate: candidate));
         return;
       }
+      await cleanUpdateDir(
+        info.updateDir,
+        keep: candidate.artifact.filename,
+        keepPartialFor: candidate.artifact.filename,
+      );
       final file = await _downloader.download(
         url: candidate.assetUrl,
         dir: info.updateDir,

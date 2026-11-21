@@ -572,12 +572,21 @@ class _ResumeMetadata {
 
 /// Deletes every leftover update file in [dir] except [keep]: partial
 /// downloads and artifacts of older releases. Never touches other files.
-Future<void> cleanUpdateDir(Directory dir, {String? keep}) async {
+Future<void> cleanUpdateDir(
+  Directory dir, {
+  String? keep,
+  String? keepPartialFor,
+}) async {
   if (!await dir.exists()) return;
   await for (final e in dir.list(followLinks: false)) {
     if (e is! File) continue;
     final name = e.uri.pathSegments.last;
     if (name == keep) continue;
+    if (keepPartialFor != null &&
+        (name == '$keepPartialFor.part' ||
+            name == '$keepPartialFor.part.json')) {
+      continue;
+    }
     final ours =
         name.endsWith('.part') ||
         name.endsWith('.part.json') ||

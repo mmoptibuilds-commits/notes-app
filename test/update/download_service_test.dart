@@ -434,13 +434,24 @@ void main() {
       'notes-1.0.0-linux-x64.tar.gz',
       'notes-1.0.1-linux-x64.tar.gz',
       'notes-1.0.1-android-arm64.apk.part',
+      'notes-1.0.1-linux-x64.tar.gz.part',
+      'notes-1.0.1-linux-x64.tar.gz.part.json',
       'notes-1.0.0-android-arm64.apk',
       'pending.json',
     ]) {
       File('${d.path}/$n').writeAsStringSync('x');
     }
-    await cleanUpdateDir(d, keep: 'notes-1.0.1-linux-x64.tar.gz');
-    expect(files()..sort(), ['notes-1.0.1-linux-x64.tar.gz', 'pending.json']);
+    await cleanUpdateDir(
+      d,
+      keep: 'notes-1.0.1-linux-x64.tar.gz',
+      keepPartialFor: 'notes-1.0.1-linux-x64.tar.gz',
+    );
+    expect(files()..sort(), [
+      'notes-1.0.1-linux-x64.tar.gz',
+      'notes-1.0.1-linux-x64.tar.gz.part',
+      'notes-1.0.1-linux-x64.tar.gz.part.json',
+      'pending.json',
+    ]);
     await cleanUpdateDir(Directory('${tmp.path}/missing'));
   });
 

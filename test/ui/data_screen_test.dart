@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:convert';
 import 'dart:io';
 
@@ -271,5 +272,30 @@ void main() {
       expect(find.textContaining('The export failed'), findsOneWidget);
       expect(find.textContaining('disk full'), findsOneWidget);
     });
+  });
+
+  testWidgets('Markdown files import as notes in one step', (tester) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    await pumpData(
+      tester,
+      s,
+      DataScreen(
+        pickMarkdown: () async => [
+          XFile.fromData(
+            Uint8List.fromList(utf8.encode('# Trip\n\n- [ ] Tickets\n')),
+            name: 'trip.md',
+          ),
+          XFile.fromData(
+            Uint8List.fromList(utf8.encode('plain words')),
+            name: 'scratch.txt',
+          ),
+        ],
+      ),
+    );
+    await tester.tap(find.text('Import Markdown files'));
+    await tester.pumpAndSettle();
+    expect(find.text('Imported 2 notes.'), findsOneWidget);
+    expect(s.notes.counts().active, 2);
   });
 }

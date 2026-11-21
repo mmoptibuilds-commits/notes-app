@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../app.dart';
 import '../../importer/atomic_export.dart';
 import '../../importer/legacy_backup.dart';
+import '../../importer/markdown_import.dart';
 import '../../importer/notes_export.dart';
 import '../../importer/notes_restore.dart';
 import '../../platform/save_file.dart';
@@ -17,10 +18,18 @@ import '../theme/app_theme.dart';
 
 /// Import a legacy backup or this app's export, undo legacy imports, export.
 class DataScreen extends StatefulWidget {
-  const DataScreen({super.key, this.pickBackup, this.pickSaveFile});
+  const DataScreen({
+    super.key,
+    this.pickBackup,
+    this.pickMarkdown,
+    this.pickSaveFile,
+  });
 
   /// Replaceable for tests.
   final Future<XFile?> Function()? pickBackup;
+
+  /// Replaceable for tests.
+  final Future<List<XFile>> Function()? pickMarkdown;
   final Future<File?> Function(String suggestedName)? pickSaveFile;
 
   @override
@@ -86,6 +95,45 @@ class _DataScreenState extends State<DataScreen> {
       await _restoreNotesExport(text, name);
     } else {
       await _importLegacy(text, name);
+    }
+  }
+
+  Future<void> _importMarkdown() async {
+    final files =
+        await (widget.pickMarkdown ??
+            () => openFiles(
+              acceptedTypeGroups: const [
+                XTypeGroup(
+                  label: 'Markdown',
+                  extensions: ['md', 'markdown', 'txt'],
+                  mimeTypes: ['text/markdown', 'text/plain'],
+                ),
+              ],
+            ))();
+    if (files.isEmpty || !mounted) return;
+    final app = AppScope.of(context);
+    _setBusy(true);
+    try {
+      final read = <MarkdownFile>[];
+      for (final f in files) {
+        final bytes = await f.readAsBytes();
+        if (bytes.length > 10 * 1024 * 1024) {
+          _say('${f.name} is too large to import as a note.');
+          return;
+        }
+        read.add((
+          name: f.name,
+          text: utf8.decode(bytes, allowMalformed: true),
+        ));
+      }
+      final ids = importMarkdownFiles(app.notes, read);
+      _say(
+        ids.length == 1 ? 'Imported 1 note.' : 'Imported ${ids.length} notes.',
+      );
+    } on Object catch (e) {
+      _say('Those files could not be imported: $e');
+    } finally {
+      _setBusy(false);
     }
   }
 
@@ -343,6 +391,15 @@ class _DataScreenState extends State<DataScreen> {
                         'export. You see what it contains before anything changes.',
                       ),
                       onTap: _busy ? null : _import,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.description_outlined),
+                      title: const Text('Import Markdown files'),
+                      subtitle: const Text(
+                        'Each .md or .txt file becomes a new note. A first-line '
+                        'heading becomes its title.',
+                      ),
+                      onTap: _busy ? null : _importMarkdown,
                     ),
                   ],
                 ),

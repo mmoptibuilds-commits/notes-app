@@ -6,12 +6,17 @@ void main() {
   final manifest = File('android/app/src/main/AndroidManifest.xml')
       .readAsStringSync();
 
-  test('the only new permission is the one the package installer needs', () {
+  // INTERNET was already in the merged release manifest through a plugin; it
+  // is declared here explicitly because sync and update checks need it.
+  test('declares only INTERNET and the package installer permission', () {
     final perms = RegExp(r'<uses-permission android:name="([^"]+)"')
         .allMatches(manifest)
         .map((m) => m.group(1))
         .toList();
-    expect(perms, ['android.permission.REQUEST_INSTALL_PACKAGES']);
+    expect(perms, [
+      'android.permission.INTERNET',
+      'android.permission.REQUEST_INSTALL_PACKAGES',
+    ]);
   });
 
   test('the install result receiver is not exported', () {

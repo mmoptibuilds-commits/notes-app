@@ -356,10 +356,10 @@ output form so export, import, export is stable.
   alignment have no Markdown form and are dropped (text kept). Unknown embeds are
   written as `[type]`. Throws `FormatException` only if the input is not a Delta.
 - `markdownToDelta(text)`: the inverse; the result always ends in a newline.
-- Only export is wired into the UI today: the editor's "Copy as Markdown"
-  (`_markdown()` in `editor_screen.dart`, title as a `#` heading). Nothing under
-  `lib/ui/` calls `markdownToDelta`; Markdown import is library code with tests
-  only (PRODUCT.md lists it as accepted).
+- Export: the editor's "Copy as Markdown" (title as a `#` heading).
+- Import: Settings → Import and export → "Import Markdown files"
+  (`lib/importer/markdown_import.dart`): one note per file, all files in one
+  transaction; a leading `# Heading` becomes the title, otherwise the file name.
 
 ## 5. Importers (`lib/importer/`)
 
@@ -983,13 +983,8 @@ Only items verified in code or tests:
   until a newer one is published (replay guard).
 - Legacy import preserves colour, tags, reminders and lock flag only in the import
   record; they have no UI. The importer was checked against backup version 11.
-- Markdown export drops underline, colour, size and alignment. Markdown import
-  has no UI entry point.
-- The release manifest does not declare `INTERNET` in
-  `android/app/src/main/AndroidManifest.xml`; release builds get it from a
-  transitive plugin manifest (present in the merged release manifest of the last
-  local build). No test pins it; verify it in the merged manifest after changing
-  dependencies.
-- `markdown_quill` is declared in `pubspec.yaml` but no code imports it.
-- Not verified on hardware as of this writing (per docs/PLAN.md): sync between two
-  real devices, QR scanning, arm64 SQLite on a phone, Tailscale.
+- Markdown export drops underline, colour, size and alignment.
+- Not verified on hardware: Tailscale addresses; a real in-app update (needs a
+  second signed release). Verified on the owner's Nothing Phone 2 and CachyOS
+  laptop (2026-11-20/21): QR pairing, automatic LAN sync both ways, in-place
+  APK upgrade with data intact, Linux install upgrade with data intact.

@@ -84,7 +84,6 @@ licence text was identified in these package inputs.
 | `listen` | 1.0.1 | transitive | BSD-3-Clause* |
 | `logging` | 1.3.0 | transitive | BSD-3-Clause* |
 | `markdown` | 7.3.1 | direct | BSD-3-Clause* |
-| `markdown_quill` | 4.3.0 | direct | MIT* |
 | `matcher` | 0.12.20 | transitive | BSD-3-Clause* |
 | `material_color_utilities` | 0.13.0 | transitive | Apache-2.0* |
 | `meta` | 1.19.0 | transitive | BSD-3-Clause* |

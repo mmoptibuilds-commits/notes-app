@@ -5,54 +5,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
-
-const _bg = ui.Color(0xFF000000);
-const _accent = ui.Color(0xFFA8B1FF);
-
-/// The note glyph centred in a square of side [s]. [scale] shrinks it (the
-/// adaptive-icon safe zone is the middle 66%).
-void _glyph(ui.Canvas c, double s, {double scale = 1}) {
-  final g = s * 0.46 * scale; // sheet width
-  final h = g * 1.28;
-  final left = (s - g) / 2;
-  final top = (s - h) / 2;
-  final r = g * 0.16;
-  final fold = g * 0.30;
-  final stroke = g * 0.085;
-  final p = ui.Paint()
-    ..color = _accent
-    ..style = ui.PaintingStyle.stroke
-    ..strokeWidth = stroke
-    ..strokeJoin = ui.StrokeJoin.round
-    ..strokeCap = ui.StrokeCap.round;
-  // Sheet with a folded top-right corner.
-  final path = ui.Path()
-    ..moveTo(left + r, top)
-    ..lineTo(left + g - fold, top)
-    ..lineTo(left + g, top + fold)
-    ..lineTo(left + g, top + h - r)
-    ..quadraticBezierTo(left + g, top + h, left + g - r, top + h)
-    ..lineTo(left + r, top + h)
-    ..quadraticBezierTo(left, top + h, left, top + h - r)
-    ..lineTo(left, top + r)
-    ..quadraticBezierTo(left, top, left + r, top)
-    ..close();
-  c.drawPath(path, p);
-  c.drawPath(
-    ui.Path()
-      ..moveTo(left + g - fold, top)
-      ..lineTo(left + g - fold, top + fold)
-      ..lineTo(left + g, top + fold),
-    p,
-  );
-  // Text lines.
-  final x0 = left + g * 0.2;
-  for (var i = 0; i < 3; i++) {
-    final y = top + h * (0.46 + i * 0.15);
-    final x1 = left + g * (i == 2 ? 0.55 : 0.8);
-    c.drawLine(ui.Offset(x0, y), ui.Offset(x1, y), p);
-  }
-}
+import 'package:notes/ui/brand_mark.dart';
 
 Future<void> _png(
   String path,
@@ -65,7 +18,7 @@ Future<void> _png(
   final c = ui.Canvas(rec);
   final s = size.toDouble();
   if (background) {
-    final paint = ui.Paint()..color = _bg;
+    final paint = ui.Paint()..color = brandBackground;
     if (rounded) {
       c.drawRRect(
         ui.RRect.fromRectAndRadius(
@@ -78,7 +31,7 @@ Future<void> _png(
       c.drawRect(ui.Rect.fromLTWH(0, 0, s, s), paint);
     }
   }
-  _glyph(c, s, scale: scale);
+  paintNoteGlyph(c, s, scale: scale);
   final img = await rec.endRecording().toImage(size, size);
   final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!;
   File(path)

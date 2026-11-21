@@ -5,7 +5,8 @@ uses a phone layout; on Linux, a desktop sidebar stays beside the library and
 notes open in an editor pane. Notes live in an encrypted local database, with
 optional direct sync between your own devices over a local network. No account
 or cloud service is required. Import and export Markdown notes as well as Notes
-and legacy Notebook backups.
+and legacy Notebook backups. Stable updates can download in the background and
+are installed only after you confirm.
 
 ## Download
 
@@ -14,7 +15,7 @@ and legacy Notebook backups.
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
 
-The current stable release is [Notes 1.0.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0) (build 20261123). Installed
+The current stable release is [Notes 1.1.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.1.0) (build 20261124). Installed
 copies of Notes find later stable releases themselves (Settings → About → App
 updates); pre-releases are never offered.
 
@@ -97,15 +98,18 @@ updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
-Notes 1.0.0 (build 20261123) is the first stable release, published
-2026-11-21: [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0).
+Notes 1.1.0 (build 20261124) is the current stable release:
+[release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.1.0).
+The first stable release, Notes 1.0.0, was published 2026-11-21:
+[release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0).
 
 On 2026-11-20/21, the app was verified on the owner's Nothing Phone 2 (arm64,
 Android 16) and CachyOS/GNOME laptop: in-place APK upgrade and Linux install
 upgrade kept existing data; QR pairing and automatic LAN sync worked in both
-directions. Tailscale and a real in-app update (which needs a second signed
-release) have not been verified. A firewall subnet change that interrupted
-sync is documented in [Troubleshooting](docs/TROUBLESHOOTING.md).
+directions. The automatic updater now downloads and verifies signed releases,
+but a real in-app upgrade still needs to be verified against a published
+release. Tailscale has not been verified. A firewall subnet change that
+interrupted sync is documented in [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Screenshots
 
@@ -113,6 +117,7 @@ On Linux, a sidebar holds your folders, Archive and Trash, and notes open in
 an editor pane beside the note list:
 
 <p align="center">
+  <img src="docs/screenshots/desktop-library-charcoal.png" alt="Linux desktop: sidebar and note list" width="820" />
   <img src="docs/screenshots/desktop-editor-charcoal.png" alt="Linux desktop: sidebar, note list and editor pane" width="820" />
 </p>
 
@@ -120,9 +125,8 @@ On Android, Notes keeps a phone layout with the formatting toolbar above the
 keyboard:
 
 <p align="center">
-  <img src="docs/screenshots/library.png" alt="Android library" width="205" />
-  <img src="docs/screenshots/note-editor.png" alt="Android editor" width="205" />
   <img src="docs/screenshots/phone-library-light.png" alt="Android library, light theme" width="205" />
+  <img src="docs/screenshots/phone-editor-light.png" alt="Android editor, light theme" width="205" />
 </p>
 
 Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
@@ -131,7 +135,9 @@ Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
 
 - **Local-first storage:** notes saved in an encrypted local SQLite database; no account required.
 - **Rich text editing:** headings, lists, checklists, blockquotes, code blocks, links and inline formatting.
-- **Organized library:** folders, search, grid/masonry/list layouts, sorting and preview controls.
+- **Organized library:** Unfiled is the default start view; choose Unfiled, All
+  notes or Last viewed. Folders, search, grid/masonry/list layouts, sorting and
+  preview controls keep notes easy to browse.
 - **Appearance:** AMOLED, charcoal and light themes; adjustable typography and animation preferences.
 - **Import and export:** import Markdown files (one note per file), export a
   note as Markdown, import legacy Notebook backup JSON, and export or restore
@@ -139,6 +145,9 @@ Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
 - **Device sync:** pair your own devices by QR code or copied code, then sync
   directly over the local network with an encrypted connection. No relay server
   is used.
+- **Stable updates:** Notes checks for stable releases and can download them in
+  the background when automatic updates are enabled. You confirm installation
+  through Android's installer or, on Linux, through a managed installation.
 
 ## Build from source
 
@@ -170,6 +179,7 @@ with a different key cannot update an existing installation. See
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Release notes](docs/RELEASE_NOTES.md)
+- [Changelog](CHANGELOG.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Provenance review](docs/PROVENANCE.md)
 - [Third-party licences](docs/THIRD_PARTY_LICENSES.md)

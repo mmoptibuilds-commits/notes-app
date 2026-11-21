@@ -49,6 +49,19 @@ The encrypted database at `~/.local/share/com.mmoptibuilds.notes/notes.db`,
 its SQLite sidecar files, keyring key, backups, and pairing state are separate
 from program files. Installation, upgrade, and uninstall preserve them.
 
+## In-app updates on Linux
+
+Open **Settings → About → App updates** to check for a stable release. Automatic
+updates are enabled by default: Notes downloads a verified update in the
+background and shows a prompt when it is ready. You choose whether to install
+it; Notes never installs an update without confirmation.
+
+On Linux, in-app updates work only for a managed install at
+`~/.local/opt/notes`. Notes closes while the helper replaces the program files,
+then relaunches. Startup waits briefly if the helper still holds its update
+lock. For other Linux installs, download and install the new archive using the
+steps above.
+
 ## Uninstall
 
 Run `uninstall.sh` from the extracted archive. It removes program files and

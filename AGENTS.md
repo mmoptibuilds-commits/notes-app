@@ -13,6 +13,7 @@ agent (Claude Code, Codex, Gemini, …). Keep it short; details live in `docs/`.
 | How the code works (layers, data, encryption, sync, UI) | `docs/ARCHITECTURE.md` |
 | Toolchain, commands, testing, visual review | `docs/DEVELOPMENT.md` |
 | Why things are the way they are | `docs/DECISIONS.md` |
+| Release history | `CHANGELOG.md` |
 | Releasing, signing, update trust | `docs/RELEASE.md`, `docs/UPDATES.md` |
 | Installing, troubleshooting | `docs/INSTALL.md`, `docs/TROUBLESHOOTING.md` |
 | Licences and asset provenance | `docs/THIRD_PARTY_LICENSES.md`, `docs/PROVENANCE.md` |

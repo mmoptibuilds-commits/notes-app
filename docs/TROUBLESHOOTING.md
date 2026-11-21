@@ -110,13 +110,16 @@ manual verification steps in the [README](../README.md#verify-a-linux-download).
 **Symptom:** Settings → Updates shows a paused download, a network error or a
 message that there is not enough free space.
 
-**Cause:** Notes keeps a matching partial download so it can resume safely.
-Insufficient storage also prevents the update from being finalized or staged.
+**Cause:** Notes keeps a partial download only when its release details match.
+It resumes only if the server confirms the same strong ETag and byte range;
+otherwise it starts again from the beginning. Insufficient storage can prevent
+the download from completing or, on Linux, prevent staging beside the install.
 
-**Fix:** Reconnect or free space, then choose **Resume download** or **Retry
-download**. Notes validates the resumed response and hashes the complete file
-again before it is marked ready. On Linux, staging also needs free space beside
-the managed installation.
+**Fix:** Reconnect or free space on the device, then choose **Resume download**
+or **Retry download** in Settings → About → App updates. A server without a
+matching strong ETag may cause Notes to download the file again from the start.
+Notes checks the complete file before it is marked ready. Linux also needs free
+space beside the managed installation for staging.
 
 ## Notes says it is finishing an update
 
@@ -124,11 +127,13 @@ the managed installation.
 then open Notes again.”
 
 **Cause:** The Linux update helper holds the per-user lock while it replaces the
-program files. Startup waits for that lock before opening the database.
+program files. Startup waits for that lock before opening the database, for up
+to ten seconds.
 
-**Fix:** Wait for the helper to finish and start Notes again. If the message
-continues after a minute, read `~/.local/state/com.mmoptibuilds.notes/updater/update.json`
-for the helper result and contact the project maintainer.
+**Fix:** Wait for the helper to finish; it relaunches Notes after the swap. If
+the message continues after a minute, read
+`~/.local/state/com.mmoptibuilds.notes/updater/update.json` for the helper
+result and contact the project maintainer.
 
 ## Android says “App not installed”
 

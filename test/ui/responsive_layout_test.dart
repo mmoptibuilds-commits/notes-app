@@ -116,9 +116,7 @@ final _surfaces = <String, Future<void> Function(WidgetTester, Size)>{
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: size);
     await tester.pumpAndSettle();
-    await openMenu(tester);
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
+    await menuTap(tester, 'Settings');
     await _scrollToEnd(tester);
   },
   'toolbar settings': (tester, size) async {
@@ -231,9 +229,7 @@ void main() {
       addTearDown(s.services.close);
       await pumpLibrary(tester, s, size: const Size(360, 800));
       await tester.pumpAndSettle();
-      await openMenu(tester);
-      await tester.tap(find.text('Settings'));
-      await tester.pumpAndSettle();
+      await menuTap(tester, 'Settings');
 
       Size sizeOf(Finder f) => tester.getSize(f.first);
       final segmented = find.byWidgetPredicate(
@@ -294,9 +290,7 @@ void main() {
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: const Size(1280, 800));
     await tester.pumpAndSettle();
-    await openMenu(tester);
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
+    await menuTap(tester, 'Settings');
     final segmented = find.byWidgetPredicate(
       (w) => w.runtimeType.toString().startsWith('Segmented<'),
     );

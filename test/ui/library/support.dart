@@ -10,6 +10,7 @@ import 'package:notes/data/models.dart';
 import 'package:notes/doc/delta_text.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/platform/bootstrap.dart';
+import 'package:notes/ui/library/desktop_sidebar.dart';
 import 'package:notes/ui/library/note_card.dart';
 
 import '../../support/screenshot.dart';
@@ -207,6 +208,25 @@ void markConflict(Seed s, String key) {
   );
 }
 
+/// Matches exactly one widget while the library shows All notes (not a
+/// sub-view such as Archive): the FAB on a phone, the header title beside the
+/// sidebar on desktop, where there is no FAB.
+Finder libraryRoot() => find.byWidgetPredicate(
+  (w) =>
+      w is FloatingActionButton ||
+      (w is Text &&
+          w.key == const ValueKey('library-title') &&
+          w.data == 'All notes'),
+  description: 'library root marker',
+);
+
+/// The library header's title (not the sidebar entry of the same name).
+Finder libraryTitle(String text) => find.byWidgetPredicate(
+  (w) =>
+      w is Text && w.key == const ValueKey('library-title') && w.data == text,
+  description: 'library title "$text"',
+);
+
 /// Every note card or row currently built.
 Finder noteItems() =>
     find.byWidgetPredicate((w) => w is NoteCard || w is NoteRow);
@@ -216,8 +236,27 @@ Future<void> openMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Opens the overflow menu and taps [label].
+/// Views that live in the desktop sidebar rather than the overflow menu.
+const _sidebarViews = {
+  'All notes',
+  'Archive',
+  'Trash',
+  'Conflicts',
+  'Settings',
+};
+
+/// Goes to [label]. On a phone that is the overflow menu; with the desktop
+/// sidebar on screen, navigation entries are taken from the sidebar (the menu
+/// keeps layout, sort and Empty Trash only).
 Future<void> menuTap(WidgetTester tester, String label) async {
+  final side = find.byType(DesktopSidebar);
+  if (side.evaluate().isNotEmpty && _sidebarViews.contains(label)) {
+    await tester.tap(
+      find.descendant(of: side, matching: find.text(label)).first,
+    );
+    await tester.pumpAndSettle();
+    return;
+  }
   await openMenu(tester);
   await tester.tap(find.text(label));
   await tester.pumpAndSettle();

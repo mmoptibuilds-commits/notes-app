@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
+import 'package:notes/ui/library/desktop_sidebar.dart';
 import 'package:notes/ui/library/library_layout.dart';
 import 'package:notes/ui/library/note_card.dart';
 import 'package:notes/ui/material.dart';
+import 'package:notes/ui/widgets/responsive.dart';
 
 import '../../support/screenshot.dart';
 import 'support.dart';
@@ -42,7 +44,11 @@ void main() {
     final left = actual.values.map((r) => r.left).reduce(math.min);
     final top = actual.values.map((r) => r.top).reduce(math.min);
     final width = first.width;
-    final cols = columnCount(size.width - 2 * pagePadding(size.width));
+    // On desktop the sidebar takes its width from the content area.
+    final content = size.width >= desktopBreakpoint
+        ? size.width - sidebarWidth
+        : size.width;
+    final cols = columnCount(content - 2 * pagePadding(content));
     final offsets = List<double>.filled(cols, 0);
     final out = <String, Rect>{};
     for (final id in order) {

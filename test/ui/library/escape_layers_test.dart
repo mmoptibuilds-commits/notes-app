@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/ui/data/data_screen.dart';
 import 'package:notes/ui/editor/editor_screen.dart';
 import 'package:notes/ui/help/help_screen.dart';
+import 'package:notes/ui/library/desktop_sidebar.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/settings/settings_screen.dart';
 import 'package:notes/ui/settings/toolbar_settings_screen.dart';
@@ -88,9 +89,9 @@ void main() {
         expect(find.text('Sort by'), findsOneWidget);
         await esc(tester);
         expect(popup, findsNothing, reason: 'Escape closes, round $round');
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
         await esc(tester); // nothing left to do at the root: stays put
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
       }
       await ctrlF(tester);
       expect(searchFocused(tester), isTrue, reason: 'shortcuts still work');
@@ -117,7 +118,7 @@ void main() {
       expect(popup, findsWidgets);
       await esc(tester);
       expect(popup, findsNothing);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(libraryRoot(), findsOneWidget);
     });
 
     testWidgets('Trash: Escape closes a menu first, then goes back one level', (
@@ -126,26 +127,28 @@ void main() {
       final s = await open(tester);
       s.services.notes.trash([s.ids['short']!]);
       await menuTap(tester, 'Trash');
-      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(libraryRoot(), findsNothing);
       await openMenu(tester);
       await esc(tester);
       expect(popup, findsNothing);
-      expect(
-        find.byType(FloatingActionButton),
-        findsNothing,
-        reason: 'still in Trash',
-      );
+      expect(libraryRoot(), findsNothing, reason: 'still in Trash');
       await esc(tester);
-      expect(
-        find.byType(FloatingActionButton),
-        findsOneWidget,
-        reason: 'back to notes',
-      );
+      expect(libraryRoot(), findsOneWidget, reason: 'back to notes');
     });
   });
 
   group('mouse-driven sub-views', () {
     Future<void> mouseMenuTap(WidgetTester tester, String label) async {
+      final side = find.byType(DesktopSidebar);
+      if (side.evaluate().isNotEmpty &&
+          const {'Trash', 'Archive', 'Settings'}.contains(label)) {
+        // Desktop: navigation lives in the sidebar, not the overflow menu.
+        await click(
+          tester,
+          find.descendant(of: side, matching: find.text(label)),
+        );
+        return;
+      }
       await click(tester, find.byTooltip('More'));
       await click(tester, find.text(label));
     }
@@ -158,14 +161,14 @@ void main() {
         s.services.notes.trash([s.ids['short']!]);
         s.services.notes.setArchived([s.ids['wifi']!], true);
         await mouseMenuTap(tester, view);
-        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(libraryRoot(), findsNothing);
         await esc(tester);
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
         await esc(tester); // root: nothing more to do, the app stays
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
         await mouseMenuTap(tester, view); // and it can be opened again
         await esc(tester);
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
       });
     }
 
@@ -193,7 +196,7 @@ void main() {
       await ctrlF(tester);
       expect(searchFocused(tester), isTrue);
       await esc(tester);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(libraryRoot(), findsOneWidget);
     });
   });
 
@@ -231,7 +234,7 @@ void main() {
       }
       await esc(tester);
       expect(find.byType(SettingsScreen), findsNothing);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(libraryRoot(), findsOneWidget);
     });
 
     testWidgets('Settings dropdown: Escape closes it, Settings stays', (
@@ -260,7 +263,7 @@ void main() {
       expect(find.byType(HelpScreen), findsOneWidget);
       await esc(tester);
       expect(find.byType(HelpScreen), findsNothing);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(libraryRoot(), findsOneWidget);
     });
   });
 
@@ -289,7 +292,7 @@ void main() {
         );
         await esc(tester); // the editor's normal back behaviour
         expect(find.byType(EditorScreen), findsNothing);
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(libraryRoot(), findsOneWidget);
       },
     );
 
@@ -298,7 +301,8 @@ void main() {
     ) async {
       await open(tester);
       await newNote(tester);
-      await click(tester, find.byTooltip('More'));
+      // Two overflow menus on desktop (library, then the editor pane's).
+      await click(tester, find.byTooltip('More').last);
       await click(tester, find.text('Move to folder…'));
       expect(find.byType(BottomSheet), findsOneWidget);
       await esc(tester);

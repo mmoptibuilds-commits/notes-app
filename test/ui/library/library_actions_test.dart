@@ -371,7 +371,7 @@ void main() {
       await trashed(tester);
       expect(find.text('Trash'), findsOneWidget);
       expect(noteItems(), findsNWidgets(2));
-      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(libraryRoot(), findsNothing);
       await selectByLongPress(tester, 'Passport');
       expect(find.byTooltip('Restore'), findsOneWidget);
       expect(find.byTooltip('Delete forever'), findsOneWidget);
@@ -472,7 +472,11 @@ void main() {
         'Move to folder…',
         'Move to Trash',
       ]) {
-        expect(find.text(t), findsOneWidget, reason: t);
+        expect(
+          find.widgetWithText(PopupMenuItem<String>, t),
+          findsOneWidget,
+          reason: t,
+        );
       }
       await tester.tap(find.text('Pin'));
       await tester.pumpAndSettle();
@@ -578,9 +582,9 @@ void main() {
       s.services.notes.trash([s.ids['short']!]);
       await pumpLibrary(tester, s, size: desktop);
       await menuTap(tester, 'Trash');
-      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(libraryRoot(), findsNothing);
       await chord(tester, LogicalKeyboardKey.escape);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(libraryRoot(), findsOneWidget);
     });
 
     testWidgets('Ctrl+A selects all and Delete trashes them', (tester) async {
@@ -662,9 +666,9 @@ void main() {
       addTearDown(s.services.close);
       await pumpLibrary(tester, s, size: desktop);
       await menuTap(tester, 'Trash');
-      expect(find.text('Trash'), findsOneWidget);
+      expect(libraryTitle('Trash'), findsOneWidget);
       await chord(tester, LogicalKeyboardKey.arrowLeft, alt: true);
-      expect(find.text('Notes'), findsOneWidget);
+      expect(libraryTitle('All notes'), findsOneWidget);
     });
 
     testWidgets('Android back: selection, then search, then sub-view', (

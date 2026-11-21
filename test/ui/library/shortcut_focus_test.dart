@@ -123,14 +123,14 @@ void main() {
       s.services.notes.setArchived([s.ids['wifi']!], true);
       for (final view in ['Trash', 'Archive']) {
         await menuTap(tester, view);
-        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(libraryRoot(), findsNothing);
         await ctrlF(tester);
         expect(searchFocused(tester), isTrue, reason: '$view Ctrl+F');
         await click(tester, blank(tester));
         await key(tester, LogicalKeyboardKey.escape);
         await key(tester, LogicalKeyboardKey.escape);
         expect(
-          find.byType(FloatingActionButton),
+          libraryRoot(),
           findsOneWidget,
           reason: 'Escape returns from $view',
         );
@@ -232,13 +232,15 @@ void main() {
     ) async {
       final s = await open(tester);
       await key(tester, LogicalKeyboardKey.keyN, ctrl: true);
-      await tester.enterText(find.byType(TextField).first, 'Draft title');
+      // The pane's title field is the last TextField (the search box is first).
+      await tester.enterText(find.byType(TextField).last, 'Draft title');
       await tester.pump();
       final before = noteRows(s);
       expect(noteRows(s), before, reason: 'autosave has not fired yet');
       // Click empty app-bar space: the title field unfocuses itself.
       final bar =
-          tester.getTopRight(find.byType(AppBar)) + const Offset(-300, 28);
+          tester.getTopLeft(find.byTooltip('Close note')) +
+          const Offset(120, 24);
       await click(tester, bar);
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyS);

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/ui/library/note_card.dart';
+import 'package:notes/ui/library/desktop_sidebar.dart';
 import 'package:notes/ui/material.dart';
 
 import '../../support/screenshot.dart';
@@ -97,8 +98,16 @@ void main() {
     );
     expect(sizeOf(tester, solo).height, lessThan(48));
     expect(sizeOf(tester, find.byTooltip('More')), const Size(40, 40));
-    expect(sizeOf(tester, chip('Home')).height, 44);
-    expect(sizeOf(tester, find.byTooltip('New folder')).width, 36);
+    // Desktop sidebar: 36 dp rows, 28 dp add-folder button.
+    final home = find.descendant(
+      of: find.byType(DesktopSidebar),
+      matching: find.ancestor(
+        of: find.text('Home'),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(sizeOf(tester, home).height, 36);
+    expect(sizeOf(tester, find.byTooltip('New folder')).width, 28);
     await openMenu(tester);
     final item = find.ancestor(
       of: find.text('Grid'),

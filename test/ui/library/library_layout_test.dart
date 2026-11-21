@@ -40,7 +40,7 @@ void main() {
       expect(contentInset(1280, list: true), (1280 - listMaxWidth) / 2);
     });
 
-    for (final (w, cols) in [(412.0, 2), (1280.0, 6), (1920.0, 9)]) {
+    for (final (w, cols) in [(412.0, 2), (1280.0, 5), (1920.0, 8)]) {
       testWidgets('grid and masonry use $cols columns at ${w.toInt()}px', (
         tester,
       ) async {
@@ -342,7 +342,7 @@ void main() {
     addTearDown(s.services.close);
     await pumpLibrary(tester, s, size: const Size(1280, 800));
     await menuTap(tester, 'Archive');
-    expect(find.text('Archive'), findsOneWidget);
+    expect(libraryTitle('Archive'), findsOneWidget);
     final g = await tester.startGesture(
       const Offset(600, 400),
       kind: PointerDeviceKind.mouse,
@@ -350,8 +350,8 @@ void main() {
     );
     await g.up();
     await tester.pumpAndSettle();
-    expect(find.text('Notes'), findsOneWidget);
-    expect(find.text('Archive'), findsNothing);
+    expect(libraryTitle('All notes'), findsOneWidget);
+    expect(libraryTitle('Archive'), findsNothing);
     expect(find.byType(LibraryScreen), findsOneWidget);
     expect(find.byType(NoteCard), findsWidgets);
   });

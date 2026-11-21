@@ -167,6 +167,7 @@ class SegmentedRow<T> extends StatelessWidget {
   Widget build(BuildContext context) => SettingsRow(
     title: title,
     below: Segmented<T>(
+      title: title,
       values: values,
       labelOf: labelOf,
       value: value,
@@ -178,12 +179,14 @@ class SegmentedRow<T> extends StatelessWidget {
 class Segmented<T> extends StatelessWidget {
   const Segmented({
     super.key,
+    required this.title,
     required this.values,
     required this.labelOf,
     required this.value,
     required this.onChanged,
   });
 
+  final String title;
   final List<T> values;
   final String Function(T) labelOf;
   final T value;
@@ -193,49 +196,158 @@ class Segmented<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     final motion = AppMotion.of(context);
-    return Container(
-      height: hitSize(context, desktop: 40),
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: p.background,
-        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
-        border: Border.all(color: p.cardBorder),
-      ),
-      child: Row(
-        children: [
-          for (final v in values)
-            Expanded(
-              child: Semantics(
-                button: true,
-                selected: v == value,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(7),
-                  onTap: () => onChanged(v),
-                  child: AnimatedContainer(
-                    duration: motion.fast,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: v == value
-                          ? p.accent.withValues(alpha: 0.16)
-                          : Colors.transparent,
+    final scale = MediaQuery.textScalerOf(context);
+    final textDirection = Directionality.of(context);
+    final longestWord = values
+        .expand((v) => labelOf(v).split(RegExp(r'\s+')))
+        .map((word) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: word,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            textDirection: textDirection,
+            textScaler: scale,
+          )..layout();
+          final width = painter.width;
+          painter.dispose();
+          return width;
+        })
+        .fold<double>(0, math.max);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final segmentWidth = (constraints.maxWidth - 8) / values.length - 8;
+        if (longestWord > segmentWidth) {
+          return _SegmentedChoiceMenu<T>(
+            title: title,
+            values: values,
+            labelOf: labelOf,
+            value: value,
+            onChanged: onChanged,
+          );
+        }
+        return Container(
+          constraints: BoxConstraints(minHeight: hitSize(context, desktop: 40)),
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: p.background,
+            borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+            border: Border.all(color: p.cardBorder),
+          ),
+          child: Row(
+            children: [
+              for (final v in values)
+                Expanded(
+                  child: Semantics(
+                    label: labelOf(v),
+                    button: true,
+                    selected: v == value,
+                    child: InkWell(
                       borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Text(
-                      labelOf(v),
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: v == value
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        color: v == value ? p.accent : p.textMuted,
+                      onTap: () => onChanged(v),
+                      child: AnimatedContainer(
+                        duration: motion.fast,
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: v == value
+                              ? p.accent.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text(
+                          labelOf(v),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: v == value
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            color: v == value ? p.accent : p.textMuted,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SegmentedChoiceMenu<T> extends StatelessWidget {
+  const _SegmentedChoiceMenu({
+    required this.title,
+    required this.values,
+    required this.labelOf,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final List<T> values;
+  final String Function(T) labelOf;
+  final T value;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return PopupMenuButton<T>(
+      tooltip: title,
+      onSelected: onChanged,
+      position: PopupMenuPosition.under,
+      popUpAnimationStyle: animationStyleOf(context),
+      itemBuilder: (context) => [
+        for (final v in values)
+          PopupMenuItem<T>(
+            value: v,
+            height: hitSize(context, desktop: 42),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  child: v == value
+                      ? Icon(Icons.check_rounded, size: 18, color: p.accent)
+                      : null,
+                ),
+                Text(
+                  labelOf(v),
+                  style: TextStyle(fontSize: 13.5, color: p.text),
+                ),
+              ],
+            ),
+          ),
+      ],
+      child: Container(
+        constraints: BoxConstraints(minHeight: hitSize(context, desktop: 40)),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: p.background,
+          borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+          border: Border.all(color: p.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                labelOf(value),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13.5, color: p.textMuted),
               ),
             ),
-        ],
+            Icon(Icons.unfold_more_rounded, size: 18, color: p.textFaint),
+          ],
+        ),
       ),
     );
   }

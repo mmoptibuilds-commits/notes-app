@@ -4,6 +4,7 @@ import '../../sync/sync_service.dart';
 import '../material.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/touch.dart';
 import 'pair_screen.dart';
 
@@ -300,28 +301,14 @@ class _PeerTile extends StatelessWidget {
                 sync.renamePeer(peer.id, n.trim());
               }
             case 'remove':
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (c) => AlertDialog(
-                  title: Text('Remove ${peer.name}?'),
-                  content: const Text(
+              final ok = await confirmDialog(
+                context,
+                title: 'Remove ${peer.name}?',
+                message:
                     'It will stop syncing with this device. Notes already '
                     'exchanged stay on both. To sync again, pair them again.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(c, false),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(c, true),
-                      child: Text(
-                        'Remove',
-                        style: TextStyle(color: AppPalette.of(c).danger),
-                      ),
-                    ),
-                  ],
-                ),
+                confirmLabel: 'Remove',
+                destructive: true,
               );
               if (ok == true) sync.removePeer(peer.id);
           }

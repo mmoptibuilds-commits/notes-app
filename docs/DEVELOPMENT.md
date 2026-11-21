@@ -91,6 +91,13 @@ tests. Also check: the three themes (AMOLED, charcoal, light), text scale 1.4,
 keyboard focus order and Escape layering, and that Android touch targets stay
 at least 48 dp.
 
+For settings accessibility changes, check system text scale 2.0 on both Settings
+and Toolbar settings. Segmented choices should wrap labels or fall back to a
+choice menu when a label cannot fit. Dialog actions and move-to-folder rows
+should remain at least 48 dp on Android. The editor toolbar's edge fades should
+show when controls continue offscreen without changing the bar's size, and
+their transitions should follow the reduced-motion setting.
+
 For a broader state-by-state atlas, run:
 
 ```bash

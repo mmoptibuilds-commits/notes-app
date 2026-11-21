@@ -16,6 +16,21 @@ import 'package:notes/ui/theme/app_theme.dart';
 import '../fixtures/legacy_backup.dart';
 import '../support/screenshot.dart';
 
+void expectDialogActionsAtLeast48(WidgetTester tester) {
+  final actions = find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.byType(TextButton),
+  );
+  expect(actions, findsWidgets);
+  for (var i = 0; i < actions.evaluate().length; i++) {
+    expect(
+      tester.getSize(actions.at(i)).height,
+      greaterThanOrEqualTo(48),
+      reason: 'dialog action $i',
+    );
+  }
+}
+
 Future<void> pumpData(
   WidgetTester tester,
   AppServices s,
@@ -41,6 +56,8 @@ void main() {
   testWidgets('import shows a preview, imports on confirm, and can be undone', (
     tester,
   ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final s = AppServices.inMemory();
     addTearDown(s.close);
     final backup = utf8.encode(encodeLegacyBackup(realisticPreset()));
@@ -56,6 +73,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Import this backup?'), findsOneWidget);
     expect(find.textContaining('84 notes'), findsOneWidget);
+    expectDialogActionsAtLeast48(tester);
     await screenshot(tester, 'data_import_preview');
     // Preview alone changes nothing.
     expect(s.notes.counts().active + s.notes.counts().trash, 0);
@@ -67,6 +85,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Import finished'), findsOneWidget);
+    expectDialogActionsAtLeast48(tester);
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     final c = s.notes.counts();

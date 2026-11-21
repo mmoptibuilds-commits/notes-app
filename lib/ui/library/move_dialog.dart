@@ -2,6 +2,7 @@ import '../../data/models.dart';
 import '../material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
+import '../widgets/touch.dart';
 
 /// Result of the move dialog: a folder, "no folder", or "make a new one".
 sealed class MoveChoice {
@@ -40,7 +41,7 @@ Future<MoveChoice?> showMoveDialog(
     }) => InkWell(
       onTap: () => Navigator.pop(ctx, choice),
       child: SizedBox(
-        height: 44,
+        height: hitSize(ctx, desktop: 44),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(

@@ -18,6 +18,7 @@ import '../material.dart';
 import '../shortcuts/shortcut_defs.dart';
 import '../shortcuts/shortcut_guards.dart';
 import '../theme/app_theme.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/touch.dart';
 import '../../doc/checklist_projection.dart' show bodyFromDelta;
 import '../../doc/markdown.dart';
@@ -234,28 +235,14 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _deleteForever() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Delete forever?'),
-        content: const Text(
+    final ok = await confirmDialog(
+      context,
+      title: 'Delete forever?',
+      message:
           'This note will be removed from all your devices. This cannot be '
           'undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: Text(
-              'Delete forever',
-              style: TextStyle(color: AppPalette.of(c).danger),
-            ),
-          ),
-        ],
-      ),
+      confirmLabel: 'Delete forever',
+      destructive: true,
     );
     if (ok != true || !mounted) return;
     final id = session.noteId;
@@ -313,29 +300,16 @@ class _EditorScreenState extends State<EditorScreen>
     required String hint,
     String initial = '',
     String action = 'OK',
+    bool allowEmpty = false,
   }) {
-    final c = TextEditingController(text: initial);
-    return showDialog<String>(
-      context: context,
-      builder: (d) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          decoration: InputDecoration(hintText: hint),
-          onSubmitted: (v) => Navigator.pop(d, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(d),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(d, c.text),
-            child: Text(action),
-          ),
-        ],
-      ),
+    return promptDialog(
+      context,
+      title: title,
+      initial: initial,
+      hint: hint,
+      confirmLabel: action,
+      allowEmpty: allowEmpty,
+      maxLength: null,
     );
   }
 
@@ -350,6 +324,7 @@ class _EditorScreenState extends State<EditorScreen>
       hint: 'https://…',
       initial: existing is String ? existing : '',
       action: 'Apply',
+      allowEmpty: true,
     );
     if (url == null) return;
     final target = url.trim();

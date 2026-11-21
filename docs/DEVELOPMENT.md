@@ -86,6 +86,20 @@ desktop sizes:
 flutter test test/visual/review_screens_test.dart && ls build/screens/
 ```
 
+For a real Android rendering pass (device insets, system fonts and density),
+run the screen tour on the Android 15 x86_64 emulator:
+
+```bash
+flutter drive --driver=test_driver/integration_test.dart --target=integration_test/android_tour_test.dart -d emulator-5554 --profile
+```
+
+The tour creates a fresh temporary database, seeds synthetic notes, and removes
+the database when it finishes. PNGs are written to
+`build/screens/android/<name>.png`. The test prints captured names and logs
+individual step failures while continuing through the remaining tour. Review
+the screenshots after the run; `flutter drive` installs its test build on the
+emulator, and the tour never uses a real data directory.
+
 Look at the images after any UI change; they are review artefacts, not golden
 tests. Also check: the three themes (AMOLED, charcoal, light), text scale 1.4,
 keyboard focus order and Escape layering, and that Android touch targets stay

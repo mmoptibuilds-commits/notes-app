@@ -162,6 +162,28 @@ t.close()
     expect(Directory('${install.path}.previous').existsSync(), isTrue);
   });
 
+  test(
+    'low install-parent space leaves the current program untouched',
+    () async {
+      final fakeBin = Directory('${temp.path}/fake-bin')..createSync();
+      final fakeDf = File('${fakeBin.path}/df')
+        ..writeAsStringSync('#!/bin/sh\nprintf "Avail\\n1\\n"\n');
+      Process.runSync('chmod', ['+x', fakeDf.path]);
+      final result = await run(pathPrefix: fakeBin.path);
+      expect(result.exitCode, 10, reason: result.stderr.toString());
+      expect(result.stderr.toString(), contains('Not enough free space'));
+      expect(
+        File('${install.path}/notes').readAsStringSync(),
+        contains('exit 0'),
+      );
+      expect(leftovers(), isEmpty);
+      final status = jsonDecode(
+        File('${state.path}/update.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(status['error'], 'insufficient_space');
+    },
+  );
+
   test('same version and downgrade are refused', () async {
     final same = await run(version: '1.0.0');
     expect(same.exitCode, 10);
@@ -426,7 +448,8 @@ t.close()
           File('${state.path}/update.json').readAsStringSync(),
         );
         expect(status['ok'], isFalse);
-        expect(status['phase'], 'verified', reason: 'never reached staging');
+        expect(status['phase'], 'failed');
+        expect(status['error'], 'verification_failed');
         // Nothing escaped the archive: no files outside the fake home.
         expect(File('${temp.path}/notes-evil-dotdot').existsSync(), isFalse);
         expect(File('/tmp/notes-evil-abs').existsSync(), isFalse);

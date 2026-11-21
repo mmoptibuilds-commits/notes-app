@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_quill/flutter_quill.dart'
     show FlutterQuillLocalizations;
 
@@ -8,6 +10,7 @@ import 'ui/library/library_screen.dart';
 import 'ui/material.dart';
 import 'ui/onboarding/onboarding_screen.dart';
 import 'ui/theme/app_theme.dart';
+import 'ui/updates/update_prompt_shell.dart';
 
 /// Gives every widget access to the app's services:
 /// `AppScope.of(context).notes`, `.settings`, `.db`.
@@ -44,15 +47,13 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
     if (settings.onboardingPending && settings.hasUserData) {
       settings.completeOnboarding();
     }
-    // One background update check, after the first frame (the controller adds
-    // its own 30 s delay, honours the opt-out and a 24 h limit, and never
-    // downloads or installs anything).
+    // Restore a verified update and check promptly after the first frame.
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => services.updates?.scheduleStartupCheck(),
     );
+    WidgetsBinding.instance.addObserver(this);
     final sync = services.sync;
     if (sync == null) return;
-    WidgetsBinding.instance.addObserver(this);
     // Catch up with paired devices shortly after the app opens.
     sync.start().then(
       (_) => sync.requestAutoSync(after: const Duration(seconds: 2)),
@@ -71,6 +72,9 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(services.updates?.checkAutomatically());
+    }
     final sync = services.sync;
     if (sync == null) return;
     if (state == AppLifecycleState.resumed) {
@@ -114,7 +118,10 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
               ),
               child: child!,
             ),
-            home: const _Root(),
+            home: UpdatePromptShell(
+              controller: services.updates,
+              child: const _Root(),
+            ),
           );
         },
       ),

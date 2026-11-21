@@ -46,4 +46,6 @@ abstract final class UpdateKeys {
   static const highestVersion = 'update.highestVersion';
   static const highestBuild = 'update.highestBuild';
   static const ackedOutcome = 'update.ackedOutcome';
+  static const failureCount = 'update.failureCount';
+  static const readyRecord = 'update.readyRecord';
 }

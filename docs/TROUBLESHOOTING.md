@@ -105,6 +105,31 @@ expired or the signature/hash does not match, wait for corrected release files
 or contact the project maintainer. Do not install an artifact that fails the
 manual verification steps in the [README](../README.md#verify-a-linux-download).
 
+## Update download is paused or storage is low
+
+**Symptom:** Settings → Updates shows a paused download, a network error or a
+message that there is not enough free space.
+
+**Cause:** Notes keeps a matching partial download so it can resume safely.
+Insufficient storage also prevents the update from being finalized or staged.
+
+**Fix:** Reconnect or free space, then choose **Resume download** or **Retry
+download**. Notes validates the resumed response and hashes the complete file
+again before it is marked ready. On Linux, staging also needs free space beside
+the managed installation.
+
+## Notes says it is finishing an update
+
+**Symptom:** Startup shows “Notes is finishing an update. Wait a few seconds,
+then open Notes again.”
+
+**Cause:** The Linux update helper holds the per-user lock while it replaces the
+program files. Startup waits for that lock before opening the database.
+
+**Fix:** Wait for the helper to finish and start Notes again. If the message
+continues after a minute, read `~/.local/state/com.mmoptibuilds.notes/updater/update.json`
+for the helper result and contact the project maintainer.
+
 ## Android says “App not installed”
 
 **Symptom:** Android refuses an APK and reports “App not installed.”
@@ -118,3 +143,13 @@ higher build number. Check the installed versionCode read-only before choosing
 an APK. If the installed copy was signed with another key, it cannot be
 replaced in place by the official APK; export or sync your notes before
 removing that copy.
+
+## Android update notification does not appear
+
+**Symptom:** Android installs Notes but no “Notes updated” notification appears.
+
+**Cause:** Android 13 and newer require notification permission. Notes asks in
+the install flow; denying it does not block the update.
+
+**Fix:** Open Notes to see the one-time “Updated to version X” result. You can
+also allow Notes notifications in Android settings for future update notices.

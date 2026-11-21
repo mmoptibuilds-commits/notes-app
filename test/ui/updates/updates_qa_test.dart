@@ -199,8 +199,8 @@ void main() {
           contains('Dismiss'),
           reason: 'the icon-only control is named for screen readers',
         );
-        bool inLiveRegion(String text) {
-          SemanticsNode? n = tester.getSemantics(find.textContaining(text));
+        bool inLiveRegion(Finder finder) {
+          SemanticsNode? n = tester.getSemantics(finder);
           while (n != null) {
             if (n.getSemanticsData().flagsCollection.isLiveRegion) return true;
             n = n.parent;
@@ -208,8 +208,14 @@ void main() {
           return false;
         }
 
-        expect(inLiveRegion('Updated to 1.0.1.'), isTrue); // outcome banner
-        expect(inLiveRegion('is available'), isTrue); // status line
+        expect(
+          inLiveRegion(find.text('Updated to 1.0.1.')),
+          isTrue,
+        ); // outcome banner
+        expect(
+          inLiveRegion(find.text('Version 1.0.1 is available')),
+          isTrue,
+        ); // status line
         // The screen's title is exposed as a header for screen readers.
         expect(
           tester

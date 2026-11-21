@@ -35,7 +35,8 @@ class UpdateNoPlatformRelease extends UpdateStatus {
 }
 
 class UpdateOffline extends UpdateStatus {
-  const UpdateOffline();
+  const UpdateOffline({this.candidate});
+  final UpdateCandidate? candidate;
 }
 
 class UpdateRateLimited extends UpdateStatus {
@@ -58,6 +59,15 @@ class UpdateDownloading extends UpdateStatus {
   final int total;
 
   double get fraction => total <= 0 ? 0 : (received / total).clamp(0.0, 1.0);
+}
+
+/// A transfer stopped with a verified scope for its partial bytes. The next
+/// download action resumes it when the server supports byte ranges.
+class UpdateDownloadPaused extends UpdateStatus {
+  const UpdateDownloadPaused(this.candidate, this.received, this.total);
+  final UpdateCandidate candidate;
+  final int received;
+  final int total;
 }
 
 /// Downloaded and verified, waiting for the user to confirm. [message] is set

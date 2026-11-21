@@ -896,6 +896,10 @@ notes, and keep every multi-row write in one transaction. Anything that touches
 
 Only items verified in code or tests:
 
+- Very long notes are laid out in full: the editor (`flutter_quill`, `scrollable:
+  false` inside one `SingleChildScrollView` with the title and completed
+  section) lays out every block, so opening and scrolling cost grows with note
+  length. Fixing it needs a lazily laid-out editor, not a setting change.
 - Two devices that are never reachable at the same time cannot sync. There is no
   relay.
 - Sync is IPv4 only (TCP bind on `anyIPv4`, UDP broadcast discovery); discovery

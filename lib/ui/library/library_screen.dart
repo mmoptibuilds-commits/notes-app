@@ -687,6 +687,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       scope: c.scope,
       folderId: c.folderId,
       unfiled: c.unfiled,
+      unfiledStartup: _settings.startupView == StartupView.unfiled,
       sync: AppScope.of(context).sync,
       onNewNote: _newNote,
       onAll: _pickFolder,
@@ -775,6 +776,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             counts: c.counts,
             selectedId: c.folderId,
             unfiledSelected: c.unfiled,
+            unfiledStartup: s.startupView == StartupView.unfiled,
             inset: inset,
             onAll: _pickFolder,
             onFolder: (f) => _pickFolder(id: f.id),
@@ -783,7 +785,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onFolderMenu: _folderMenu,
           ),
         Expanded(
-          child: _buildNotes(context, width, inset, s, compact: compact),
+          child: _buildNotes(
+            context,
+            width,
+            inset,
+            s,
+            desktop: desktop,
+            compact: compact,
+          ),
         ),
       ],
     );
@@ -990,11 +999,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
     };
   }
 
+  String? _emptyHint(bool desktop) {
+    final c = _c;
+    if (c.scope == NoteScope.active && c.unfiled) {
+      return desktop
+          ? 'Notes in folders are under their folder names.'
+          : 'Notes in folders are under their folder chips.';
+    }
+    return null;
+  }
+
   Widget _buildNotes(
     BuildContext context,
     double width,
     double inset,
     AppSettings s, {
+    bool desktop = false,
     bool compact = false,
   }) {
     final p = AppPalette.of(context);
@@ -1131,10 +1151,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: inset),
-                child: Text(
-                  _emptyText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13.5, color: p.textMuted),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _emptyText,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13.5, color: p.textMuted),
+                    ),
+                    if (_emptyHint(desktop) case final hint?) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        hint,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12.5, color: p.textFaint),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),

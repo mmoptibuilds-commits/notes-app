@@ -20,11 +20,8 @@ Future<void> _escape(WidgetTester tester) async {
 
 Future<void> _tapLicencesRow(WidgetTester tester) async {
   final label = find.text('Open-source licences');
-  await tester.scrollUntilVisible(
-    label,
-    300,
-    scrollable: find.byType(Scrollable).first,
-  );
+  await tester.ensureVisible(label);
+  await tester.pumpAndSettle();
   await tester.tap(label);
   await tester.pumpAndSettle();
   expect(_licencePage, findsOneWidget);

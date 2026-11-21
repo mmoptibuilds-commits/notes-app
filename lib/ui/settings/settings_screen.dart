@@ -79,6 +79,12 @@ String _layoutLabel(LibraryLayout l) => switch (l) {
   LibraryLayout.list => 'List',
 };
 
+String _startupViewLabel(StartupView view) => switch (view) {
+  StartupView.unfiled => 'Unfiled',
+  StartupView.all => 'All notes',
+  StartupView.last => 'Last viewed',
+};
+
 String _sortLabel(NoteSort s) => switch (s) {
   NoteSort.modified => 'Modified',
   NoteSort.created => 'Created',
@@ -191,6 +197,13 @@ class LibrarySection extends StatelessWidget {
       builder: (context, s) => SettingsSection(
         title: 'Library',
         rows: [
+          SegmentedRow<StartupView>(
+            title: 'Start in',
+            values: StartupView.values,
+            labelOf: _startupViewLabel,
+            value: s.startupView,
+            onChanged: (v) => s.startupView = v,
+          ),
           SegmentedRow<LibraryLayout>(
             title: 'Layout',
             values: LibraryLayout.values,

@@ -26,6 +26,7 @@ class FolderStrip extends StatelessWidget {
     required this.counts,
     required this.selectedId,
     required this.unfiledSelected,
+    required this.unfiledStartup,
     required this.inset,
     required this.onAll,
     required this.onFolder,
@@ -38,6 +39,7 @@ class FolderStrip extends StatelessWidget {
   final LibraryCounts counts;
   final String? selectedId;
   final bool unfiledSelected;
+  final bool unfiledStartup;
   final double inset;
   final VoidCallback onAll;
   final ValueChanged<Folder> onFolder;
@@ -50,7 +52,8 @@ class FolderStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final showUnfiled =
-        folders.isNotEmpty && (counts.unfiled > 0 || unfiledSelected);
+        folders.isNotEmpty &&
+        (counts.unfiled > 0 || unfiledSelected || unfiledStartup);
     final chips = <Widget>[
       _Chip(
         label: 'All',
@@ -58,6 +61,13 @@ class FolderStrip extends StatelessWidget {
         selected: selectedId == null && !unfiledSelected,
         onTap: onAll,
       ),
+      if (showUnfiled)
+        _Chip(
+          label: 'Unfiled',
+          count: counts.unfiled,
+          selected: unfiledSelected,
+          onTap: onUnfiled,
+        ),
       for (final f in folders)
         _Chip(
           key: ValueKey('folder-${f.id}'),
@@ -66,13 +76,6 @@ class FolderStrip extends StatelessWidget {
           selected: selectedId == f.id,
           onTap: () => onFolder(f),
           onMenu: (pos) => onFolderMenu(f, pos),
-        ),
-      if (showUnfiled)
-        _Chip(
-          label: 'Unfiled',
-          count: counts.unfiled,
-          selected: unfiledSelected,
-          onTap: onUnfiled,
         ),
       _Chip(icon: Icons.add_rounded, tooltip: 'New folder', onTap: onNew),
     ];

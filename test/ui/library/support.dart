@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart' show OffsetLayer;
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/data/app_settings.dart';
 import 'package:notes/data/models.dart';
 import 'package:notes/doc/delta_text.dart';
 import 'package:notes/ui/material.dart';
@@ -52,8 +53,11 @@ Seed freshServices() {
 }
 
 /// Synthetic library: pinned, untitled, long, short, checklists, folders.
-Seed seedLibrary() {
+/// Existing library behaviour tests use Last viewed unless they choose another
+/// view, preserving their pre-setting startup semantics.
+Seed seedLibrary({StartupView startupView = StartupView.last}) {
   final s = freshServices();
+  s.services.settings.startupView = startupView;
   final repo = s.services.notes;
   final now = s.clock.ms;
   const min = 60 * 1000;
@@ -208,7 +212,7 @@ void markConflict(Seed s, String key) {
   );
 }
 
-/// Matches exactly one widget while the library shows All notes (not a
+/// Matches exactly one widget while the library shows an active view (not a
 /// sub-view such as Archive): the FAB on a phone, the header title beside the
 /// sidebar on desktop, where there is no FAB.
 Finder libraryRoot() => find.byWidgetPredicate(
@@ -216,7 +220,7 @@ Finder libraryRoot() => find.byWidgetPredicate(
       w is FloatingActionButton ||
       (w is Text &&
           w.key == const ValueKey('library-title') &&
-          w.data == 'All notes'),
+          {'All notes', 'Unfiled', 'Notes'}.contains(w.data)),
   description: 'library root marker',
 );
 

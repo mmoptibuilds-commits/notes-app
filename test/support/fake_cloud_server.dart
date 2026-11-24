@@ -16,10 +16,12 @@ class FakeCloudServer implements CloudApi {
   bool dropNextPushResponse = false;
   bool duplicateChanges = false;
   bool reverseChanges = false;
+  Future<void> Function()? beforeNextPush;
   Duration responseDelay = Duration.zero;
   final records = <String, CloudRecord>{};
   final blobs = <String, Uint8List>{};
   final partialBlobs = <String, int>{};
+  final _blobParts = <String, Uint8List>{};
   HttpServer? _httpServer;
 
   Future<Uri> startHttpServer() async {
@@ -117,18 +119,16 @@ class FakeCloudServer implements CloudApi {
   }
 
   @override
-  Future<Map<String, Object?>> library() async {
+  Future<CloudLibraryInfo> library() async {
     await _before();
-    return {
-      'libraryId': libraryId,
-      'state': state,
-      'seq': seq,
-      'counts': {
-        'notes': records.values.where((r) => r.kind == 'note').length,
-        'folders': records.values.where((r) => r.kind == 'folder').length,
-        'blobs': blobs.length,
-      },
-    };
+    return CloudLibraryInfo(
+      libraryId: libraryId,
+      state: state,
+      seq: seq,
+      notes: records.values.where((r) => r.kind == 'note').length,
+      folders: records.values.where((r) => r.kind == 'folder').length,
+      blobs: blobs.length,
+    );
   }
 
   @override
@@ -185,6 +185,9 @@ class FakeCloudServer implements CloudApi {
     List<CloudPushItem> incoming,
   ) async {
     await _before();
+    final hook = beforeNextPush;
+    beforeNextPush = null;
+    if (hook != null) await hook();
     if (id != libraryId) {
       throw const CloudApiException(
         CloudErrorKind.libraryMismatch,
@@ -283,7 +286,7 @@ class FakeCloudServer implements CloudApi {
     Uint8List data,
   ) async {
     await _before();
-    final existing = blobs[hash] ?? Uint8List(0);
+    final existing = blobs[hash] ?? _blobParts[hash] ?? Uint8List(0);
     if (offset != existing.length) return existing.length;
     final next = Uint8List.fromList([...existing, ...data]);
     if (next.length == size) {
@@ -295,9 +298,11 @@ class FakeCloudServer implements CloudApi {
       }
       blobs[hash] = next;
       partialBlobs.remove(hash);
+      _blobParts.remove(hash);
       return next.length;
     }
     partialBlobs[hash] = next.length;
+    _blobParts[hash] = next;
     return next.length;
   }
 

@@ -57,6 +57,7 @@ class AppDatabase {
   final HlcClock clock;
   int _seq;
   int _depth = 0;
+  int _savepointId = 0;
   bool _dirty = false;
   Hlc _persistedHlc = Hlc.zero;
 
@@ -194,6 +195,27 @@ class AppDatabase {
       // The clock is deliberately not rewound: stamps must never repeat.
       assert(clock.last >= hlcBefore);
       if (!_db.autocommit) _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  /// Runs one recoverable unit inside the current transaction. SQL writes,
+  /// local sequence allocation, and change notifications roll back together.
+  T savepoint<T>(T Function() body) {
+    assert(_depth > 0, 'savepoint outside a transaction');
+    final name = 'notes_sp_${_savepointId++}';
+    final seqBefore = _seq;
+    final dirtyBefore = _dirty;
+    _db.execute('SAVEPOINT $name');
+    try {
+      final result = body();
+      _db.execute('RELEASE $name');
+      return result;
+    } catch (_) {
+      _db.execute('ROLLBACK TO $name');
+      _db.execute('RELEASE $name');
+      _seq = seqBefore;
+      _dirty = dirtyBefore;
       rethrow;
     }
   }

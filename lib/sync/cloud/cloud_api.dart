@@ -21,10 +21,12 @@ class CloudApiException implements Exception {
     this.kind,
     this.message, {
     this.currentRows = const [],
+    this.retryAfter,
   });
   final CloudErrorKind kind;
   final String message;
   final List<Map<String, Object?>> currentRows;
+  final Duration? retryAfter;
   @override
   String toString() => message;
 }
@@ -139,6 +141,36 @@ class CloudChanges {
   final bool more;
 }
 
+class CloudLibraryInfo {
+  const CloudLibraryInfo({
+    required this.libraryId,
+    required this.state,
+    required this.seq,
+    required this.notes,
+    required this.folders,
+    required this.blobs,
+    this.createdAt,
+    this.uploaderDeviceId,
+  });
+  final String libraryId, state;
+  final int seq, notes, folders, blobs;
+  final String? createdAt, uploaderDeviceId;
+
+  factory CloudLibraryInfo.fromJson(Map<String, Object?> json) {
+    final counts = (json['counts'] as Map).cast<String, Object?>();
+    return CloudLibraryInfo(
+      libraryId: json['libraryId'] as String,
+      state: json['state'] as String,
+      seq: json['seq'] as int,
+      notes: counts['notes'] as int,
+      folders: counts['folders'] as int,
+      blobs: counts['blobs'] as int,
+      createdAt: json['createdAt'] as String?,
+      uploaderDeviceId: json['uploaderDeviceId'] as String?,
+    );
+  }
+}
+
 class CloudManifestItem {
   const CloudManifestItem(this.kind, this.id, this.rev, this.digest);
   final String kind, id, digest;
@@ -174,7 +206,7 @@ abstract interface class CloudApi {
   Future<Map<String, Object?>> devices();
   Future<void> revokeDevice(String id);
   Future<Map<String, Object?>> head();
-  Future<Map<String, Object?>> library();
+  Future<CloudLibraryInfo> library();
   Future<Map<String, Object?>> initLibrary();
   Future<void> markReady(String libraryId);
   Future<CloudChanges> changes(
@@ -219,6 +251,7 @@ class HttpCloudApi implements CloudApi {
   final Duration timeout;
   final int maxResponseBytes;
   CloudSession? _cached;
+  Future<CloudSession>? _refreshing;
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       baseUrl.replace(path: '${baseUrl.path}$path', queryParameters: query);
@@ -262,7 +295,8 @@ class HttpCloudApi implements CloudApi {
   @override
   Future<Map<String, Object?>> head() => _json('GET', '/v1/head');
   @override
-  Future<Map<String, Object?>> library() => _json('GET', '/v1/library');
+  Future<CloudLibraryInfo> library() async =>
+      CloudLibraryInfo.fromJson(await _json('GET', '/v1/library'));
   @override
   Future<Map<String, Object?>> initLibrary() =>
       _json('POST', '/v1/library/init', body: {});
@@ -283,11 +317,27 @@ class HttpCloudApi implements CloudApi {
       '/v1/changes',
       query: {'since': '$since', 'limit': '$limit', 'maxBytes': '$maxBytes'},
     );
+    if (j['libraryId'] is! String ||
+        j['rows'] is! List ||
+        j['next'] is! int ||
+        j['head'] is! int ||
+        j['more'] is! bool) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Cloud returned an invalid change page.',
+      );
+    }
     return CloudChanges(
       j['libraryId'] as String,
       [
-        for (final r in j['rows'] is List ? j['rows'] as List : const [])
-          CloudRecord.fromJson(r is Map ? r.cast<String, Object?>() : const {}),
+        for (final r in j['rows'] as List)
+          if (r is Map)
+            CloudRecord.fromJson(r.cast<String, Object?>())
+          else
+            throw const CloudApiException(
+              CloudErrorKind.malformed,
+              'Cloud returned an invalid change row.',
+            ),
       ],
       j['next'] as int,
       j['more'] as bool,
@@ -347,6 +397,7 @@ class HttpCloudApi implements CloudApi {
   Future<({Set<String> missing, Map<String, int> partial})> checkBlobs(
     List<String> hashes,
   ) async {
+    _validateHashes(hashes);
     final j = await _json('POST', '/v1/blobs/check', body: {'hashes': hashes});
     return (
       missing: (j['missing'] as List).cast<String>().toSet(),
@@ -365,6 +416,16 @@ class HttpCloudApi implements CloudApi {
     String mime,
     Uint8List data,
   ) async {
+    _validateHash(hash);
+    if (offset < 0 ||
+        size < 0 ||
+        size > 50 * 1024 * 1024 ||
+        data.length > 96 * 1024) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Attachment upload is invalid.',
+      );
+    }
     final j = await _json(
       'PUT',
       '/v1/blobs/$hash',
@@ -381,6 +442,13 @@ class HttpCloudApi implements CloudApi {
   @override
   Future<({int size, String mime, int offset, Uint8List data, bool complete})>
   getBlobChunk(String hash, int offset, {int limit = 196608}) async {
+    _validateHash(hash);
+    if (offset < 0 || limit < 1 || limit > 192 * 1024) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Attachment request is invalid.',
+      );
+    }
     final j = await _json(
       'GET',
       '/v1/blobs/$hash',
@@ -397,16 +465,36 @@ class HttpCloudApi implements CloudApi {
 
   @override
   Future<CloudSession> refresh(CloudSession session) async {
-    final j = await _json(
-      'POST',
-      '/v1/auth/refresh',
-      auth: false,
-      body: {'refresh': session.refresh},
-    );
-    final s = CloudSession.fromJson(j);
-    _cached = s;
-    await sessions.write(s);
-    return s;
+    if (_cached != null && _cached!.access != session.access) return _cached!;
+    final pending = _refreshing;
+    if (pending != null) return pending;
+    final future = () async {
+      try {
+        final j = await _json(
+          'POST',
+          '/v1/auth/refresh',
+          auth: false,
+          body: {'refresh': session.refresh},
+        );
+        final s = CloudSession.fromJson(j);
+        _cached = s;
+        await sessions.write(s);
+        return s;
+      } on Object {
+        _cached = null;
+        await sessions.write(null);
+        throw const CloudApiException(
+          CloudErrorKind.unauthorized,
+          'You are signed out of cloud sync. Sign in again.',
+        );
+      }
+    }();
+    _refreshing = future;
+    try {
+      return await future;
+    } finally {
+      _refreshing = null;
+    }
   }
 
   Future<Map<String, Object?>> _json(
@@ -422,18 +510,24 @@ class HttpCloudApi implements CloudApi {
     bool auth = true,
     Object? body,
   }) async {
-    if (uri.scheme != 'https' &&
-        !(uri.scheme == 'http' && uri.host == '127.0.0.1')) {
+    if (uri.userInfo.isNotEmpty ||
+        (uri.scheme != 'https' &&
+            !(uri.scheme == 'http' &&
+                (uri.host == '127.0.0.1' || uri.host == 'localhost')))) {
       throw const CloudApiException(
         CloudErrorKind.network,
         'Cloud connection must use HTTPS.',
       );
     }
     var session = auth ? (_cached ??= await sessions.read()) : null;
-    var result = await _send(method, uri, body, session);
+    var result = await _send(method, uri, body, session).timeout(timeout);
     if (result.statusCode == 401 && auth && session != null) {
-      session = await refresh(session);
-      result = await _send(method, uri, body, session);
+      try {
+        session = await refresh(session);
+      } on CloudApiException {
+        rethrow;
+      }
+      result = await _send(method, uri, body, session).timeout(timeout);
     }
     if (result.statusCode < 200 || result.statusCode >= 300) {
       final kind = switch (result.statusCode) {
@@ -448,12 +542,23 @@ class HttpCloudApi implements CloudApi {
       final err = decoded?['error'];
       throw CloudApiException(
         err == 'library' ? CloudErrorKind.libraryMismatch : kind,
-        (decoded?['message'] as String?) ??
-            'Cloud request failed (${result.statusCode}).',
+        switch (err == 'library' ? CloudErrorKind.libraryMismatch : kind) {
+          CloudErrorKind.unauthorized => 'You are signed out of cloud sync.',
+          CloudErrorKind.conflict => 'Cloud records changed on another device.',
+          CloudErrorKind.libraryMismatch =>
+            'The linked cloud library has changed.',
+          CloudErrorKind.notFound => 'The requested cloud item was not found.',
+          CloudErrorKind.rateLimited => 'Cloud sync is temporarily busy.',
+          CloudErrorKind.server => 'Cloud sync is temporarily unavailable.',
+          _ => 'Cloud request could not be completed.',
+        },
         currentRows: [
           for (final r in decoded?['conflicts'] as List? ?? const [])
             if (r is Map) r.cast<String, Object?>(),
         ],
+        retryAfter: result.retryAfter == null
+            ? null
+            : _parseRetryAfter(result.retryAfter!),
       );
     }
     final decoded = _tryJson(result.bytes);
@@ -472,13 +577,14 @@ class HttpCloudApi implements CloudApi {
     bool auth = true,
     Object? body,
   }) => _request(method, uri, auth: auth, body: body);
-  Future<({int statusCode, Uint8List bytes})> _send(
+  Future<({int statusCode, Uint8List bytes, String? retryAfter})> _send(
     String method,
     Uri uri,
     Object? body,
     CloudSession? session,
   ) async {
     try {
+      final total = Stopwatch()..start();
       final encodedBody = body == null ? null : jsonEncode(body);
       if (encodedBody != null && utf8.encode(encodedBody).length > 256 * 1024) {
         throw const CloudApiException(
@@ -487,6 +593,7 @@ class HttpCloudApi implements CloudApi {
         );
       }
       final req = await _client.openUrl(method, uri).timeout(timeout);
+      if (total.elapsed > timeout) throw _requestTimeout();
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (body != null) {
@@ -500,6 +607,7 @@ class HttpCloudApi implements CloudApi {
         );
       }
       final resp = await req.close().timeout(timeout);
+      if (total.elapsed > timeout) throw _requestTimeout();
       if (resp.contentLength > maxResponseBytes) {
         throw const CloudApiException(
           CloudErrorKind.malformed,
@@ -508,6 +616,7 @@ class HttpCloudApi implements CloudApi {
       }
       final builder = BytesBuilder();
       await for (final chunk in resp.timeout(timeout)) {
+        if (total.elapsed > timeout) throw _requestTimeout();
         builder.add(chunk);
         if (builder.length > maxResponseBytes) {
           throw const CloudApiException(
@@ -516,13 +625,44 @@ class HttpCloudApi implements CloudApi {
           );
         }
       }
-      return (statusCode: resp.statusCode, bytes: builder.takeBytes());
+      if (total.elapsed > timeout) throw _requestTimeout();
+      return (
+        statusCode: resp.statusCode,
+        bytes: builder.takeBytes(),
+        retryAfter: resp.headers.value(HttpHeaders.retryAfterHeader),
+      );
     } on CloudApiException {
       rethrow;
     } on Object {
       throw const CloudApiException(
         CloudErrorKind.network,
         'Could not reach cloud sync.',
+      );
+    }
+  }
+
+  CloudApiException _requestTimeout() => const CloudApiException(
+    CloudErrorKind.network,
+    'Cloud request timed out.',
+  );
+
+  void _validateHashes(List<String> hashes) {
+    if (hashes.length > 100) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Too many attachment hashes.',
+      );
+    }
+    for (final hash in hashes) {
+      _validateHash(hash);
+    }
+  }
+
+  void _validateHash(String hash) {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(hash)) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Attachment hash is invalid.',
       );
     }
   }
@@ -537,4 +677,15 @@ class HttpCloudApi implements CloudApi {
   }
 
   void close() => _client.close(force: true);
+
+  Duration? _parseRetryAfter(String value) {
+    final seconds = int.tryParse(value);
+    if (seconds != null) return Duration(seconds: seconds.clamp(0, 1800));
+    try {
+      final delay = HttpDate.parse(value).difference(DateTime.now().toUtc());
+      return delay.isNegative ? Duration.zero : delay;
+    } on FormatException {
+      return null;
+    }
+  }
 }

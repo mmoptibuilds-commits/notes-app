@@ -72,19 +72,21 @@ jobs:
 
           "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/apksigner.txt"
           expected_cert="$(keytool -exportcert -keystore "$keystore" -storepass "$store_password" -alias notes-ci | sha256sum | cut -d ' ' -f 1)"
-          actual_cert="$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          actual_cert="$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | sed -n '1p' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           test -n "$actual_cert"
           test "$actual_cert" = "$expected_cert"
 
-          app_id="$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
-          version_name="$("$aapt" dump badging "$apk" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p" | head -n 1)"
-          version_code="$("$aapt" dump badging "$apk" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+          app_id="$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | sed -n '1p')"
+          version_name="$("$aapt" dump badging "$apk" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p" | sed -n '1p')"
+          version_code="$("$aapt" dump badging "$apk" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p" | sed -n '1p')"
           expected_name="$(sed -n 's/^version: \([^+]*\)+.*/\1/p' pubspec.yaml)"
           expected_code="$(sed -n 's/^version: [^+]*+\([0-9][0-9]*\).*/\1/p' pubspec.yaml)"
           test "$app_id" = 'com.mmoptibuilds.notes'
           test "$version_name" = "$expected_name"
           test "$version_code" = "$expected_code"
-          unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/'
+          apk_listing="$RUNNER_TEMP/apk-files.txt"
+          unzip -Z1 "$apk" > "$apk_listing"
+          grep -q '^lib/arm64-v8a/' "$apk_listing"
           echo 'Android temporary-signing build checks passed.'
 
   linux-x64:

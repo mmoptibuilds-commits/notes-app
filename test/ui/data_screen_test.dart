@@ -214,6 +214,36 @@ void main() {
     expect([pickerCalls, exportCalls], [1, 1]);
   });
 
+  testWidgets('export writes every note, including Trash', (tester) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final a = s.notes.createNote(title: 'kept');
+    final b = s.notes.createNote(title: 'binned');
+    s.notes.trash([b.id]);
+    final dir = Directory.systemTemp.createTempSync('notes export ui ');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final out = File('${dir.path}/out.json');
+    await pumpData(tester, s, DataScreen(pickSaveFile: (_) async => out));
+    await tester.tap(find.text('Export all notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Continue'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    for (var i = 0; i < 40 && !out.existsSync(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump(const Duration(milliseconds: 25));
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
+    final json = jsonDecode(out.readAsStringSync()) as Map<String, Object?>;
+    final ids = {for (final n in json['notes'] as List) (n as Map)['id']};
+    expect(ids, {a.id, b.id});
+  });
+
   testWidgets('Notes export restore requires confirmation and preserves data', (
     tester,
   ) async {

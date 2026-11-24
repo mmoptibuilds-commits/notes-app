@@ -101,10 +101,14 @@ void main() {
             .length;
         if (repoB.getAttachment(_hashOf(image)) == null) {
           // ignore: avoid_print
-          print('DBG missing=${repoB.missingAttachments().length} unavailable=${serviceB.engine.unavailableBlobs} err=${serviceB.status.lastError} phase=${serviceB.status.phase}');
+          print(
+            'DBG missing=${repoB.missingAttachments().length} unavailable=${serviceB.engine.unavailableBlobs} err=${serviceB.status.lastError} phase=${serviceB.status.phase}',
+          );
           final check = await apiB.checkBlobs([_hashOf(image)]);
           // ignore: avoid_print
-          print('DBG serverMissing=${check.missing.length} partial=${check.partial}');
+          print(
+            'DBG serverMissing=${check.missing.length} partial=${check.partial}',
+          );
           throw StateError('Live sync check failed.');
         }
         counts['imagesDownloaded'] = 1;
@@ -135,6 +139,10 @@ void main() {
           title: a.title,
           body: jsonEncode([
             {'insert': 'A line\nline two\n'},
+            {
+              'insert': {'image': image},
+            },
+            {'insert': '\n'},
           ]),
           base: a.contentVv,
         );
@@ -143,10 +151,29 @@ void main() {
           title: b.title,
           body: jsonEncode([
             {'insert': 'line one\nB line\n'},
+            {
+              'insert': {'image': image},
+            },
+            {'insert': '\n'},
           ]),
           base: b.contentVv,
         );
         await Future.wait([serviceA.engine.sync(), serviceB.engine.sync()]);
+        // The device that lost the race merges and pushes last: settle first.
+        await serviceA.engine.sync();
+        await serviceB.engine.sync();
+        await serviceA.engine.sync();
+        // Edits to different lines must merge cleanly: both lines survive on
+        // both devices and no conflict copy exists.
+        for (final repo in [repoA, repoB]) {
+          final text = repo.getNote(id)!.body;
+          if (!text.contains('A line') ||
+              !text.contains('B line') ||
+              repo.listNotes(scope: NoteScope.conflicts).isNotEmpty) {
+            throw StateError('Live sync check failed.');
+          }
+        }
+        counts['lineMergesClean'] = 1;
         final pushed = repoA.getRecord(id)!;
         final retry = await apiA.push(
           (await apiA.library()).libraryId,

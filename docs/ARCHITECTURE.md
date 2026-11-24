@@ -423,6 +423,9 @@ attachment placeholders.
 - Android saves exports through the system document picker
   (`lib/platform/save_file.dart` and `MainActivity.kt`, method channel
   `com.mmoptibuilds.notes/save`); Linux uses `file_selector`.
+- Every manual JSON export attempt first asks the user to confirm that the
+  backup is unencrypted. Canceling or dismissing the warning does not build the
+  JSON or open a destination picker; Continue starts the existing export flow.
 
 ## 6. Sync (`lib/sync/`)
 

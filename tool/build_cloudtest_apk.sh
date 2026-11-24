@@ -5,6 +5,12 @@ export PATH="$HOME/development/flutter/bin:$PATH"
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 export ORG_GRADLE_PROJECT_cloudTest=true
 
+# The default server is the owner's real one: a test build must name its own.
+case " $* " in
+  *"NOTES_CLOUD_URL="*) ;;
+  *) echo "error: pass --dart-define=NOTES_CLOUD_URL=<test worker url>" >&2; exit 2 ;;
+esac
+
 flutter build apk --release --target-platform android-arm64 "$@"
 
 apk="build/app/outputs/flutter-apk/app-release.apk"

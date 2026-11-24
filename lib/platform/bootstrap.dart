@@ -14,6 +14,7 @@ import '../data/note_repository.dart';
 import '../sync/peers.dart';
 import '../sync/sync_service.dart';
 import '../sync/cloud/cloud_api.dart';
+import '../sync/cloud/cloud_config.dart';
 import '../sync/cloud/cloud_service.dart';
 import 'cloud_login.dart';
 import '../update/platform_installer.dart';
@@ -274,11 +275,15 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   final updates = installer == null
       ? null
       : UpdateController.forApp(settings: settings, installer: installer);
-  const compiledCloudUrl = String.fromEnvironment('NOTES_CLOUD_URL');
-  final cloudUrl = Platform.isLinux
-      ? (Platform.environment['NOTES_CLOUD_URL'] ?? compiledCloudUrl)
-      : compiledCloudUrl;
-  final cloudSessionStore = const SecureCloudSessionStore();
+  final cloudUrl = resolveCloudUrl(
+    environment: Platform.environment,
+    compiledUrl: const String.fromEnvironment('NOTES_CLOUD_URL'),
+  );
+  // A development instance keeps its cloud session in its own directory.
+  final CloudSessionStore cloudSessionStore =
+      (Platform.environment['NOTES_DATA_DIR'] ?? '').isNotEmpty
+      ? FileCloudSessionStore(dir)
+      : const SecureCloudSessionStore();
   final cloud = cloudUrl.isEmpty
       ? null
       : CloudService(

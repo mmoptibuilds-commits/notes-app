@@ -2,6 +2,7 @@ import '../../app.dart';
 import '../data/data_screen.dart';
 import '../material.dart';
 import '../sync/sync_screen.dart';
+import '../sync/cloud_screen.dart';
 import '../theme/app_theme.dart';
 import 'settings_widgets.dart';
 
@@ -21,6 +22,13 @@ class SyncDataSection extends StatelessWidget {
     return SettingsSection(
       title: 'Sync and data',
       rows: [
+        if (app.cloud != null)
+          SettingsRow(
+            title: 'Cloud sync',
+            subtitle: 'Private cloud for your own devices',
+            trailing: chevron,
+            onTap: () => open(const CloudScreen()),
+          ),
         if (sync != null)
           ListenableBuilder(
             listenable: sync,

@@ -2,7 +2,7 @@
 
 All notable changes to Notes are recorded here.
 
-## [1.2.0] - Unreleased (build candidate 20261125)
+## [1.2.0] - 2026-11-24
 
 ### Added
 

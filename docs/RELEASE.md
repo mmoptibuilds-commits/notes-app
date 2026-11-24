@@ -1,17 +1,13 @@
 # Stable release procedure
 
-Current release: `1.1.0+20261124` (versionName `1.1.0`, Android
-versionCode `20261124`), published 2026-11-21. The latest recorded read-only phone check, on
+Current release: `1.2.0+20261125` (versionName `1.2.0`, Android
+versionCode `20261125`), published 2026-11-24. The latest recorded read-only phone check, on
 2026-11-21, found versionCode `20261122`; check installed versionCodes
 read-only again before installing, including on other target devices. Treat
 that phone value as a dated snapshot, not a permanent current value. The
 `tool/last_release_version_code.txt` holds the build number of the last
-distributed stable release (`20261124`, Notes 1.1.0, published 2026-11-21).
+distributed stable release (`20261125`, Notes 1.2.0, published 2026-11-24).
 Update it in the commit that follows each published release.
-
-Build candidate (unpublished): `1.2.0+20261125`. It is not tagged, signed for
-distribution or released; `tool/last_release_version_code.txt` stays at
-`20261124` until it is published.
 
 ## 1. Preflight
 
@@ -35,7 +31,7 @@ upstream permission scope before distributing anything.
 
 ## 2. Set the version
 
-The last released version in `pubspec.yaml` is `1.1.0+20261124`. Before changing it for a later release, make a fresh
+The last released version in `pubspec.yaml` is `1.2.0+20261125`. Before changing it for a later release, make a fresh
 read-only check of installed phone versionCodes. Change only the `version:`
 line, then run:
 
@@ -76,7 +72,7 @@ The verifier calls Android SDK `apksigner verify --print-certs`, rejects a
 debug certificate, and checks the result against
 `tool/release_cert_sha256.txt`. It finds `apksigner` under the SDK named by
 `ANDROID_SDK_ROOT` or `ANDROID_HOME`. Confirm `apkanalyzer` reports
-the new build number (e.g. `20261124` for 1.1.0) and the APK reports the expected package id,
+the new build number (e.g. `20261125` for 1.2.0) and the APK reports the expected package id,
 `com.mmoptibuilds.notes`.
 
 ## 5. Package Linux and verify checksums

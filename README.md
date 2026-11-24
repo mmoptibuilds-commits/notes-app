@@ -15,7 +15,7 @@ are installed only after you confirm.
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
 
-The current stable release is [Notes 1.1.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.1.0) (build 20261124). Installed
+The current stable release is [Notes 1.2.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.2.0) (build 20261125). Installed
 copies of Notes find later stable releases themselves (Settings → About → App
 updates); pre-releases are never offered.
 
@@ -34,12 +34,12 @@ from the same place as the archive, so it cannot prove the archive is genuine.
 The signed manifest can. Download `notes-manifest.json`,
 `notes-manifest.json.sig` and the archive from the same release, save the
 release public key shown in [Release signing key](#release-signing-key) as
-`notes-release.pem`, and run, with the release's version in place of `1.1.0`:
+`notes-release.pem`, and run, with the release's version in place of `1.2.0`:
 
 ```sh
 sed -n 's/.*"signature":"\([^"]*\)".*/\1/p' notes-manifest.json.sig | base64 -d > notes-manifest.sig.bin
 openssl pkeyutl -verify -pubin -inkey notes-release.pem -rawin -in notes-manifest.json -sigfile notes-manifest.sig.bin
-grep -q "\"filename\":\"notes-1.1.0-linux-x64.tar.gz\",\"platform\":\"linux\",\"sha256\":\"$(sha256sum notes-1.1.0-linux-x64.tar.gz | cut -d' ' -f1)\"" notes-manifest.json && echo "archive matches the signed manifest"
+grep -q "\"filename\":\"notes-1.2.0-linux-x64.tar.gz\",\"platform\":\"linux\",\"sha256\":\"$(sha256sum notes-1.2.0-linux-x64.tar.gz | cut -d' ' -f1)\"" notes-manifest.json && echo "archive matches the signed manifest"
 ```
 
 Continue only if the second command prints `Signature Verified Successfully`
@@ -98,7 +98,9 @@ updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
-Notes 1.1.0 (build 20261124) is the current stable release:
+Notes 1.2.0 (build 20261125) is the current stable release, published 2026-11-24:
+[release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.2.0).
+Notes 1.1.0 was published 2026-11-21:
 [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.1.0).
 The first stable release, Notes 1.0.0, was published 2026-11-21:
 [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.0.0).

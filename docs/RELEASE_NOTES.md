@@ -1,8 +1,8 @@
-# Notes 1.2.0 (build candidate)
+# Notes 1.2.0
 
 Notes is a personal, offline-first notes app for Android and Linux. Notes stay
 in an encrypted database on your device. There are no accounts, analytics or
-cloud service. This release is not published yet.
+cloud service.
 
 ## What's new
 

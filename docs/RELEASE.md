@@ -1,7 +1,8 @@
 # Stable release procedure
 
-Current release: `1.2.0+20261125` (versionName `1.2.0`, Android
-versionCode `20261125`), published 2026-11-24. The latest recorded read-only phone check, on
+Source release version: `1.3.0+20261126` (versionName `1.3.0`, Android
+versionCode `20261126`). The previous distributed stable release is
+`1.2.0+20261125`, published 2026-11-24. The latest recorded read-only phone check, on
 2026-11-21, found versionCode `20261122`; check installed versionCodes
 read-only again before installing, including on other target devices. Treat
 that phone value as a dated snapshot, not a permanent current value. The
@@ -31,7 +32,8 @@ upstream permission scope before distributing anything.
 
 ## 2. Set the version
 
-The last released version in `pubspec.yaml` is `1.2.0+20261125`. Before changing it for a later release, make a fresh
+The preceding release was `1.2.0+20261125`; this source tree sets
+`1.3.0+20261126`. Before changing the version for a later release, make a fresh
 read-only check of installed phone versionCodes. Change only the `version:`
 line, then run:
 
@@ -148,6 +150,47 @@ the fonts. Orion's listing icon and screenshots load from
 the listing. Check that CI passed for the exact release commit. After review,
 the owner decides whether to create a tag, publish assets, or distribute the
 Linux archive. This procedure does not publish or push anything.
+
+## Cloud server
+
+Before releasing a client that depends on a new cloud schema or endpoint,
+deploy the matching production Worker bundle and apply every required
+`server/sync/migrations/` migration to the production Neon database. Apply Neon
+migrations separately with the migration script; deploying a Worker does not
+run them. The production client uses the default server address compiled in
+`lib/sync/cloud/cloud_config.dart`, so no URL define is needed. Never use the
+test Worker or test Neon project as the production release target.
+
+To roll back Worker code, redeploy the previous production bundle and its
+matching public configuration through the Cloudflare API or Wrangler. The SQL
+migrations are append-only; do not try to reverse them as part of a Worker
+rollback. Confirm that the older bundle remains compatible with the migrated
+schema before restoring it.
+
+To rotate `SESSION_SECRET`, replace the Worker secret through the Cloudflare
+secret-management interface or API. The change invalidates access tokens,
+refresh tokens and pending authorization state, so devices must sign in again.
+Device rows remain active in Neon, however, and still count toward the five
+device limit. After rotating the secret, revoke all old rows in the Neon SQL
+console before devices sign in again:
+
+```sql
+UPDATE devices SET revoked_at = now() WHERE revoked_at IS NULL;
+```
+
+Never put the secret in a vars file, source tree, build bundle, command log or
+release artifact.
+
+To change the owner account, set `OWNER_SUB` to the new Google account's
+verified subject using the Cloudflare secret-management interface. The Worker
+does not expose the subject after successful sign-in. To obtain the new
+account's subject, the operator can use the sign-in setup mode with
+`OWNER_SUB` unset; the callback then displays the verified account ID to that
+user and issues no device token. Set `OWNER_SUB` immediately afterward.
+Existing device sessions are not bound to that setting after sign-in, so revoke
+old device rows using the SQL above before the new owner signs in. Keep the
+Google consent screen's test-user list current while it is in Testing mode. No
+Worker, Neon or Google secret may be committed.
 
 ## CI review
 

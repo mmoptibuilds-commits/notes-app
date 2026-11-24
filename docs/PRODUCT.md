@@ -50,19 +50,23 @@ simplicity and intuitive editing matter more than feature count.
 - Preserve the existing signed-manifest and platform-signing trust checks.
 
 ### Sync
-- Up to five paired devices, no accounts, no always-on server.
+- Up to five of the owner's devices on Android and Linux.
 - Each device fully usable offline; changes queue durably.
 - QR-based authenticated pairing (Linux shows a code; paste fallback where
   there is no camera).
 - Catch-up on open/resume when a peer is reachable; manual sync; quiet status.
 - Syncs note content, metadata, folders, checklist state, trash and deletions.
-- Concurrent edits are both kept for review. No version is silently dropped.
+- LAN sync is direct and encrypted. Optional private cloud sync is off until the
+  user signs in with the owner's Google account and explicitly uploads a library.
+  The server stores notes as readable JSON, so cloud sync is not end-to-end
+  encrypted. LAN sync remains available and unchanged.
+- Cloud sync automatically combines non-overlapping edits to different lines.
+  Conflicting edits are kept for review; no version is silently dropped.
 - Trash is kept until the user empties it.
 - LAN first; Tailscale addresses work as ordinary reachable addresses.
-- Two devices that are never reachable at the same time cannot sync. The app
-  must not claim otherwise.
 - Authenticated encryption, high-entropy keys, peer authorisation, replay
-  protection, versioned protocol.
+  protection and a versioned protocol apply to LAN sync. Cloud sync uses
+  HTTPS and owner-only sign-in.
 
 ### Data
 - Local SQLite database, encrypted at rest.
@@ -74,7 +78,8 @@ simplicity and intuitive editing matter more than feature count.
 ## Exclusions
 
 - Upstream finance, health, SMS, AI, media converter, story cards.
-- User accounts, cloud relay, always-on server.
+- Multi-user accounts, public cloud service, background Android sync, and
+  end-to-end encryption for cloud sync.
 - iOS and web builds (architecture only).
 - Upstream's six-digit-code sync encryption.
 

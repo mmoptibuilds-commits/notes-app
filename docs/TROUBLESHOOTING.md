@@ -1,5 +1,52 @@
 # Troubleshooting
 
+## Cloud sync
+
+**Cannot sign in:** Cloud sign-in needs a working connection and a system
+browser. The Google consent screen is in Testing mode, so only accounts listed
+as test users can continue. Choose the configured owner's Google account; a
+different account is refused with **This server is private**. Return to Notes
+and retry if the browser was cancelled or timed out.
+
+**The app says “This server is private”:** The signed-in Google account is not
+the owner configured for this private server. Switch to the owner's account.
+Only the server operator can change which account is allowed.
+
+**The upload is stuck or interrupted:** Open Settings → Sync → Cloud sync and
+choose **Resume upload**. The device that initialized the library must resume
+it. Progress is saved locally and transfer batches can be retried. Keep the app
+open and check the connection. Do not reset the server library to retry an
+upload.
+
+**The device limit was reached:** A cloud library allows five active devices in
+total, including the current device. In Cloud sync → Devices, revoke a device
+that is no longer used, then sign in on the new device.
+
+**Cloud sync stopped because of a clock warning:** Set the device's date and
+time automatically or correct it manually, then choose **Sync now**. Cloud
+records more than two days ahead of the local clock are held back to protect
+the local clock and note state.
+
+**A note or attachment is too large:** Cloud sync accepts a serialized record
+up to 180 KiB and an attachment up to 20 MiB. An oversized item stays on this
+device; other eligible notes continue syncing. `CloudStatus` counts oversized
+notes, oversized attachments and quarantined records. The current screen shows
+**Needs attention** but does not display those individual counts or the detailed
+error text.
+
+**Signing out:** Choose **Sign out of this device** in Cloud sync. This clears
+the local session and stops cloud sync; Notes also asks the server to revoke the
+device. If the app was offline, that request may not reach the server. Local
+notes and the cloud library remain. If the device still occupies a device slot,
+revoke it later from another signed-in device.
+
+**Reading the cloud status:** **Syncing** means a transfer is running; **Up to
+date** means the last completed pass found no pending work; **Needs attention**
+means the last pass failed or left records requiring attention; **Cloud sync is
+paused** means the device is signed in but cloud sync is disabled. The screen
+also shows the last successful sync time and the number of pending local
+changes. **Sync now** retries immediately.
+
 ## Sync is not working
 
 **Symptom:** A paired device is unreachable, pairing cannot connect, or the

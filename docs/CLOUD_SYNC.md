@@ -1,24 +1,24 @@
-# Cloud sync (design contract)
+# Cloud sync (implementation contract)
 
-Status: design for Notes 1.3.0. This document is the contract the Worker,
-the Dart client and the UI are built against. Where code and this file
-disagree, fix whichever is wrong and say so in the commit. It replaces the "no
-server" and "no text merge" statements of the LAN-only design (see D20, D21 in
-[DECISIONS.md](DECISIONS.md)); LAN sync keeps working unchanged.
+Status: implementation contract for Notes 1.3.0, checked against the Worker,
+Dart client, tests and scripts. Where this file and code disagree, update the
+contract to match the shipped behavior and report the difference. It replaces
+the "no server" and "no text merge" statements of the LAN-only design (see
+D20, D21 in [DECISIONS.md](DECISIONS.md)); LAN sync keeps working unchanged.
 
 ## 1. Goals and hard limits
 
 One owner, up to five of their own devices, Android and Linux, offline first.
-Cost is strictly $0, so the design is shaped by the free plans (figures read
-from the vendors' pages on 2026-11-24):
+The design aims to stay within the free plan quotas; actual cost depends on
+usage and plan changes. Figures were checked on 2026-11-24:
 
 | Limit | Value | Consequence |
 |---|---|---|
 | Workers Free requests | 100,000 / day | Polling must be cheap; no per-note requests |
-| Worker CPU | 10 ms / request | Server never merges; no byte or hex work; bounded bodies |
+| Worker CPU | 10 ms / request | Server never merges or hashes records/blobs; bounded bodies |
 | Worker subrequests | 50 / request | One Neon HTTP call per request is the norm |
 | Neon Free compute | 100 CU-hours / project / month, scale to zero after 5 min idle (cannot be disabled) | An idle "anything new?" check must not touch Neon (section 4) |
-| Neon Free storage / egress | 1 GB, 5 GB per month | Library today is about 1.4 MB (61 notes, 3 images, 483 KB of images) |
+| Neon Free storage / egress | 1 GB per project, 5 GB per month | Keep the library and response sizes small |
 | Durable Objects Free | SQLite-backed classes only | Use `new_sqlite_classes` |
 
 Unified payload limits: a serialized record row is at most **180 KiB**, an
@@ -28,6 +28,11 @@ client leaves oversized notes and attachments locally, reports them in cloud
 status, and continues syncing other records. The Worker returns 413 for a row
 over 180 KiB. Change-feed rows include an additive `bytes` field containing
 `octet_length(row::text)`; clients ignore it when decoding the record itself.
+
+Plan figures were checked against the vendor pages on 2026-11-24:
+[Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+and [Neon pricing](https://neon.com/pricing). Recheck them before relying on
+the free quotas for a release.
 
 The Worker is a thin, authenticated, revisioned record store with a change
 feed and a blob store. **All merging happens in the Dart client**, which already
@@ -72,9 +77,9 @@ signed-in account's own ID and email to that user and issues nothing.
 
 Both platforms use the system browser and Google's OpenID Connect
 `response_type=id_token` with `response_mode=form_post` against a Web client
-whose only redirect URI is `<PUBLIC_URL>/v1/auth/callback`. (If Google refuses
-this response type for the client, the fallback is the code flow with the secret
-held only as a Worker secret; the app protocol does not change.)
+whose only redirect URI is `<PUBLIC_URL>/v1/auth/callback`. If Google refuses
+this response type, sign-in is unavailable: this branch implements no code-flow
+fallback.
 
 1. App creates a random `verifier`, computes `challenge = base64url(sha256(verifier))`,
    picks a `redirect` (Android: `com.mmoptibuilds.notes:/cloud-auth`; Linux:
@@ -200,14 +205,14 @@ headers, email, `sub`, or connection strings.
 
 ## 4. Why polling does not drain Neon
 
-Each device polls `GET /v1/head` (Worker plus Coordinator only, no Neon) every
-30 s while the app is running and in the foreground or minimized on Linux, and
-every 60 s otherwise while visible on Android. It pulls from Neon only when `seq`
-exceeds its cursor. Pushes touch Neon, so compute wakes only after edits (about
-5 minutes of compute per burst; a busy day is a few CU-hours of the 100 free per
-month). Backstop: a real Neon pull at start, resume, on manual sync and at most
-once an hour while running, which covers a lost head update. Arithmetic is
-repeated in ARCHITECTURE.md with measured numbers from the test deployment.
+Each active device polls `GET /v1/head` (Worker plus Coordinator only, no Neon)
+every 30 s while the app is running. Android stops polling when paused; Linux
+keeps polling while the window is open or minimized. It pulls from Neon only
+when `seq` exceeds its cursor. Pushes touch Neon. A real Neon pull occurs at
+start, resume, manual sync and at most once an hour while running, which covers
+a lost head update. Idle polling does not wake Neon; actual compute use depends
+on the user's edits and transfer volume, so this source tree does not claim a
+measured monthly total.
 
 ## 5. Client (Dart)
 
@@ -220,8 +225,11 @@ repeated in ARCHITECTURE.md with measured numbers from the test deployment.
 * Cursors and state live in `local_meta` (device local, never synced):
   `cloud.library_id`, `cloud.pull_seq`, `cloud.push_seq` (local change counter up
   to which rows were pushed), `cloud.state`.
-* Tokens live in `flutter_secure_storage` (entry `notes.cloud.session.v1`), never
-  in SQLite or settings.
+* Production tokens live in `flutter_secure_storage` (entry
+  `notes.cloud.session.v1`), never in SQLite or settings. With `NOTES_DATA_DIR`
+  set, that instance stores its session in its own plain-text
+  `cloud-session.json` file. Treat it as a credential and use only the test
+  Worker; do not commit it.
 
 ### 5.2 Sync cycle (`CloudSyncEngine`)
 
@@ -239,9 +247,10 @@ repeated in ARCHITECTURE.md with measured numbers from the test deployment.
    echoed back). Send in batches of at most 50 rows / 256 KiB with
    `baseRev = cloud_notes.rev` (0 if absent). On `200`, update `cloud_notes`
    (`rev`, `digest`, new base = what was pushed) and advance `push_seq` in one
-   transaction. On `409`, go to step 1 (the conflicting heads arrive through
-   pull, merge locally, and are pushed on the next round); at most 5 rounds, then
-   report and back off.
+   transaction. On `409`, apply the returned conflicts: full current rows are
+   merged locally; a `{kind,id,missing:true}` entry clears stale revision
+   bookkeeping so that record can be retried as a new insert. Then retry, at
+   most 5 rounds, before reporting and backing off.
 3. Blobs: for pushed or pulled notes, attachments with missing bytes are fetched
    (verify SHA-256 before storing, as on LAN); local blobs missing on the server
    are checked with `blobs/check` and uploaded in 96 KiB chunks (resume by the
@@ -260,10 +269,11 @@ a manual **Sync now** always tries immediately.
 
 Start and resume, after local edits settle (20 s, like LAN), a poll timer
 (section 4), manual. Linux keeps syncing while the window is open or minimized
-and stops when the process quits; Android syncs while the app runs. No background
-service. While cloud is **active** on a device, LAN auto-sync stops (manual LAN
-sync stays), otherwise LAN conflict copies would race cloud merges. Cloud is off
-by default; the switch and its state are per device.
+and stops when the process quits. Android polls while foregrounded and stops
+when paused; no background service is used. While cloud is **active** on a
+device, LAN auto-sync stops (manual LAN sync stays), otherwise LAN conflict
+copies would race cloud merges. Cloud is off by default; the switch and its
+state are per device.
 
 ### 5.4 Upload and join (opt-in; section 8 of the task, "one upload")
 
@@ -327,6 +337,12 @@ Server rows are merged on the device that pulls them.
   are never lost; output is a valid Delta ending in `\n`; no text of either side
   is dropped without being preserved as a conflict copy.
 
+Known edge cases: two databases copied from one device can share a device id and
+produce equal version vectors with different content. Also, when an automatic
+merge keeps a note trashed, the implementation stamps the trash register with
+the merge clock so normalization does not restore it. A concurrent offline
+restore made before that merge can therefore lose.
+
 ## 7. Review edits (UI)
 
 The library never lists conflict copies as ordinary notes. A note with one or
@@ -340,15 +356,17 @@ confirmation). Opening or reviewing writes nothing until an action is chosen.
 
 ## 8. Rollout and security notes
 
-* Cloud sync is opt-in per device; LAN pairing stays until both directions pass,
-  then cloud is the active path on the owner's devices (LAN remains manually
-  available).
+* Cloud sync is opt-in per device. After upload/join, enabling cloud sync
+  suppresses LAN auto-sync on that device; manual LAN sync remains available.
 * Only the verified Google account whose `sub` equals `OWNER_SUB` ever receives a
   token. Tokens, refresh hashes, connection strings, `OWNER_SUB` and any email are
   never logged. Private keys and secrets never enter the repository, build
   artifacts, CI or prompts; they exist only as Worker secrets and in the owner's
   password manager.
-* Release APK and Linux builds contain the public server URL and the public Web
+* Release APK and Linux builds contain the public server URL and public Web
   client ID, nothing secret. Test deployments use a different Worker, a different
   Neon project and a test application id (`com.mmoptibuilds.notes.cloudtest`);
-  the production application id is never changed.
+  the production application id is never changed. A `NOTES_DATA_DIR` instance
+  has no cloud endpoint unless `NOTES_CLOUD_URL` is explicitly supplied, and
+  stores its cloud session in a plain-text file in that directory. Live
+  integration tests must target the isolated test Worker.

@@ -4,8 +4,13 @@
 
 Notes targets Linux x64. Install the GTK 3 and GLib runtime libraries supplied
 by your distribution. The app also needs a working desktop keyring for its
-local encryption key. Sync pairing may need TCP 47380 and UDP 47381 allowed on
-the local network.
+local encryption key. LAN sync pairing may need TCP 47380 and UDP 47381 allowed
+on the local network. Optional cloud sync requires no separate Linux service or
+port; it is off until you sign in with the owner's Google account and upload a
+library. The cloud server stores readable note JSON, so cloud sync is not
+end-to-end encrypted. LAN sync remains available. See
+[Cloud sync troubleshooting](TROUBLESHOOTING.md#cloud-sync) and
+[product privacy details](PRODUCT.md#sync).
 
 Download the files from the latest release on the
 [Releases page](https://github.com/mmoptibuilds-commits/notes-app/releases/latest).

@@ -2,14 +2,27 @@
 
 The Worker has no runtime package dependencies. `src/db.ts` uses Neon's SQL-over-HTTP endpoint; its request headers/body were checked against `@neondatabase/serverless@1.0.2`.
 
+All `package.json` dependencies are development-only: TypeScript and Worker
+types, PGlite, esbuild, and Vitest. `npm run build` makes two bundles from
+`src/worker.ts`: production excludes fake sign-in and `/v1/test/*`; test
+includes those helpers only when built with the test flag. Never deploy the test
+bundle outside the isolated test Worker and its separate Neon project.
+
 The PGlite concurrency test confirms serialized sequence assignment for competing transactions in its embedded Postgres engine. The E2E script also checks concurrent pushes against a deployed test Worker; that run is needed to cover Cloudflare plus Neon scheduling.
 
 ## Build and deploy
 
-Run `npm ci`, `npm run typecheck`, `npm test`, and `npm run build`. The build writes production and test modules under `dist/`; only deploy the test module to the isolated test Worker and test database. Run `DATABASE_URL=... node scripts/migrate.mjs` to apply ordered, idempotent migrations. `node scripts/upload-payload.mjs production vars.env` creates upload metadata; set the listed secret values separately through the Cloudflare secret API. The vars file must contain only public configuration.
+Run `npm ci`, `npm run typecheck`, `npm test`, and `npm run build`. The build
+writes production and test modules under `dist/`. Apply ordered migrations to
+Neon separately with `node scripts/migrate.mjs` using a secret `DATABASE_URL`
+in the process environment; deploying the Worker does not apply migrations.
+`node scripts/upload-payload.mjs production vars.env` creates upload metadata;
+set secret values separately through Cloudflare's secret API. A vars file may
+contain only public configuration.
 
-Migration `0002_changes_bytes.sql` is append-only and must be applied to each
-database before deploying this Worker revision. Change rows now carry an
+Migrations `0001_initial.sql` and `0002_changes_bytes.sql` are append-only.
+Apply any required migration to each database before deploying a Worker
+revision that depends on it. Change rows carry an
 additive `bytes` field. Refresh credentials now have the signed form
 `r1.<base64url 32-byte random>.<base64url HMAC-SHA256>`; the HMAC signs
 `refresh:<random>` with `SESSION_SECRET`, and SQL continues to store the hash

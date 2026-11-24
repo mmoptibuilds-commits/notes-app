@@ -8,7 +8,9 @@ export interface Database {
 export class NeonDatabase implements Database {
   constructor(
     private readonly connectionString: string,
-    private readonly fetcher: typeof fetch = fetch,
+    // Never store the bare global `fetch` and call it as a method: in Workers that
+    // throws "Illegal invocation" because `this` would be the database object.
+    private readonly fetcher: typeof fetch = (input, init) => fetch(input, init),
   ) {}
   async query<T>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
     const url = new URL(this.connectionString);

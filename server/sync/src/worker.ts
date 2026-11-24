@@ -517,7 +517,7 @@ async function route(req: Request, env: Env): Promise<Response> {
     const offset = rawOffset,
       limit = Math.min(196608, Math.max(1, rawLimit));
     const r = await database.query<any>(
-      `SELECT size,mime,$2::bigint AS offset,encode(substring(data from $2::bigint+1 for $3::integer),'base64') AS data,complete FROM blobs WHERE hash=$1 AND complete`,
+      `SELECT size,mime,$2::bigint AS offset,replace(encode(substring(data from ($2::bigint+1)::integer for $3::integer),'base64'),chr(10),'') AS data,complete FROM blobs WHERE hash=$1 AND complete`,
       [blobMatch[1], offset, limit],
     );
     return r.rows[0]
@@ -558,7 +558,9 @@ const handler = {
           ? fail("size", "Request body too large", 413)
           : e instanceof SyntaxError
             ? fail("input", "Malformed JSON", 400)
-            : fail("server", "Request failed", 500);
+            : __TEST_BUILD__
+              ? json({ error: "server", message: "Request failed", detail: String(e) }, 500)
+              : fail("server", "Request failed", 500);
     }
     const size = Number(request.headers.get("content-length") ?? 0),
       stats = responseStats.get(response) ?? {};

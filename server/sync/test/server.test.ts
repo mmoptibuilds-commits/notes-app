@@ -103,15 +103,7 @@ const request = (path: string, method = "GET", body?: unknown, token?: string) =
   });
 
 beforeAll(async () => {
-  await pg.exec(
-    "CREATE FUNCTION digest(data bytea, algorithm text) RETURNS bytea LANGUAGE SQL IMMUTABLE AS $$ SELECT CASE WHEN encode(data,'hex')='6869' THEN decode('8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4','hex') WHEN encode(data,'hex')='686958' THEN decode('e086b1b9f0b678f455968e6ddea3ad75cd67fc629b46922bd2f839b84e64e145','hex') ELSE decode(repeat('00',32),'hex') END $$",
-  );
-  await pg.exec(
-    (await readFile(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8")).replace(
-      "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
-      "",
-    ),
-  );
+  await pg.exec(await readFile(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
 });
 
 describe("cryptography and state", () => {
@@ -181,6 +173,21 @@ describe("cryptography and state", () => {
     expect(seen!.headers.get("Neon-Connection-String")).toContain("postgres://");
     expect(await seen!.json()).toEqual({ query: "SELECT $1::jsonb", params: [{ x: 1 }] });
     expect(result.rows[0]).toEqual({ result: { ok: true } });
+  });
+  it("calls the global fetch without a `this` binding (Workers throw Illegal invocation otherwise)", async () => {
+    const original = globalThis.fetch;
+    const calls: unknown[] = [];
+    globalThis.fetch = function (this: unknown, ..._args: Parameters<typeof fetch>) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      calls.push(1);
+      return Promise.resolve(Response.json({ fields: [], rows: [] }));
+    } as typeof fetch;
+    try {
+      await new NeonDatabase("postgres://user:password@db.example.invalid/app").query("SELECT 1");
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(calls).toHaveLength(1);
   });
   it("checks every Google ID token claim and its signature independently", async () => {
     const pair = await crypto.subtle.generateKey(
@@ -503,6 +510,40 @@ describe("request boundary", () => {
       env,
     );
     expect(refused.status).toBe(409);
+  });
+  it("uploads a multi-chunk blob and serves ranges with plain base64 (no line breaks)", async () => {
+    const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);
+    await pg.query("UPDATE library SET state='ready'");
+    const bytes = new Uint8Array(300);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7 + 3) % 256;
+    const hex = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const b64 = (a: Uint8Array) => btoa(String.fromCharCode(...a));
+    const put = (offset: number, chunk: Uint8Array) =>
+      worker.fetch(
+        request(
+          `/v1/blobs/${hex}`,
+          "PUT",
+          { offset, size: bytes.length, mime: "application/octet-stream", data: b64(chunk) },
+          token,
+        ),
+        env,
+      );
+    expect((await put(0, bytes.slice(0, 150))).status).toBe(200);
+    const done = await put(150, bytes.slice(150));
+    expect(done.status).toBe(200);
+    expect(((await done.json()) as { complete: boolean }).complete).toBe(true);
+    const range = await worker.fetch(
+      request(`/v1/blobs/${hex}?offset=100&limit=200`, "GET", undefined, token),
+      env,
+    );
+    expect(range.status).toBe(200);
+    const body = (await range.json()) as { data: string; size: number; offset: number };
+    expect(body.data).not.toMatch(/\s/);
+    expect(body.offset).toBe(100);
+    expect(body.size).toBe(300);
+    expect(Uint8Array.from(atob(body.data), (c) => c.charCodeAt(0))).toEqual(bytes.slice(100, 300));
   });
   it("rejects malformed JSON, wrong methods and does not enable CORS", async () => {
     const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);

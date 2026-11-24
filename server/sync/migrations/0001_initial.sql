@@ -1,4 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS library (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton), id uuid NOT NULL UNIQUE,
   state text NOT NULL CHECK (state IN ('uploading','ready')), seq bigint NOT NULL DEFAULT 0,
@@ -81,7 +80,7 @@ BEGIN
   IF octet_length(b.data)+octet_length(chunk)>p_size THEN RETURN jsonb_build_object('error','size'); END IF;
   new_data:=b.data||chunk;
   IF octet_length(new_data)=p_size THEN
-    IF encode(digest(new_data,'sha256'),'hex')<>p_hash THEN DELETE FROM blobs WHERE hash=p_hash; RETURN jsonb_build_object('error','hash'); END IF;
+    IF encode(sha256(new_data),'hex')<>p_hash THEN DELETE FROM blobs WHERE hash=p_hash; RETURN jsonb_build_object('error','hash'); END IF;
     UPDATE blobs SET data=new_data,complete=true WHERE hash=p_hash;
     RETURN jsonb_build_object('offset',p_size,'complete',true);
   END IF;

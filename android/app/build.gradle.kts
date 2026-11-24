@@ -11,6 +11,10 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    buildFeatures {
+        resValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -29,6 +33,19 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["cloudAuthScheme"] = "com.mmoptibuilds.notes"
+        resValue("string", "app_name", "Notes")
+        resValue("string", "cloud_auth_scheme", "com.mmoptibuilds.notes")
+    }
+
+    val cloudTest = providers.gradleProperty("cloudTest").orNull == "true"
+    if (cloudTest) {
+        defaultConfig {
+            applicationIdSuffix = ".cloudtest"
+            manifestPlaceholders["cloudAuthScheme"] = "com.mmoptibuilds.notes.cloudtest"
+            resValue("string", "app_name", "Notes (cloud test)")
+            resValue("string", "cloud_auth_scheme", "com.mmoptibuilds.notes.cloudtest")
+        }
     }
 
     // The release signing identity lives outside the repository. android/key.properties
@@ -70,6 +87,8 @@ android {
         release {
             if (releaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
+            } else if (cloudTest) {
+                signingConfig = signingConfigs.getByName("debug")
             }
         }
     }
@@ -83,7 +102,7 @@ android {
                 Regex("^(assemble|bundle|package|sign|validateSigning).*Release.*$"),
             )
         }
-        if (isReleasePackagingTask && !releaseSigningReady) {
+        if (isReleasePackagingTask && !cloudTest && !releaseSigningReady) {
             val missing = if (!keyFile.exists()) {
                 "android/key.properties is missing"
             } else if (missingSigningProperties.isNotEmpty()) {

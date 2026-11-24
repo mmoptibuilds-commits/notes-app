@@ -27,9 +27,8 @@ class UpdatePromptShell extends StatelessWidget {
       builder: (context, _) {
         final outcome = updates.lastOutcome;
         final status = updates.status;
-        final candidate = status is UpdateReadyToInstall
-            ? status.candidate
-            : null;
+        final ready = status is UpdateReadyToInstall ? status : null;
+        final candidate = ready?.candidate;
         if (outcome == null &&
             (candidate == null || !updates.shouldShowReadyPrompt)) {
           return child;
@@ -44,7 +43,12 @@ class UpdatePromptShell extends StatelessWidget {
                       updated: outcome.updated,
                       onDismiss: updates.dismissOutcome,
                     )
-                  : _ReadyBanner(controller: updates, candidate: candidate!),
+                  : _ReadyBanner(
+                      controller: updates,
+                      candidate: candidate!,
+                      retryMessage: ready!.message,
+                      retry: ready.retry,
+                    ),
             ),
             Expanded(
               child: MediaQuery.removePadding(
@@ -61,10 +65,17 @@ class UpdatePromptShell extends StatelessWidget {
 }
 
 class _ReadyBanner extends StatelessWidget {
-  const _ReadyBanner({required this.controller, required this.candidate});
+  const _ReadyBanner({
+    required this.controller,
+    required this.candidate,
+    required this.retryMessage,
+    required this.retry,
+  });
 
   final UpdateController controller;
   final UpdateCandidate candidate;
+  final String? retryMessage;
+  final bool retry;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +85,9 @@ class _ReadyBanner extends StatelessWidget {
       icon: Icons.system_update_alt_rounded,
       iconColor: palette.accent,
       label: 'Update ready',
-      message: 'Notes ${candidate.version} has been downloaded and verified.',
+      message: retry
+          ? retryMessage!
+          : 'Notes ${candidate.version} has been downloaded and verified.',
       actions: [
         FilledButton(
           style: FilledButton.styleFrom(
@@ -82,7 +95,7 @@ class _ReadyBanner extends StatelessWidget {
             visualDensity: VisualDensity.standard,
           ),
           onPressed: () => _confirmInstall(context, android),
-          child: const Text('Install now'),
+          child: Text(retry ? 'Retry' : 'Install now'),
         ),
         TextButton(
           style: TextButton.styleFrom(

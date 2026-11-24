@@ -70,15 +70,20 @@ lib/main.dart  main()
    `onboarding = pending` (section 2.7).
 6. `DeviceIdentity.loadOrCreate(db)`, then `SyncService` (port 47380; port 0
    for a dev instance). A settings listener keeps `sync.deviceName` current.
-7. `createPlatformInstaller(onQuit: services.quitForUpdate)` returns an
-   Android or Linux installer, null elsewhere. If non-null, build
-   `UpdateController.forApp`.
+7. Wire the Linux installer's `onPrepareQuit`, `onInstallAborted` and `onQuit`
+   callbacks to `AppServices`: prepare uses its `EditorSaveBarrier`, abort
+   releases it if helper setup fails, and quit closes services after the helper
+   starts. `createPlatformInstaller` returns an Android or Linux installer,
+   null elsewhere. If non-null, build `UpdateController.forApp`.
 8. Return `AppServices(db, notes, settings, dir, sync:, updates:)`.
 
 `AppServices.inMemory()` is the test constructor: in-memory database, no sync,
 no updater. `AppServices.close()` disposes updates, sync, settings, database.
-`quitForUpdate()` (Linux updater) waits 1 s for debounced saves, disposes sync,
-closes the database and calls `exit(0)`.
+Before the Linux helper is copied or started, `EditorSaveBarrier` freezes all
+live editor sessions and waits for their pending writes and disposed-editor
+save handoffs to confirm persistence. A failed or timed-out save releases the
+freeze and leaves Notes open for Retry. After the helper starts,
+`quitForUpdate()` disposes sync, closes the database and exits immediately.
 
 `NotesApp` (`lib/app.dart`):
 
@@ -662,16 +667,21 @@ starts an Activity in the background.
 
 Linux: `LinuxUpdateInstaller` only updates a managed install (directory
 `~/.local/opt/notes` containing `.managed-install`, written by
-`tool/linux/install.sh`). After verification it starts the helper detached and
-calls `onQuit` (`AppServices.quitForUpdate`). The helper copies itself to a
-private temp directory, waits for the app PID, validates the archive hash and
-size it was given, checks free space on the install parent before staging,
-stages beside the install, swaps directories with a retained `notes.previous`,
-and writes status to `update.json`. It holds the per-user `flock` lock across
-the swap. Linux startup checks that same lock before opening the database and
-waits briefly for a running update to finish. The helper has no network or
-signature code and never touches data, keyring or backups. A package-manager or
-unmanaged install gets `BlockKind.unmanagedInstall`.
+`tool/linux/install.sh`). After the user confirms and the app rechecks the
+ready artifact, `onPrepareQuit` freezes editors and flushes their saves before
+the installer creates a helper copy or starts a process. A failed or
+unconfirmed save returns to the ready state with **Retry**; Notes, sync and the
+database stay open, and the barrier runs again on retry. Only after the barrier
+succeeds does the installer start the helper detached and call `onQuit`
+(`AppServices.quitForUpdate`). The helper copies itself to a private temp
+directory, waits for the app PID, validates the archive hash and size it was
+given, checks free space on the install parent before staging, stages beside
+the install, swaps directories with a retained `notes.previous`, and writes
+status to `update.json`. It holds the per-user `flock` lock across the swap.
+Linux startup checks that same lock before opening the database and waits
+briefly for a running update to finish. The helper has no network or signature
+code and never touches data, keyring or backups. A package-manager or unmanaged
+install gets `BlockKind.unmanagedInstall`.
 
 Signature requirement: with a key pinned, `verifyManifest` requires a valid
 signature on both platforms. `AndroidUpdateInstaller.acceptsUnsignedManifest` is
@@ -755,8 +765,10 @@ widgets. It owns the `QuillController`, the title controller, the
 - Open writes nothing. A new note is created only on the first non-blank content
   (`flush` with no id and blank title and body does nothing).
 - Autosave: 700 ms after the last edit; on failure retry every 3 s with status
-  `failed`. `dispose` flushes; if that still failed, `_handOff` keeps retrying in
-  the background (up to 2000 attempts) so typed text is not dropped.
+  `failed`. `dispose` flushes; if that still failed, a background save handoff
+  retries up to 2000 times and remains registered with `EditorSaveBarrier` so a
+  Linux update cannot pass it without confirmation. The update barrier freezes
+  editors while it flushes, then releases them again if a save fails.
 - The visible document is never replaced by sync. A save that finds the stored
   version moved on produces a conflict copy (`onConflictCopy` shows a banner).
 - A body that cannot be parsed (`loadError`) or a trashed note opens read-only

@@ -135,8 +135,12 @@ class InstallCancelled extends InstallStart {
 }
 
 class InstallFailed extends InstallStart {
-  const InstallFailed(this.message);
+  const InstallFailed(this.message, {this.retry = false});
   final String message;
+
+  /// True when the failure can be retried from the ready state, without
+  /// downloading or re-verifying another artifact.
+  final bool retry;
 }
 
 /// What an earlier install attempt turned out to be, discovered on a later

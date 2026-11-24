@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../core/version_vector.dart';
+import '../../data/editor_save_barrier.dart';
 import '../../data/models.dart';
 import '../../data/note_repository.dart';
 import '../../doc/checklist_projection.dart';
@@ -32,9 +33,10 @@ enum SaveStatus {
 ///  * The document the user sees is never replaced behind their back: sync
 ///    that lands while editing becomes a conflict copy at the next save.
 ///  * Whatever the checklist projection hides is saved back in place.
-class EditorSession extends ChangeNotifier {
+class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   EditorSession({
     required this.repo,
+    this.saveBarrier,
     String? noteId,
     this.folderId,
     this.useCompletedSection = true,
@@ -43,9 +45,11 @@ class EditorSession extends ChangeNotifier {
     this.onConflictCopy,
   }) : _id = noteId {
     _load();
+    saveBarrier?.register(this);
   }
 
   final NoteRepository repo;
+  final EditorSaveBarrier? saveBarrier;
   final String? folderId;
   final bool useCompletedSection;
   final Duration autosaveDelay;
@@ -67,6 +71,7 @@ class EditorSession extends ChangeNotifier {
   bool _dirty = false;
   bool _applying = false;
   bool _disposed = false;
+  bool _frozenForUpdate = false;
   Timer? _timer;
   bool _extractScheduled = false;
   SaveStatus status = SaveStatus.idle;
@@ -80,8 +85,13 @@ class EditorSession extends ChangeNotifier {
   String? get noteId => _id;
 
   /// True for a note in Trash: shown read-only until restored.
-  bool get readOnly => _readOnly;
+  bool get readOnly => _readOnly || _frozenForUpdate;
+  bool get isTrashed => _readOnly && loadError == null;
+  bool get frozenForUpdate => _frozenForUpdate;
   bool _readOnly = false;
+
+  @override
+  bool get hasUnconfirmedSaves => _dirty;
 
   /// Checked items currently held in the completed section.
   List<CompletedLine> get completed => _projection.completed;
@@ -132,6 +142,15 @@ class EditorSession extends ChangeNotifier {
 
   String _lastTitle = '';
   void _onTitleChanged() {
+    if (_frozenForUpdate) {
+      _applying = true;
+      try {
+        title.text = _lastTitle;
+      } finally {
+        _applying = false;
+      }
+      return;
+    }
     if (_applying || title.text == _lastTitle) return;
     _lastTitle = title.text;
     _markDirty();
@@ -139,7 +158,7 @@ class EditorSession extends ChangeNotifier {
 
   /// Called synchronously for every change to the document.
   void _onCompose(Delta change) {
-    if (_applying) return;
+    if (_applying || _frozenForUpdate) return;
     _projection.transformBy(change);
     if (useCompletedSection &&
         !_extractScheduled &&
@@ -171,7 +190,7 @@ class EditorSession extends ChangeNotifier {
 
   void _extract() {
     _extractScheduled = false;
-    if (_disposed) return;
+    if (_disposed || _frozenForUpdate) return;
     final change = _projection.extractChecked(quill.document.toDelta());
     if (change != null) _applyProjectionChange(change);
   }
@@ -179,6 +198,7 @@ class EditorSession extends ChangeNotifier {
   /// Applies a change that the projection already accounted for. Undo
   /// history is dropped: undoing across it would act on text that has moved.
   void _applyProjectionChange(Delta change) {
+    if (_frozenForUpdate) return;
     _applying = true;
     try {
       quill.compose(change, quill.selection, ChangeSource.silent);
@@ -193,6 +213,7 @@ class EditorSession extends ChangeNotifier {
 
   /// Puts completed items back into the document, unchecked, where they were.
   void restoreCompleted(Iterable<int> ids) {
+    if (readOnly) return;
     final change = _projection.restore(ids, quill.document.toDelta());
     if (change == null) return;
     _applyProjectionChange(change);
@@ -205,6 +226,7 @@ class EditorSession extends ChangeNotifier {
   /// Deletes completed items. Returns them so the caller can offer
   /// [undoDelete].
   List<CompletedLine> deleteCompleted(Iterable<int> ids) {
+    if (readOnly) return const [];
     final gone = _projection.remove(ids);
     if (gone.isNotEmpty) {
       _markDirty();
@@ -214,6 +236,7 @@ class EditorSession extends ChangeNotifier {
   }
 
   void undoDelete(List<CompletedLine> lines) {
+    if (readOnly) return;
     _projection.putBack(lines);
     _markDirty();
     notifyListeners();
@@ -222,7 +245,7 @@ class EditorSession extends ChangeNotifier {
   // ------------------------------------------------------------- saving
 
   void _markDirty() {
-    if (_disposed || _readOnly) return;
+    if (_disposed || _readOnly || _frozenForUpdate) return;
     _dirty = true;
     final wasPending = status == SaveStatus.pending;
     status = SaveStatus.pending;
@@ -245,6 +268,29 @@ class EditorSession extends ChangeNotifier {
   /// The complete document as it should be stored.
   Delta canonicalDelta() => _projection.merge(quill.document.toDelta());
 
+  @override
+  void freezeForUpdate() {
+    if (_disposed || _frozenForUpdate) return;
+    _frozenForUpdate = true;
+    quill.readOnly = true;
+    notifyListeners();
+  }
+
+  @override
+  void unfreezeAfterUpdate() {
+    if (_disposed || !_frozenForUpdate) return;
+    _frozenForUpdate = false;
+    quill.readOnly = _readOnly;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> flushForUpdate() async {
+    if (_disposed) return;
+    _flushPending(duringUpdateBarrier: true);
+    if (_dirty) throw const EditorSaveBarrierException();
+  }
+
   /// Plain text of the whole note, title first, completed items included.
   String plainText() {
     final body = digestBody(bodyFromDelta(canonicalDelta())).plainText;
@@ -255,9 +301,18 @@ class EditorSession extends ChangeNotifier {
   /// Writes pending edits now. Safe to call at any time; does nothing when
   /// there is nothing to write.
   void flush() {
+    _flushPending();
+  }
+
+  void _flushPending({bool duringUpdateBarrier = false}) {
     _timer?.cancel();
     _timer = null;
-    if (!_dirty || _readOnly || _disposed) return;
+    if (!_dirty ||
+        _readOnly ||
+        (_frozenForUpdate && !duringUpdateBarrier) ||
+        _disposed) {
+      return;
+    }
     final body = bodyFromDelta(canonicalDelta());
     final t = title.text;
     try {
@@ -293,6 +348,7 @@ class EditorSession extends ChangeNotifier {
   /// Makes sure the note exists in the library (saving pending text) and
   /// returns its id, or null if there is nothing to store yet.
   String? ensureStored() {
+    if (_frozenForUpdate) return _id;
     flush();
     return _id;
   }
@@ -300,16 +356,19 @@ class EditorSession extends ChangeNotifier {
   NoteRecord? get stored => _id == null ? null : repo.getRecord(_id!);
 
   void setPinned(bool v) {
+    if (readOnly) return;
     final id = ensureStored();
     if (id != null) repo.setPinned([id], v);
   }
 
   void setArchived(bool v) {
+    if (readOnly) return;
     final id = ensureStored();
     if (id != null) repo.setArchived([id], v);
   }
 
   void trash() {
+    if (readOnly) return;
     final id = ensureStored();
     if (id != null) repo.trash([id]);
   }
@@ -317,7 +376,7 @@ class EditorSession extends ChangeNotifier {
   /// Takes a trashed note out of Trash and makes it editable.
   void restoreFromTrash() {
     final id = _id;
-    if (id == null) return;
+    if (id == null || _frozenForUpdate) return;
     repo.restore([id]);
     if (loadError == null) {
       _readOnly = false;
@@ -327,6 +386,7 @@ class EditorSession extends ChangeNotifier {
   }
 
   void moveToFolder(String? folderId) {
+    if (readOnly) return;
     final id = ensureStored();
     if (id != null) repo.moveToFolder([id], folderId);
   }
@@ -338,32 +398,134 @@ class EditorSession extends ChangeNotifier {
       // The last save failed (disk full, database busy...). The editor is
       // going away, so this is the only copy of the typed text: keep trying
       // in the background rather than drop it.
-      _handOff(_id, title.text, bodyFromDelta(canonicalDelta()), _base);
+      final handoff = _PendingEditorSave(
+        repo: repo,
+        barrier: saveBarrier,
+        id: _id,
+        title: title.text,
+        body: bodyFromDelta(canonicalDelta()),
+        base: _base,
+        folderId: folderId,
+        retryDelay: retryDelay,
+      );
+      handoff.start();
     }
     _disposed = true;
     _timer?.cancel();
+    saveBarrier?.unregister(this);
     title.dispose();
     scroll.dispose();
     quill.dispose();
     super.dispose();
   }
+}
 
-  /// Keeps retrying a save after the editor is closed.
-  void _handOff(String? id, String t, String body, VersionVector base) {
-    var attempts = 0;
-    void attempt() {
-      try {
-        if (id == null) {
-          if (t.trim().isEmpty && digestBody(body).isBlank) return;
-          repo.createNote(title: t, body: body, folderId: folderId);
-        } else {
-          repo.saveContent(id, title: t, body: body, base: base);
+/// Keeps a failed snapshot visible to the update barrier after its editor has
+/// been disposed, while continuing the normal background retry.
+class _PendingEditorSave implements EditorSaveParticipant {
+  _PendingEditorSave({
+    required this.repo,
+    required this.barrier,
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.base,
+    required this.folderId,
+    required this.retryDelay,
+  });
+
+  final NoteRepository repo;
+  final EditorSaveBarrier? barrier;
+  final String? folderId;
+  final Duration retryDelay;
+  String? id;
+  final String title;
+  final String body;
+  VersionVector base;
+  Timer? _retry;
+  Future<void>? _inFlight;
+  var _pending = true;
+  var _attempts = 0;
+
+  @override
+  bool get hasUnconfirmedSaves => _pending;
+
+  void start() {
+    if (barrier != null) barrier!.register(this);
+    _scheduleRetry();
+  }
+
+  void _scheduleRetry() {
+    if (!_pending || _attempts >= 2000) return;
+    _retry?.cancel();
+    _retry = Timer(retryDelay, () => unawaited(_attempt()));
+  }
+
+  Future<void> _attempt() {
+    final current = _inFlight;
+    if (current != null) return current;
+    final flight = _writeSnapshot();
+    late final Future<void> tracked;
+    tracked = flight.whenComplete(() {
+      if (identical(_inFlight, tracked)) _inFlight = null;
+    });
+    _inFlight = tracked;
+    return tracked;
+  }
+
+  Future<void> _writeSnapshot() async {
+    if (!_pending) return;
+    try {
+      final existingId = id;
+      if (existingId == null) {
+        if (title.trim().isEmpty && digestBody(body).isBlank) {
+          _finish();
+          return;
         }
-      } on Object {
-        if (++attempts < 2000) Timer(retryDelay, attempt);
+        final note = repo.createNote(
+          title: title,
+          body: body,
+          folderId: folderId,
+        );
+        id = note.id;
+        base = note.contentVv;
+      } else {
+        final result = repo.saveContent(
+          existingId,
+          title: title,
+          body: body,
+          base: base,
+        );
+        base = result.contentVv;
       }
+      _finish();
+    } on Object {
+      _attempts++;
+      _scheduleRetry();
     }
+  }
 
-    Timer(retryDelay, attempt);
+  void _finish() {
+    _pending = false;
+    _retry?.cancel();
+    _retry = null;
+    barrier?.unregister(this);
+  }
+
+  @override
+  void freezeForUpdate() {}
+
+  @override
+  void unfreezeAfterUpdate() {}
+
+  @override
+  Future<void> flushForUpdate() async {
+    if (!_pending) return;
+    _retry?.cancel();
+    _retry = null;
+    final current = _inFlight;
+    if (current != null) await current;
+    if (_pending) await _attempt();
+    if (_pending) throw const EditorSaveBarrierException();
   }
 }

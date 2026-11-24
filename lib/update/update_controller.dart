@@ -850,8 +850,8 @@ class UpdateController extends ChangeNotifier {
           );
         case InstallCancelled():
           _set(UpdateReadyToInstall(candidate));
-        case InstallFailed(:final message):
-          _set(UpdateReadyToInstall(candidate, message: message));
+        case InstallFailed(:final message, :final retry):
+          _set(UpdateReadyToInstall(candidate, message: message, retry: retry));
       }
     } on UpdateVerificationFailure catch (e) {
       store.write(UpdateKeys.readyRecord, null);

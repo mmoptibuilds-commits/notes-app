@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/platform/bootstrap.dart';
+import 'package:notes/update/installer.dart';
 import 'package:notes/ui/material.dart';
 import 'package:notes/ui/theme/app_theme.dart';
 import 'package:notes/ui/updates/update_prompt_shell.dart';
@@ -192,5 +193,39 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a failed save barrier leaves a clear Retry action', (
+    tester,
+  ) async {
+    await createReady(tester);
+    await pump(tester);
+    world.installer.installResult = const InstallFailed(
+      'Some note changes could not be saved. Notes is still open with your '
+      'edits. Resolve the save problem, then choose Retry.',
+      retry: true,
+    );
+    await tester.runAsync(world.controller.install);
+    await tester.pump();
+
+    final status = world.controller.status as UpdateReadyToInstall;
+    expect(status.retry, isTrue);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(
+      find.textContaining('Some note changes could not be saved'),
+      findsOneWidget,
+    );
+
+    final context = tester.element(find.byKey(const Key('editor-field')));
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => UpdatesScreen(
+          controller: world.controller,
+          settings: services.settings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
   });
 }

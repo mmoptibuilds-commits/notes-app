@@ -679,6 +679,25 @@ void main() {
       await w.controller.install();
       statusIs<UpdateInstallationHandedToOs>();
     });
+
+    test(
+      'a save barrier failure keeps the ready update explicitly retryable',
+      () async {
+        await setUpWorld();
+        await ready();
+        const message = 'Some note changes could not be saved. Choose Retry.';
+        w.installer.installResult = const InstallFailed(message, retry: true);
+
+        await w.controller.install();
+
+        final status = statusIs<UpdateReadyToInstall>();
+        expect(status.message, message);
+        expect(status.retry, isTrue);
+        w.installer.installResult = const InstallHandedToOs(willRestart: true);
+        await w.controller.install();
+        statusIs<UpdateInstallationHandedToOs>();
+      },
+    );
   });
 
   group('restoring verified ready updates', () {

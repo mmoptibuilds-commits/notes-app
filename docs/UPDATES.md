@@ -49,8 +49,10 @@ the XDG state updates directory. Restore and every install repeat signature,
 expiry, replay-order, file-size and SHA-256 checks. Android also repeats package
 id, versionCode and pinned signing-certificate checks. The app-level ready
 banner offers **Install now** and **Later**; Later hides it for the rest of that
-launch, while Settings → Updates continues to offer Install. Installation always
-waits for the app confirmation and the platform installer confirmation.
+launch, while Settings → Updates continues to offer Install. If the Linux save
+barrier fails, the banner and Updates screen instead offer **Retry** after the
+save problem is resolved. Installation always waits for the app confirmation
+and the platform installer confirmation.
 
 **Manual installs.** Users verify with OpenSSL 3 as described in README
 "Verify a Linux download". Maintainers can also run
@@ -137,14 +139,20 @@ always list the same keys.
 
 ## Linux helper
 
-After the app verifies the manifest and artifact hash/size, it can pass the
-archive and signed metadata values to the installed helper. The helper copies
-itself to a private temporary directory before execution, waits for the app to
-exit, validates the archive, stages it beside the installation, then swaps
-program directories. It uses `flock`, checks the managed marker and current
-user ownership, and never runs `sudo`. It has no network or signature
-verification code: the app is responsible for verification before invoking
-it. Status is written to
+After the user confirms and the app rechecks the manifest signature and
+artifact hash/size, the Linux installer freezes open editors and flushes their
+pending saves. This barrier also sees retry snapshots from editors that have
+already closed. If a save fails or remains unconfirmed, Notes stays open with
+the edits available, sync and the database remain open, and the ready update
+offers **Retry**. No helper is copied or started until a retry confirms every
+save. After the barrier succeeds, Notes passes the archive and signed metadata
+values to the installed helper and exits only after the helper starts. The
+helper copies itself to a private temporary directory before execution, waits
+for the app to exit, validates the archive, stages it beside the installation,
+then swaps program directories. It uses `flock`, checks the managed marker
+and current user ownership, and never runs `sudo`. It has no network or
+signature verification code: the app is responsible for verification before
+invoking it. Status is written to
 `${XDG_STATE_HOME:-~/.local/state}/com.mmoptibuilds.notes/updater/update.json`.
 The helper holds `${stateDir}/lock` with `flock` from before its process scan
 through the swap. Startup checks the same lock before opening the database,

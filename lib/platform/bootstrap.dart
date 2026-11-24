@@ -13,6 +13,8 @@ import '../data/editor_save_barrier.dart';
 import '../data/note_repository.dart';
 import '../sync/peers.dart';
 import '../sync/sync_service.dart';
+import '../sync/cloud/cloud_api.dart';
+import '../sync/cloud/cloud_service.dart';
 import '../update/platform_installer.dart';
 import '../update/update_controller.dart';
 
@@ -24,6 +26,7 @@ class AppServices {
     this.settings,
     this.dataDir, {
     this.sync,
+    this.cloud,
     this.updates,
     EditorSaveBarrier? saveBarrier,
     this.exitProcess = exit,
@@ -35,6 +38,9 @@ class AppServices {
 
   /// Device sync. Null in tests that do not exercise it.
   final SyncService? sync;
+
+  /// Optional private cloud sync, null when no server URL is configured.
+  final CloudService? cloud;
 
   /// Update checking and installation. Null in tests and on platforms without
   /// self-update.
@@ -77,6 +83,7 @@ class AppServices {
   Future<void> quitForUpdate() async {
     try {
       sync?.dispose();
+      cloud?.dispose();
     } on Object {
       // The helper is waiting for this process to exit; keep shutting down.
     }
@@ -92,6 +99,7 @@ class AppServices {
   void close() {
     updates?.dispose();
     sync?.dispose();
+    cloud?.dispose();
     settings.dispose();
     db.close();
   }
@@ -265,12 +273,32 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   final updates = installer == null
       ? null
       : UpdateController.forApp(settings: settings, installer: installer);
+  const compiledCloudUrl = String.fromEnvironment('NOTES_CLOUD_URL');
+  final cloudUrl = Platform.isLinux
+      ? (Platform.environment['NOTES_CLOUD_URL'] ?? compiledCloudUrl)
+      : compiledCloudUrl;
+  final cloudSessionStore = const SecureCloudSessionStore();
+  final cloud = cloudUrl.isEmpty
+      ? null
+      : CloudService(
+          repo: notes,
+          api: HttpCloudApi(
+            baseUrl: Uri.parse(cloudUrl),
+            sessions: cloudSessionStore,
+          ),
+          sessions: cloudSessionStore,
+          dataDir: dir,
+          deviceName: settings.deviceName,
+          loginLauncher: null,
+          unavailable: false,
+        );
   services = AppServices(
     db,
     notes,
     settings,
     dir,
     sync: sync,
+    cloud: cloud,
     updates: updates,
   );
   return services;

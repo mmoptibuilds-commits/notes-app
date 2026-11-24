@@ -572,7 +572,10 @@ void main() {
     pull(rb, applyA);
     pull(ra, applyB);
     for (final repo in [ra, rb]) {
-      final texts = {for (final s in repo.listNotes()) s.preview};
+      final texts = {
+        for (final s in repo.listNotes()) s.preview,
+        for (final s in repo.listNotes(scope: NoteScope.conflicts)) s.preview,
+      };
       expect(texts, {
         'laptop edit',
         'phone edit',

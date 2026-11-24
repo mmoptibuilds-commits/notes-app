@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/core/ids.dart';
 import 'package:notes/data/app_database.dart';
+import 'package:notes/data/models.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/sync/merge.dart';
 import 'package:notes/sync/peers.dart';
@@ -211,7 +212,11 @@ void main() {
     expect(a.dump(), b.dump());
     for (final d in [a, b]) {
       expect(
-        {for (final s in d.repo.listNotes()) s.preview},
+        {
+          for (final s in d.repo.listNotes()) s.preview,
+          for (final s in d.repo.listNotes(scope: NoteScope.conflicts))
+            s.preview,
+        },
         {'laptop edit', 'phone edit'},
       );
       expect(d.repo.counts().conflicts, 1);
@@ -480,7 +485,11 @@ void main() {
           }
           expect(x.dump(), y.dump(), reason: 'cut $cut did not recover');
           expect(
-            {for (final s in x.repo.listNotes()) s.preview},
+            {
+              for (final s in x.repo.listNotes()) s.preview,
+              for (final s in x.repo.listNotes(scope: NoteScope.conflicts))
+                s.preview,
+            },
             containsAll(['X edit', 'Y edit']),
             reason: 'cut $cut lost an edit',
           );

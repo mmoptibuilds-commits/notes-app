@@ -217,7 +217,7 @@ class _CloudScreenState extends State<CloudScreen> {
         Text('Upload this library', style: _titleStyle(context)),
         const SizedBox(height: 8),
         Text(
-          '${summary['notes'] ?? 0} notes · ${summary['folders'] ?? 0} folders · ${summary['images'] ?? 0} images · ${_size(summary['bytes'] ?? 0)}',
+          '${_plural(summary['notes'] ?? 0, 'note')} · ${_plural(summary['folders'] ?? 0, 'folder')} · ${_plural(summary['images'] ?? 0, 'image')} · ${_size(summary['bytes'] ?? 0)}',
         ),
         const SizedBox(height: 8),
         const Text(
@@ -242,7 +242,7 @@ class _CloudScreenState extends State<CloudScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              'Verified: ${backup.notes} notes, ${backup.folders} folders, ${backup.attachments} images\n${backup.path}',
+              'Verified: ${_plural(backup.notes, 'note')}, ${_plural(backup.folders, 'folder')}, ${_plural(backup.attachments, 'image')}\n${backup.path}',
             ),
           ),
         const SizedBox(height: 16),
@@ -592,3 +592,5 @@ String _date(DateTime value) {
   final period = local.hour < 12 ? 'AM' : 'PM';
   return '${months[local.month - 1]} ${local.day}, $hour:$minute $period';
 }
+
+String _plural(int n, String noun) => '$n ${n == 1 ? noun : '${noun}s'}';

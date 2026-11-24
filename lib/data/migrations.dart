@@ -1,6 +1,6 @@
 /// Schema migrations. Append only: once a version has shipped, its entry never
 /// changes. `migrations[i]` upgrades a database from version `i` to `i + 1`.
-const List<List<String>> migrations = [_v1, _v2, _v3];
+const List<List<String>> migrations = [_v1, _v2, _v3, _v4];
 
 int get schemaVersion => migrations.length;
 
@@ -177,5 +177,23 @@ const _v3 = <String>[
     reason TEXT NOT NULL,
     raw TEXT NOT NULL
   )
+  ''',
+];
+
+// v4: per-record cloud revision/base bookkeeping. Cloud cursors and state are
+// stored in local_meta so they remain device-local.
+const _v4 = <String>[
+  '''
+  CREATE TABLE cloud_notes (
+    kind TEXT NOT NULL CHECK(kind IN ('note', 'folder')),
+    id TEXT NOT NULL,
+    rev INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    base_title TEXT,
+    base_body TEXT,
+    base_vv TEXT,
+    base_hlc TEXT,
+    PRIMARY KEY(kind, id)
+  ) WITHOUT ROWID
   ''',
 ];

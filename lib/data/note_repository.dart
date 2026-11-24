@@ -545,6 +545,37 @@ class NoteRepository {
       (r['local_seq'] as int, _folderRecord(r)),
   ];
 
+  /// A bounded, sequence-ordered page across both record kinds.
+  List<({int seq, String kind, Object record})> cloudRecordsSince(
+    int seq, {
+    int limit = 100,
+  }) {
+    final rows = <({int seq, String kind, Object record})>[
+      for (final (s, r) in noteRecordsSince(seq))
+        (seq: s, kind: 'note', record: r),
+      for (final (s, r) in folderRecordsSince(seq))
+        (seq: s, kind: 'folder', record: r),
+    ]..sort((a, b) => a.seq.compareTo(b.seq));
+    return rows.take(limit).toList();
+  }
+
+  Uint8List? attachmentBytes(String hash) => getAttachment(hash);
+
+  /// Stores a downloaded attachment after the caller has verified its hash.
+  void storeCloudAttachment(String hash, String mime, Uint8List bytes) {
+    if (sha256Hex(bytes) != hash) {
+      throw const FormatException('Attachment hash mismatch.');
+    }
+    db.transaction(() {
+      db.execute(
+        '''INSERT INTO attachments(hash,mime,size,data,created_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(hash) DO UPDATE SET mime=excluded.mime,size=excluded.size,data=excluded.data''',
+        [hash, mime, bytes.length, bytes, _now()],
+      );
+      db.markChanged();
+    });
+  }
+
   /// Inserts or replaces a note row exactly as given (after normalising it),
   /// recomputes everything derived from the body, and queues it for sync.
   ///

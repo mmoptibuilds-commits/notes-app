@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_quill/flutter_quill.dart'
     show FlutterQuillLocalizations;
@@ -52,13 +53,14 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
       (_) => services.updates?.scheduleStartupCheck(),
     );
     WidgetsBinding.instance.addObserver(this);
+    services.notes.changes.addListener(_onLocalChange);
+    unawaited(services.cloud?.start());
     final sync = services.sync;
     if (sync == null) return;
     // Catch up with paired devices shortly after the app opens.
     sync.start().then(
       (_) => sync.requestAutoSync(after: const Duration(seconds: 2)),
     );
-    services.notes.changes.addListener(_onLocalChange);
   }
 
   void _onLocalChange() {
@@ -76,6 +78,14 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
       unawaited(services.updates?.checkAutomatically());
     }
     final sync = services.sync;
+    final cloud = services.cloud;
+    if (cloud != null) {
+      if (state == AppLifecycleState.resumed) {
+        unawaited(cloud.start());
+      } else if (Platform.isAndroid && state == AppLifecycleState.paused) {
+        unawaited(cloud.stop());
+      }
+    }
     if (sync == null) return;
     if (state == AppLifecycleState.resumed) {
       sync.start().then(

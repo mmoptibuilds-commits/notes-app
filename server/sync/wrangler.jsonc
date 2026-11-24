@@ -1,0 +1,8 @@
+{
+  "name": "notes-cloud-sync",
+  "main": "dist/worker.production.js",
+  "compatibility_date": "2026-11-24",
+  "durable_objects": { "bindings": [{ "name": "COORDINATOR", "class_name": "Coordinator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Coordinator"] }],
+  "vars": { "ENVIRONMENT": "production", "GOOGLE_CLIENT_ID": "replace-with-public-client-id", "PUBLIC_URL": "https://replace.invalid", "ALLOWED_REDIRECTS": "[\"com.mmoptibuilds.notes:/cloud-auth\",\"http://127.0.0.1/\"]" }
+}

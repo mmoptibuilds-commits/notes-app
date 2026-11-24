@@ -158,3 +158,35 @@ guard without building a signed release. The workflow runs formatting,
 analysis and tests on pushes; check the run for the exact release commit before
 distributing. Actions are pinned to full commit SHAs (with the version in a
 comment).
+
+<!-- BEGIN MANUAL RELEASE SMOKE -->
+## Manual Android and Linux release-build checks
+
+The dispatch workflow must exist on the repository's default branch before it
+can be run. To check the workflow on `main`:
+
+```sh
+gh workflow run release-smoke.yml --ref main
+gh run watch <run-id> --exit-status
+```
+
+The Android job builds the arm64 release APK, signs it with a freshly generated
+temporary CI certificate, and checks its signature, app id, version name and
+code, and arm64 library contents. The Linux job builds the release package and
+checks its executable, bundled libraries, installer, uninstaller, update
+helper, desktop entry, icon, four font OFL texts, `BUILD` file and SHA-256
+sidecar. The workflow requests read-only repository contents and uploads no
+build artifacts.
+
+These checks prove that both release build paths and their package contents
+work for the dispatched commit. The Android certificate exists only for that
+CI run and is not the production release key. This is not a release: the APK
+is not signed for updates and cannot be installed over a production Notes
+installation. The checks do not publish artifacts or validate production
+signing continuity, manifest signing, or installation on a device.
+
+### Protection of main
+
+_Coordinator placeholder: record the rules applied to `main` and how the owner
+can change them._
+<!-- END MANUAL RELEASE SMOKE -->

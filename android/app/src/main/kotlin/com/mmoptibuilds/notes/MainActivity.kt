@@ -18,10 +18,55 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingBytes: ByteArray? = null
     private var updaterPlugin: UpdaterPlugin? = null
+    private var pendingAuthUri: String? = null
+    private var cloudLoginChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        captureAuthIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureAuthIntent(intent)
+    }
+
+    private fun captureAuthIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != getString(R.string.cloud_auth_scheme) || uri.path != "/cloud-auth") return
+        val value = uri.toString()
+        val channel = cloudLoginChannel
+        pendingAuthUri = value
+        channel?.invokeMethod("authUri", value)
+        intent.data = null
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         updaterPlugin = UpdaterPlugin.register(flutterEngine, this)
+        cloudLoginChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CLOUD_LOGIN_CHANNEL)
+        cloudLoginChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "openUrl" -> {
+                    val url = call.argument<String>("url")
+                    if (url == null) {
+                        result.error("bad_args", "url is required", null)
+                    } else try {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("no_browser", "No browser is available", null)
+                    }
+                }
+                "consumeInitialUri" -> {
+                    result.success(pendingAuthUri)
+                    pendingAuthUri = null
+                }
+                "redirectUri" -> result.success(getString(R.string.cloud_auth_scheme) + ":/cloud-auth")
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method != "saveFile") {
@@ -104,6 +149,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "com.mmoptibuilds.notes/save"
+        private const val CLOUD_LOGIN_CHANNEL = "com.mmoptibuilds.notes/cloudlogin"
         private const val REQUEST_SAVE = 4711
     }
 }

@@ -86,4 +86,18 @@ void main() {
     ).readAsStringSync();
     expect(kt, contains('UpdaterPlugin.register(flutterEngine, this)'));
   });
+
+  test('cloud redirect filter is the single browsable scheme callback', () {
+    expect(
+      manifest,
+      contains(
+        '<data android:scheme="\${cloudAuthScheme}" android:path="/cloud-auth"/>',
+      ),
+    );
+    expect(
+      manifest,
+      contains('<category android:name="android.intent.category.BROWSABLE"/>'),
+    );
+    expect(manifest, contains('android:launchMode="singleTop"'));
+  });
 }

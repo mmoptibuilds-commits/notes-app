@@ -55,8 +55,15 @@ cd ../..                                  # return to the repository root
 tool/build_cloudtest_apk.sh --dart-define=NOTES_CLOUD_URL=https://<test worker>
 ```
 
-`tool/cloud_device_test.sh` is not present in the tracked `tool/` files yet.
-TODO (coordinator): document its two-device invocation when that script exists.
+Two-device test (Linux plus an Android device or emulator, isolated
+`com.mmoptibuilds.notes.cloudtest` app id, test Worker only):
+
+```bash
+tool/cloud_device_test.sh <adb-serial> https://<test-worker-url>
+```
+
+Details, scope and limits: `tool/cloud_device_test.md`. For a single-process run
+of the same scenario: `CLOUD_LIVE_URL=<test-worker-url> flutter test test/live/cloud_scenario_test.dart`.
 
 For a Linux development instance, set both its data directory and explicit
 test endpoint. With no explicit endpoint, a `NOTES_DATA_DIR` instance has no

@@ -13,7 +13,10 @@ tool/cloud_device_test.sh <android-serial> https://example.invalid
 
 The script builds a debug APK with `ORG_GRADLE_PROJECT_cloudTest=true` and JDK
 21, checks its package id is exactly `com.mmoptibuilds.notes.cloudtest`, then
-installs only that APK with `adb install -r -s <serial>`. It starts Linux and
+lets `flutter drive` install only that APK (same package id, `-r`; the live
+`com.mmoptibuilds.notes` app is never touched). The build ABI follows the device
+(arm64 phone or x86_64 emulator). Before starting, `tool/cloud_test_reset.dart`
+resets the test library so neither role can see a stale one. It starts Linux and
 Android integration tests concurrently, stores both logs in a temporary
 directory, and reports each side's result and failing scenario step. A lock
 prevents overlapping runs. The test signs both devices out in `finally` so the
@@ -30,5 +33,8 @@ offline edits and merge behavior, Review edits conflicts, simultaneous clean
 merges, retry after a committed push response is lost, deletion states,
 metadata propagation and final record digest convergence. It does not exercise
 the browser hop or Android deep link; those are verified separately. The test
-Worker is reset by the Linux role, so do not run another test against that
-deployment at the same time.
+Worker is reset by the script before both roles start, so do not run another
+test against that deployment at the same time. The phone can start minutes after
+Linux (a wireless-ADB install), so the first handshake waits up to 15 minutes;
+offline edits wait 8 seconds before reconnecting so both sides edit before
+either syncs.

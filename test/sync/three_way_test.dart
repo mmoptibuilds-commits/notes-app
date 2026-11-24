@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/core/hlc.dart';
 import 'package:notes/core/version_vector.dart';
+import 'package:notes/data/app_database.dart';
 import 'package:notes/data/models.dart';
+import 'package:notes/data/note_repository.dart';
 import 'package:notes/doc/delta_text.dart';
 import 'package:notes/sync/merge.dart';
 import 'package:notes/sync/three_way.dart';
@@ -134,6 +136,138 @@ void main() {
       );
       expect(
         jsonEncode(result.conflictLoser?.toJson()),
+        jsonEncode(expected.conflictLoser?.toJson()),
+      );
+    });
+
+    test('a text merge keeps a trashed note trashed, also once stored', () {
+      final local = record(
+        title: 'base title',
+        text: 'A\nb\nc',
+        vv: {'base': 1, 'left': 1},
+        hlc: const Hlc(20, 0, 'left'),
+      ).copyWith(trashedAt: 500, trashedHlc: const Hlc(100, 0, 'trash'));
+      final remote = record(
+        title: 'base title',
+        text: 'a\nB\nc',
+        vv: {'base': 1, 'right': 1},
+        hlc: const Hlc(30, 0, 'right'),
+      );
+      expect(mergeNotes(local, remote).merged.trashedAt, 500);
+      final actual = mergeNotesThreeWay(
+        local,
+        remote,
+        base: MergeBase(
+          title: 'base title',
+          body: body('a\nb\nc'),
+          contentVv: VersionVector({'base': 1}),
+        ),
+        node: 'merge-node',
+        now: const Hlc(900, 0, 'merge-node'),
+      ).merged;
+      expect(actual.trashedAt, 500);
+      // The stored row must survive NoteRepository's own normalisation.
+      final db = AppDatabase.open(null);
+      addTearDown(db.close);
+      final repo = NoteRepository(db);
+      db.transaction(() => repo.writeRecord(actual));
+      expect(repo.getRecord(actual.id)!.trashedAt, 500);
+    });
+
+    test('an edit newer than the trash still restores the note, as on LAN', () {
+      final local = record(
+        title: 'base title',
+        text: 'A\nb\nc',
+        vv: {'base': 1, 'left': 1},
+        hlc: const Hlc(20, 0, 'left'),
+      ).copyWith(trashedAt: 500, trashedHlc: const Hlc(10, 0, 'trash'));
+      final remote = record(
+        title: 'base title',
+        text: 'a\nB\nc',
+        vv: {'base': 1, 'right': 1},
+        hlc: const Hlc(30, 0, 'right'),
+      );
+      expect(mergeNotes(local, remote).merged.trashedAt, isNull);
+      final actual = mergeNotesThreeWay(
+        local,
+        remote,
+        base: MergeBase(
+          title: 'base title',
+          body: body('a\nb\nc'),
+          contentVv: VersionVector({'base': 1}),
+        ),
+        node: 'merge-node',
+        now: const Hlc(900, 0, 'merge-node'),
+      ).merged;
+      expect(actual.trashedAt, isNull);
+    });
+
+    test('a base not dominated by both sides falls back exactly', () {
+      final local = record(
+        title: 'local',
+        text: 'local',
+        vv: {'local': 2},
+        hlc: const Hlc(20, 0, 'local'),
+      );
+      final remote = record(
+        title: 'remote',
+        text: 'remote',
+        vv: {'remote': 2},
+        hlc: const Hlc(30, 0, 'remote'),
+      );
+      for (final invalidBase in [
+        MergeBase(
+          title: base.title,
+          body: base.body,
+          contentVv: VersionVector({'future': 1}),
+        ),
+      ]) {
+        final actual = mergeNotesThreeWay(
+          local,
+          remote,
+          base: invalidBase,
+          node: 'm',
+          now: const Hlc(40, 0, 'm'),
+        );
+        final expected = mergeNotes(local, remote);
+        expect(
+          jsonEncode(actual.merged.toJson()),
+          jsonEncode(expected.merged.toJson()),
+        );
+        expect(
+          jsonEncode(actual.conflictLoser?.toJson()),
+          jsonEncode(expected.conflictLoser?.toJson()),
+        );
+      }
+    });
+
+    test('purged concurrent content falls back exactly', () {
+      final live = record(
+        title: 'live',
+        text: 'live text',
+        vv: {'base': 1, 'live': 1},
+        hlc: const Hlc(20, 0, 'live'),
+      );
+      final purged = record(
+        title: '',
+        text: '',
+        vv: {'base': 1, 'purged': 1},
+        hlc: const Hlc(30, 0, 'purged'),
+      ).copyWith(purged: true, body: emptyBodyJson);
+      final expected = mergeNotes(live, purged);
+      final actual = mergeNotesThreeWay(
+        live,
+        purged,
+        base: base,
+        node: 'm',
+        now: const Hlc(40, 0, 'm'),
+      );
+      expect(
+        jsonEncode(actual.merged.toJson()),
+        jsonEncode(expected.merged.toJson()),
+      );
+      expect(
+        jsonEncode(actual.conflictLoser?.toJson()),
         jsonEncode(expected.conflictLoser?.toJson()),
       );
     });

@@ -58,18 +58,27 @@ NoteMerge mergeNotesThreeWay(
   if (body.isConflict) return fallback;
 
   final version = fallback.merged.contentVv.increment(node);
-  return NoteMerge(
-    NoteRepository.normalise(
-      fallback.merged.copyWith(
-        title: title,
-        body: body.body!,
-        contentVv: version,
-        contentHlc: now,
-        updatedAt: now.millis,
-      ),
+  final normalised = NoteRepository.normalise(
+    fallback.merged.copyWith(
+      title: title,
+      body: body.body!,
+      contentVv: version,
+      contentHlc: now,
+      updatedAt: now.millis,
     ),
-    null,
   );
+  // The text merge creates a fresh content clock, but a merge is not a user
+  // edit and must not rewrite an independent register. `mergeNotes` already
+  // decided whether the trash register survives (a genuinely newer edit
+  // restores the note, exactly as on LAN). If it stays trashed, stamp the
+  // register with the merge clock too: otherwise `writeRecord` would run
+  // `normalise`, see content newer than the trash stamp, and silently restore
+  // the note.
+  final stillTrashed = fallback.merged.trashedAt;
+  final merged = stillTrashed == null
+      ? normalised.copyWith(trashedAt: null)
+      : normalised.copyWith(trashedAt: stillTrashed, trashedHlc: now);
+  return NoteMerge(merged, null);
 }
 
 bool _baseIncluded(VersionVector base, VersionVector side) =>

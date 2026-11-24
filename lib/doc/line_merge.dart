@@ -19,6 +19,13 @@ class LineMergeResult {
 /// memory while still making small edits to large documents cheap.
 LineMergeResult mergeBodies(String base, String local, String remote) {
   try {
+    if (base == local && local == remote) {
+      // Validate once, then retain the original valid encoding. Besides being
+      // lossless for opaque embeds, this keeps very large unchanged documents
+      // from being decoded and re-encoded three times.
+      _lines(local);
+      return LineMergeResult.merged(local);
+    }
     final b = _lines(base);
     final l = _lines(local);
     final r = _lines(remote);
@@ -30,23 +37,27 @@ LineMergeResult mergeBodies(String base, String local, String remote) {
     if (left == null || right == null) return const LineMergeResult.conflict();
 
     final all = <_Hunk>[];
-    final consumed = List<bool>.filled(right.length, false);
-    for (final a in left) {
-      var duplicate = false;
-      for (var i = 0; i < right.length; i++) {
-        final c = right[i];
-        if (_sameHunk(a, c)) {
-          consumed[i] = true;
-          duplicate = true;
-          break;
-        }
-        if (_overlap(a, c)) return const LineMergeResult.conflict();
+    var leftIndex = 0;
+    var rightIndex = 0;
+    while (leftIndex < left.length && rightIndex < right.length) {
+      final a = left[leftIndex];
+      final c = right[rightIndex];
+      if (_sameHunk(a, c)) {
+        all.add(a);
+        leftIndex++;
+        rightIndex++;
+      } else if (_overlap(a, c)) {
+        return const LineMergeResult.conflict();
+      } else if (_comesBefore(a, c)) {
+        all.add(a);
+        leftIndex++;
+      } else {
+        all.add(c);
+        rightIndex++;
       }
-      if (!duplicate) all.add(a);
     }
-    for (var i = 0; i < right.length; i++) {
-      if (!consumed[i]) all.add(right[i]);
-    }
+    all.addAll(left.skip(leftIndex));
+    all.addAll(right.skip(rightIndex));
     all.sort((a, b) {
       final start = a.start.compareTo(b.start);
       if (start != 0) return start;
@@ -60,11 +71,15 @@ LineMergeResult mergeBodies(String base, String local, String remote) {
     var cursor = 0;
     for (final hunk in all) {
       if (hunk.start < cursor) return const LineMergeResult.conflict();
-      output.addAll(b.skip(cursor).take(hunk.start - cursor));
+      for (var i = cursor; i < hunk.start; i++) {
+        output.add(b[i]);
+      }
       output.addAll(hunk.replacement);
       cursor = hunk.end;
     }
-    output.addAll(b.skip(cursor));
+    for (var i = cursor; i < b.length; i++) {
+      output.add(b[i]);
+    }
     if (output.isEmpty || !output.last.endsWithNewline) {
       return const LineMergeResult.conflict();
     }
@@ -79,9 +94,13 @@ LineMergeResult mergeBodies(String base, String local, String remote) {
   }
 }
 
-bool _sameLines(List<_Line> a, List<_Line> b) =>
-    a.length == b.length &&
-    List.generate(a.length, (i) => a[i].key == b[i].key).every((same) => same);
+bool _sameLines(List<_Line> a, List<_Line> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].key != b[i].key) return false;
+  }
+  return true;
+}
 
 String _serialize(List<_Line> lines) =>
     jsonEncode(_canonical(_coalesce([for (final line in lines) ...line.ops])));
@@ -190,6 +209,11 @@ bool _sameHunk(_Hunk a, _Hunk b) =>
     a.start == b.start &&
     a.end == b.end &&
     _replacementKey(a.replacement) == _replacementKey(b.replacement);
+
+bool _comesBefore(_Hunk a, _Hunk b) {
+  if (a.start != b.start) return a.start < b.start;
+  return a.end < b.end;
+}
 
 bool _overlap(_Hunk a, _Hunk b) {
   final aInsert = a.start == a.end;

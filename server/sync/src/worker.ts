@@ -4,11 +4,13 @@ import {
   accessToken,
   base64url,
   randomToken,
+  refreshToken,
   readState,
   redirectAllowed,
   sha256,
   signedState,
   verifyAccess,
+  verifyRefreshToken,
   verifyGoogleIdToken,
 } from "./auth.js";
 declare const __TEST_BUILD__: boolean;
@@ -27,6 +29,7 @@ export interface Env {
 }
 const MAX_BODY = 256 * 1024;
 const responseStats = new WeakMap<Response, { rows?: number; bytes?: number }>();
+const requestBytes = new WeakMap<Request, number>();
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { "cache-control": "no-store" } });
 const fail = (error: string, message: string, status: number) => json({ error, message }, status);
@@ -41,6 +44,7 @@ async function limitedText(req: Request, limit = MAX_BODY): Promise<string> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
+    requestBytes.set(req, size);
     if (size > limit) {
       await reader.cancel();
       throw new Error("large");
@@ -53,6 +57,7 @@ async function limitedText(req: Request, limit = MAX_BODY): Promise<string> {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  requestBytes.set(req, size);
   return new TextDecoder().decode(bytes);
 }
 const parseJson = async (req: Request) => JSON.parse(await limitedText(req)) as Record<string, any>;
@@ -239,7 +244,7 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (!code || code.exp <= Date.now() || (await sha256(body.verifier)) !== code.challenge)
       return fail("auth", "Invalid or expired code", 401);
     const database = db(env),
-      refresh = randomToken(),
+      refresh = await refreshToken(env.SESSION_SECRET),
       digest = await sha256(refresh),
       name = String(code.name).slice(0, 80);
     const inserted = await database.query<{ id: string }>(
@@ -254,9 +259,10 @@ async function route(req: Request, env: Env): Promise<Response> {
   }
   if (path === "/v1/auth/refresh" && method === "POST") {
     const body = await parseJson(req);
-    if (typeof body.refresh !== "string") return fail("input", "Invalid refresh request", 400);
+    if (typeof body.refresh !== "string" || !(await verifyRefreshToken(env.SESSION_SECRET, body.refresh)))
+      return fail("auth", "Invalid refresh token", 401);
     const old = await sha256(body.refresh),
-      next = randomToken(),
+      next = await refreshToken(env.SESSION_SECRET),
       nextHash = await sha256(next);
     const result = await db(env).query<{ id: string; current: boolean }>(
       `WITH candidate AS (SELECT id,(refresh_hash=$1) AS current FROM devices WHERE revoked_at IS NULL AND (refresh_hash=$1 OR (previous_refresh_hash=$1 AND previous_until>now())) LIMIT 1 FOR UPDATE) UPDATE devices d SET previous_refresh_hash=CASE WHEN c.current THEN d.refresh_hash ELSE d.previous_refresh_hash END,previous_until=CASE WHEN c.current THEN now()+interval '60 seconds' ELSE d.previous_until END,refresh_hash=CASE WHEN c.current THEN $2 ELSE $1 END,last_seen=now() FROM candidate c WHERE d.id=c.id RETURNING d.id,c.current`,
@@ -373,6 +379,8 @@ async function route(req: Request, env: Env): Promise<Response> {
         Array.isArray(row.row)
       )
         return fail("input", "Invalid record", 400);
+      if (new TextEncoder().encode(JSON.stringify(row.row)).byteLength > 180 * 1024)
+        return fail("row_too_large", "Record exceeds the sync size limit", 413);
     }
     const result = await database.query<any>(
         "SELECT sync_push($1::uuid,$2::uuid,$3::jsonb) AS result",
@@ -390,21 +398,21 @@ async function route(req: Request, env: Env): Promise<Response> {
       const response = json({ results: value.results, head: value.head, headStale: true });
       responseStats.set(response, {
         rows: b.rows.length,
-        bytes: new TextEncoder().encode(JSON.stringify(b.rows)).byteLength,
+        bytes: requestBytes.get(req) ?? 0,
       });
       return response;
     }
     const response = json({ results: value.results, head: value.head });
     responseStats.set(response, {
       rows: b.rows.length,
-      bytes: new TextEncoder().encode(JSON.stringify(b.rows)).byteLength,
+      bytes: requestBytes.get(req) ?? 0,
     });
     return response;
   }
   if (path === "/v1/changes" && method === "GET") {
     const since = Number(url.searchParams.get("since") ?? "0"),
       rawLimit = Number(url.searchParams.get("limit") ?? 50),
-      rawBytes = Number(url.searchParams.get("maxBytes") ?? 204800);
+      rawBytes = Number(url.searchParams.get("maxBytes") ?? 262144);
     if (
       !Number.isSafeInteger(since) ||
       since < 0 ||
@@ -420,7 +428,7 @@ async function route(req: Request, env: Env): Promise<Response> {
       kept: any[] = [],
       bytes = 256;
     for (const item of rows) {
-      const n = new TextEncoder().encode(JSON.stringify(item)).byteLength + (kept.length ? 1 : 0);
+      const n = Number(item.bytes) + 128 + (kept.length ? 1 : 0);
       if (!kept.length && bytes + n > maxBytes)
         return fail("row_too_large", "One record exceeds the requested page size", 413);
       if (kept.length && bytes + n > maxBytes) break;
@@ -563,7 +571,7 @@ const handler = {
               ? json({ error: "server", message: "Request failed", detail: String(e) }, 500)
               : fail("server", "Request failed", 500);
     }
-    const size = Number(request.headers.get("content-length") ?? 0),
+    const size = requestBytes.get(request) ?? Number(request.headers.get("content-length") ?? 0),
       stats = responseStats.get(response) ?? {};
     log(routeName, response.status, started, {
       rows: stats.rows ?? 0,

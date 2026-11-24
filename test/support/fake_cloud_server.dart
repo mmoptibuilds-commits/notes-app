@@ -18,6 +18,8 @@ class FakeCloudServer implements CloudApi {
   String createdAt = '2026-01-01T00:00:00.000Z';
   int seq = 0;
   int requestCount = 0;
+  int headCalls = 0, changesCalls = 0, pushCalls = 0;
+  int blobPutCalls = 0;
   int? failAtRequest;
   int? failStatusAtRequest;
   String? failRetryAfter;
@@ -26,7 +28,11 @@ class FakeCloudServer implements CloudApi {
   bool reverseChanges = false;
   bool headStale = false;
   bool malformedNextResponse = false;
+  CloudErrorKind? refreshFailure;
+  String refreshError = 'auth';
+  Duration? refreshRetryAfter;
   Future<void> Function()? beforeNextPush;
+  Future<void> Function()? beforeMarkReady;
   Duration responseDelay = Duration.zero;
   final records = <String, CloudRecord>{};
   final blobs = <String, Uint8List>{};
@@ -66,6 +72,43 @@ class FakeCloudServer implements CloudApi {
           } else {
             response.write(
               jsonEncode({'libraryId': libraryId, 'state': state, 'seq': seq}),
+            );
+          }
+        } else if (request.uri.path == '/v1/auth/refresh' &&
+            request.method == 'POST') {
+          if (refreshFailure != null) {
+            response.statusCode = switch (refreshFailure!) {
+              CloudErrorKind.unauthorized => 401,
+              CloudErrorKind.rateLimited => 429,
+              CloudErrorKind.server => 503,
+              _ => 500,
+            };
+            if (refreshRetryAfter case final delay?) {
+              response.headers.set(
+                HttpHeaders.retryAfterHeader,
+                '${delay.inSeconds}',
+              );
+            }
+            response.write(
+              jsonEncode(
+                _error(
+                  refreshFailure == CloudErrorKind.unauthorized
+                      ? refreshError
+                      : 'retry',
+                  'Refresh failed.',
+                ),
+              ),
+            );
+          } else {
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            response.write(
+              jsonEncode({
+                'deviceId': 'test-device',
+                'access': 'new-access',
+                'accessExp': 9999999999,
+                'refresh': body['refresh'],
+              }),
             );
           }
         } else {
@@ -149,7 +192,7 @@ class FakeCloudServer implements CloudApi {
       deviceId: deviceId,
       access: 'test-access',
       accessExp: DateTime.now().millisecondsSinceEpoch ~/ 1000 + 43200,
-      refresh: 'test-refresh',
+      refresh: 'r1.${'A' * 43}.${'B' * 43}',
     );
   }
 
@@ -173,6 +216,7 @@ class FakeCloudServer implements CloudApi {
 
   @override
   Future<Map<String, Object?>> head() async {
+    headCalls++;
     await _before();
     return {'libraryId': libraryId, 'state': state, 'seq': seq};
   }
@@ -209,6 +253,7 @@ class FakeCloudServer implements CloudApi {
   @override
   Future<void> markReady(String id) async {
     await _before();
+    await beforeMarkReady?.call();
     if (id != libraryId ||
         uploaderDeviceId != deviceId ||
         state != 'uploading') {
@@ -225,8 +270,9 @@ class FakeCloudServer implements CloudApi {
     String id,
     int since, {
     int limit = 50,
-    int maxBytes = 204800,
+    int maxBytes = 256 * 1024,
   }) async {
+    changesCalls++;
     await _before();
     if (id != libraryId) {
       throw const CloudApiException(
@@ -280,6 +326,7 @@ class FakeCloudServer implements CloudApi {
     String batchId,
     List<CloudPushItem> incoming,
   ) async {
+    pushCalls++;
     await _before();
     final hook = beforeNextPush;
     beforeNextPush = null;
@@ -407,6 +454,7 @@ class FakeCloudServer implements CloudApi {
     String mime,
     Uint8List data,
   ) async {
+    blobPutCalls++;
     await _before();
     if (size < 0 ||
         size > 20 * 1024 * 1024 ||

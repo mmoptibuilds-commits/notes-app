@@ -32,6 +32,17 @@ export async function verify(secret: string, text: string, signature: string): P
     return false;
   }
 }
+export async function refreshToken(secret: string): Promise<string> {
+  const random = randomToken(32);
+  return `r1.${random}.${await sign(secret, `refresh:${random}`)}`;
+}
+export async function verifyRefreshToken(secret: string, token: string): Promise<boolean> {
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts[0] !== "r1" || !/^[A-Za-z0-9_-]{43}$/.test(parts[1]) || !/^[A-Za-z0-9_-]{43}$/.test(parts[2])) return false;
+  try {
+    return unb64(parts[1]).length === 32 && await verify(secret, `refresh:${parts[1]}`, parts[2]);
+  } catch { return false; }
+}
 export async function accessToken(secret: string, dev: string, exp: number): Promise<string> {
   const payload = b64(enc.encode(JSON.stringify({ dev, exp })));
   return `v1.${payload}.${await sign(secret, `v1.${payload}`)}`;

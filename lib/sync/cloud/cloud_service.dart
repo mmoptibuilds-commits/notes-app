@@ -35,6 +35,9 @@ class CloudStatus {
     this.uploadProgress = const CloudSyncProgress(),
     this.joinProgress = const CloudSyncProgress(),
     this.needsAttention = false,
+    this.oversizedRows = 0,
+    this.oversizedAttachments = 0,
+    this.quarantinedRows = 0,
   });
   final CloudPhase phase;
   final bool syncing;
@@ -43,7 +46,11 @@ class CloudStatus {
   final int pendingRows;
   final CloudSyncProgress uploadProgress, joinProgress;
   final bool needsAttention;
+  final int oversizedRows, oversizedAttachments, quarantinedRows;
 }
+
+typedef CloudTimerFactory = Timer Function(Duration, void Function());
+typedef CloudPeriodicTimerFactory = Timer Function(Duration, void Function());
 
 class VerifiedBackup {
   const VerifiedBackup(this.path, this.notes, this.folders, this.attachments);
@@ -99,7 +106,18 @@ class CloudService extends ChangeNotifier {
     required this.deviceName,
     required this.loginLauncher,
     required this.unavailable,
-  }) : engine = CloudSyncEngine(repo, api) {
+    DateTime Function()? clock,
+    CloudTimerFactory? timerFactory,
+    CloudPeriodicTimerFactory? periodicTimerFactory,
+    bool Function()? platformIsAndroid,
+  }) : clock = clock ?? DateTime.now,
+       timerFactory = timerFactory ?? Timer.new,
+       periodicTimerFactory =
+           periodicTimerFactory ??
+           ((duration, callback) =>
+               Timer.periodic(duration, (_) => callback())),
+       platformIsAndroid = platformIsAndroid ?? (() => Platform.isAndroid),
+       engine = CloudSyncEngine(repo, api) {
     _enabled =
         repo.db.getMeta('cloud.enabled') == 'on' ||
         (repo.db.getMeta('cloud.enabled') == null &&
@@ -124,6 +142,10 @@ class CloudService extends ChangeNotifier {
   final CloudLoginLauncher? loginLauncher;
   final bool unavailable;
   final CloudSyncEngine engine;
+  final DateTime Function() clock;
+  final CloudTimerFactory timerFactory;
+  final CloudPeriodicTimerFactory periodicTimerFactory;
+  final bool Function() platformIsAndroid;
   Timer? _poll, _debounce, _retry;
   int _failures = 0;
   DateTime? _lastNeonBackstop;
@@ -164,6 +186,9 @@ class CloudService extends ChangeNotifier {
     uploadProgress: engine.progress,
     joinProgress: _joinProgress,
     needsAttention: _needsAttention,
+    oversizedRows: engine.oversizedRows.length,
+    oversizedAttachments: engine.oversizedAttachments.length,
+    quarantinedRows: engine.quarantinedRows,
   );
   int get _pendingCount => repo
       .cloudRecordsSince(
@@ -312,7 +337,7 @@ class CloudService extends ChangeNotifier {
     final file = File(
       p.join(
         dir.path,
-        'cloud-${DateTime.now().toUtc().millisecondsSinceEpoch}.notes-export',
+        'cloud-${clock().toUtc().millisecondsSinceEpoch}.notes-export',
       ),
     );
     final tmp = File('${file.path}.tmp');
@@ -367,35 +392,53 @@ class CloudService extends ChangeNotifier {
     if (!File(backup.path).existsSync()) {
       throw StateError('A verified backup is required.');
     }
+    final snapshot = repo.db.transaction(
+      () => (
+        seq: repo.db.currentSeq,
+        export: exportAll(repo, now: clock()),
+        records: repo.cloudRecordsSince(0, limit: 1000000),
+        missingAttachments: repo.db.select('''
+        SELECT DISTINCT na.hash FROM note_attachments na
+        LEFT JOIN attachments a ON a.hash=na.hash
+        WHERE a.data IS NULL
+      '''),
+      ),
+    );
+    if (snapshot.missingAttachments.isNotEmpty) {
+      throw const CloudBackupException(
+        'Some note attachments are missing locally.',
+      );
+    }
+    final currentSnapshot = parseExport(snapshot.export);
     final verified = parseExport(await File(backup.path).readAsString());
     if (verified.notes.length != backup.notes ||
         verified.folders.length != backup.folders ||
         verified.attachments.length != backup.attachments) {
       throw StateError('The verified backup has changed.');
     }
-    for (final note in verified.notes) {
-      final current = repo.getRecord(note.id);
-      if (current == null || recordDigest(current) != recordDigest(note)) {
-        throw StateError('The library changed after backup verification.');
-      }
-    }
-    for (final folder in verified.folders) {
-      final current = repo.getFolderRecord(folder.id);
-      if (current == null || recordDigest(current) != recordDigest(folder)) {
-        throw StateError('The library changed after backup verification.');
-      }
-    }
-    final dbHashes = repo.db
-        .select('SELECT hash FROM attachments WHERE data IS NOT NULL')
-        .map((row) => row['hash'] as String)
-        .toSet();
-    if (!verified.attachments.every(
-      (attachment) =>
-          dbHashes.contains(attachment.hash) &&
-          sha256.convert(attachment.data).toString() == attachment.hash,
-    )) {
+    final backupNotes = {for (final n in verified.notes) n.id: recordDigest(n)};
+    final snapshotNotes = {
+      for (final n in currentSnapshot.notes) n.id: recordDigest(n),
+    };
+    final backupFolders = {
+      for (final f in verified.folders) f.id: recordDigest(f),
+    };
+    final snapshotFolders = {
+      for (final f in currentSnapshot.folders) f.id: recordDigest(f),
+    };
+    final backupAttachments = {
+      for (final a in verified.attachments)
+        a.hash: sha256.convert(a.data).toString(),
+    };
+    final snapshotAttachments = {
+      for (final a in currentSnapshot.attachments)
+        a.hash: sha256.convert(a.data).toString(),
+    };
+    if (!_sameMap(backupNotes, snapshotNotes) ||
+        !_sameMap(backupFolders, snapshotFolders) ||
+        !_sameMap(backupAttachments, snapshotAttachments)) {
       throw const CloudBackupException(
-        'The verified backup attachments changed.',
+        'The library changed after backup verification.',
       );
     }
     final resumingUpload = repo.db.getMeta('cloud.phase') == 'uploading';
@@ -423,7 +466,7 @@ class CloudService extends ChangeNotifier {
         }
         id = existing.libraryId;
         if (existing.state == 'ready') {
-          _lastSync = DateTime.now();
+          _lastSync = clock();
           _lastError = null;
           repo.db.transaction(() {
             repo.db.setMeta('cloud.phase', 'ready');
@@ -432,6 +475,9 @@ class CloudService extends ChangeNotifier {
               '${_lastSync!.millisecondsSinceEpoch}',
             );
           });
+          _enabled = true;
+          repo.db.transaction(() => repo.db.setMeta('cloud.enabled', 'on'));
+          await start();
           return;
         }
         if (existing.state != 'uploading') {
@@ -448,9 +494,19 @@ class CloudService extends ChangeNotifier {
         id = init['libraryId'] as String;
       }
       repo.db.transaction(() => repo.db.setMeta('cloud.library_id', id));
-      final hashes = verified.attachments.map((a) => a.hash).toList();
+      final uploadAttachments = currentSnapshot.attachments
+          .where((a) => a.size <= 20 * 1024 * 1024)
+          .toList();
+      engine.oversizedAttachments
+        ..clear()
+        ..addAll(
+          currentSnapshot.attachments
+              .where((a) => a.size > 20 * 1024 * 1024)
+              .map((a) => a.hash),
+        );
+      final hashes = uploadAttachments.map((a) => a.hash).toList();
       final blobState = await api.checkBlobs(hashes);
-      for (final attachment in verified.attachments) {
+      for (final attachment in uploadAttachments) {
         if (!blobState.missing.contains(attachment.hash) &&
             !blobState.partial.containsKey(attachment.hash)) {
           continue;
@@ -478,109 +534,126 @@ class CloudService extends ChangeNotifier {
         }
       }
       final total = _pendingCount;
-      final uploadSnapshotSeq = repo.db.currentSeq;
+      final uploadSnapshotSeq = snapshot.seq;
       var done = resumingUpload
           ? int.tryParse(repo.db.getMeta('cloud.upload_progress') ?? '') ?? 0
           : 0;
       for (final kind in ['folder', 'note']) {
-        var afterSeq = 0;
-        while (true) {
-          final page = repo.cloudRecordsSince(afterSeq, limit: 300);
-          if (page.isEmpty) break;
-          afterSeq = page.last.seq;
-          final rows = page
-              .where((r) => r.seq <= uploadSnapshotSeq && r.kind == kind)
-              .where((r) {
-                final rowId = switch (r.record) {
-                  NoteRecord n => n.id,
-                  FolderRecord f => f.id,
-                  _ => '',
-                };
-                final saved = repo.db.select(
-                  'SELECT digest FROM cloud_notes WHERE kind=? AND id=?',
-                  [kind, rowId],
-                );
-                return saved.isEmpty ||
-                    saved.first['digest'] != recordDigest(r.record);
-              })
-              .toList();
-          final batches = _boundedUploadBatches(rows);
-          for (final batch in batches) {
-            final push = [
-              for (final r in batch)
-                () {
-                  final row = switch (r.record) {
-                    NoteRecord n => n.toJson(),
-                    FolderRecord f => f.toJson(),
-                    _ => throw StateError('bad record'),
-                  };
-                  final old = repo.db.select(
-                    'SELECT rev FROM cloud_notes WHERE kind=? AND id=?',
-                    [kind, row['id']],
-                  );
-                  return CloudPushItem(
-                    kind,
-                    row['id'] as String,
-                    old.isEmpty ? 0 : old.first['rev'] as int,
-                    recordDigest(row),
-                    row,
-                  );
-                }(),
-            ];
-            final results = await api.push(
-              id,
-              'upload-${repo.db.deviceId}-${batch.first.seq}',
-              push,
-            );
-            if (results.length != push.length ||
-                push.any(
-                  (item) => !results.any(
-                    (result) =>
-                        result.kind == item.kind && result.id == item.id,
-                  ),
-                )) {
-              throw const CloudApiException(
-                CloudErrorKind.malformed,
-                'Cloud returned incomplete upload results.',
+        final rows = snapshot.records
+            .where((r) => r.seq <= uploadSnapshotSeq && r.kind == kind)
+            .where((r) {
+              final rowId = switch (r.record) {
+                NoteRecord n => n.id,
+                FolderRecord f => f.id,
+                _ => '',
+              };
+              final saved = repo.db.select(
+                'SELECT digest FROM cloud_notes WHERE kind=? AND id=?',
+                [kind, rowId],
               );
-            }
-            repo.db.transaction(() {
-              for (final result in results) {
-                final sent = push.firstWhere((item) => item.id == result.id);
-                final row = sent.row;
-                repo.db.execute(
-                  '''INSERT INTO cloud_notes(kind,id,rev,digest,base_title,base_body,base_vv,base_hlc)
+              return saved.isEmpty ||
+                  saved.first['digest'] != recordDigest(r.record);
+            })
+            .toList();
+        final eligibleRows = <({int seq, String kind, Object record})>[];
+        for (final row in rows) {
+          final json = switch (row.record) {
+            NoteRecord note => note.toJson(),
+            FolderRecord folder => folder.toJson(),
+            _ => const <String, Object?>{},
+          };
+          if (utf8.encode(jsonEncode(json)).length > 180 * 1024) {
+            engine.oversizedRows.add('$kind:${json['id']}');
+          } else {
+            eligibleRows.add(row);
+          }
+        }
+        final batches = _boundedUploadBatches(eligibleRows);
+        for (final batch in batches) {
+          final push = [
+            for (final r in batch)
+              () {
+                final row = switch (r.record) {
+                  NoteRecord n => n.toJson(),
+                  FolderRecord f => f.toJson(),
+                  _ => throw StateError('bad record'),
+                };
+                final old = repo.db.select(
+                  'SELECT rev FROM cloud_notes WHERE kind=? AND id=?',
+                  [kind, row['id']],
+                );
+                return CloudPushItem(
+                  kind,
+                  row['id'] as String,
+                  old.isEmpty ? 0 : old.first['rev'] as int,
+                  recordDigest(row),
+                  row,
+                );
+              }(),
+          ];
+          final results = await api.push(
+            id,
+            'upload-${repo.db.deviceId}-${batch.first.seq}',
+            push,
+          );
+          if (results.length != push.length ||
+              push.any(
+                (item) => !results.any(
+                  (result) => result.kind == item.kind && result.id == item.id,
+                ),
+              )) {
+            throw const CloudApiException(
+              CloudErrorKind.malformed,
+              'Cloud returned incomplete upload results.',
+            );
+          }
+          repo.db.transaction(() {
+            for (final result in results) {
+              final sent = push.firstWhere((item) => item.id == result.id);
+              final row = sent.row;
+              repo.db.execute(
+                '''INSERT INTO cloud_notes(kind,id,rev,digest,base_title,base_body,base_vv,base_hlc)
                 VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET rev=excluded.rev,digest=excluded.digest,
                 base_title=excluded.base_title,base_body=excluded.base_body,base_vv=excluded.base_vv,base_hlc=excluded.base_hlc''',
-                  [
-                    kind,
-                    result.id,
-                    result.rev,
-                    sent.digest,
-                    kind == 'note' ? row['title'] : row['name'],
-                    kind == 'note' ? row['body'] : null,
-                    kind == 'note' ? jsonEncode(row['contentVv']) : null,
-                    kind == 'note' ? row['contentHlc'] : null,
-                  ],
-                );
-              }
-            });
-            done += results.length;
-            engine.progress = CloudSyncProgress(uploaded: done, total: total);
-            repo.db.transaction(
-              () => repo.db.setMeta('cloud.upload_progress', '$done'),
-            );
-            onProgress?.call(engine.progress);
-            notifyListeners();
-          }
-          if (page.length < 300) break;
+                [
+                  kind,
+                  result.id,
+                  result.rev,
+                  sent.digest,
+                  kind == 'note' ? row['title'] : row['name'],
+                  kind == 'note' ? row['body'] : null,
+                  kind == 'note' ? jsonEncode(row['contentVv']) : null,
+                  kind == 'note' ? row['contentHlc'] : null,
+                ],
+              );
+            }
+          });
+          done += results.length;
+          engine.progress = CloudSyncProgress(uploaded: done, total: total);
+          repo.db.transaction(
+            () => repo.db.setMeta('cloud.upload_progress', '$done'),
+          );
+          onProgress?.call(engine.progress);
+          notifyListeners();
+        }
+      }
+      var uploadCursor = uploadSnapshotSeq;
+      for (final item in snapshot.records) {
+        final itemId = switch (item.record) {
+          NoteRecord note => note.id,
+          FolderRecord folder => folder.id,
+          _ => '',
+        };
+        if (engine.oversizedRows.contains('${item.kind}:$itemId')) {
+          uploadCursor = item.seq - 1;
+          break;
         }
       }
       repo.db.transaction(
-        () => repo.db.setMeta('cloud.push_seq', '$uploadSnapshotSeq'),
+        () => repo.db.setMeta('cloud.push_seq', '$uploadCursor'),
       );
       await api.markReady(id);
-      _lastSync = DateTime.now();
+      _lastSync = clock();
       _lastError = null;
       repo.db.transaction(() {
         repo.db.setMeta('cloud.phase', 'ready');
@@ -589,8 +662,14 @@ class CloudService extends ChangeNotifier {
           '${_lastSync!.millisecondsSinceEpoch}',
         );
       });
+      _enabled = true;
+      repo.db.transaction(() => repo.db.setMeta('cloud.enabled', 'on'));
+      await start();
     } catch (e) {
-      _lastError = 'Upload could not finish.';
+      _lastError = e is CloudBackupException
+          ? e.message
+          : 'Upload could not finish.';
+      _needsAttention = true;
       rethrow;
     } finally {
       _uploading = false;
@@ -717,14 +796,9 @@ class CloudService extends ChangeNotifier {
     // Link only after both endpoints agree on the same library.
     repo.db.transaction(() => repo.db.setMeta('cloud.library_id', id));
     repo.db.transaction(() => repo.db.setMeta('cloud.phase', 'signedIn'));
-    if (_enabled) {
-      await start();
-      await syncNow();
-    } else {
-      engine.resume();
-      await engine.sync();
-      _lastSync = DateTime.now();
-    }
+    _enabled = true;
+    repo.db.transaction(() => repo.db.setMeta('cloud.enabled', 'on'));
+    await start();
   }
 
   Future<void> syncNow() async {
@@ -764,7 +838,8 @@ class CloudService extends ChangeNotifier {
       }
       _signedIn = true;
       await engine.sync();
-      _lastSync = DateTime.now();
+      _failures = 0;
+      _lastSync = clock();
       _lastNeonBackstop = _lastSync;
       repo.db.transaction(() {
         repo.db.setMeta('cloud.phase', 'ready');
@@ -773,8 +848,26 @@ class CloudService extends ChangeNotifier {
           '${_lastSync!.millisecondsSinceEpoch}',
         );
       });
-      if (engine.unavailableBlobs.isNotEmpty) {
-        _lastError = 'Some attachments could not sync and will be retried.';
+      if (engine.unavailableBlobs.isNotEmpty ||
+          engine.oversizedRows.isNotEmpty ||
+          engine.oversizedAttachments.isNotEmpty ||
+          engine.quarantinedRows > 0) {
+        final messages = <String>[];
+        if (engine.unavailableBlobs.isNotEmpty) {
+          messages.add('Some attachments could not sync and will be retried.');
+        }
+        if (engine.oversizedRows.isNotEmpty) {
+          messages.add('Some notes are too large to sync.');
+        }
+        if (engine.oversizedAttachments.isNotEmpty) {
+          messages.add('Some attachments are too large to sync.');
+        }
+        if (engine.quarantinedRows > 0) {
+          messages.add(
+            '${engine.quarantinedRows} cloud records need attention.',
+          );
+        }
+        _lastError = messages.join(' ');
         _needsAttention = true;
       } else {
         _lastError = null;
@@ -813,7 +906,7 @@ class CloudService extends ChangeNotifier {
   }
 
   Future<void> start() async {
-    if (unavailable || _running) return;
+    if (unavailable) return;
     await restoreState();
     if (_signedIn && repo.db.getMeta('cloud.phase') == 'uploading') {
       unawaited(_resumeUpload());
@@ -826,14 +919,26 @@ class CloudService extends ChangeNotifier {
       return;
     }
     engine.resume();
+    final wasRunning = _running;
     _running = true;
-    repo.changes.addListener(_localChanged);
+    if (!wasRunning) repo.changes.addListener(_localChanged);
     await _runSync();
-    _lastNeonBackstop ??= DateTime.now();
-    _poll = Timer.periodic(
+    _lastNeonBackstop ??= clock();
+    _poll ??= periodicTimerFactory(
       const Duration(seconds: 30),
-      (_) => unawaited(_pollHead()),
+      () => unawaited(_pollHead()),
     );
+  }
+
+  Future<void> lifecycleChanged({
+    required bool resumed,
+    required bool paused,
+  }) async {
+    if (resumed) {
+      await start();
+    } else if (paused && platformIsAndroid()) {
+      await stop();
+    }
   }
 
   Future<void> _pollHead() async {
@@ -850,8 +955,7 @@ class CloudService extends ChangeNotifier {
       if ((h['seq'] as int) >
               (int.tryParse(repo.db.getMeta('cloud.pull_seq') ?? '') ?? 0) ||
           _lastNeonBackstop == null ||
-          DateTime.now().difference(_lastNeonBackstop!) >=
-              const Duration(hours: 1)) {
+          clock().difference(_lastNeonBackstop!) >= const Duration(hours: 1)) {
         await _runSync();
       }
     } on Object {
@@ -861,15 +965,21 @@ class CloudService extends ChangeNotifier {
 
   void _localChanged() {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 20), () => unawaited(_runSync()));
+    _debounce = timerFactory(
+      const Duration(seconds: 20),
+      () => unawaited(_runSync()),
+    );
   }
 
   Future<void> stop() async {
     _running = false;
     engine.cancel();
     _poll?.cancel();
+    _poll = null;
     _debounce?.cancel();
+    _debounce = null;
     _retry?.cancel();
+    _retry = null;
     repo.changes.removeListener(_localChanged);
   }
 
@@ -884,7 +994,7 @@ class CloudService extends ChangeNotifier {
     final wait = serverDelay ?? backoff[_failures.clamp(0, backoff.length - 1)];
     _failures++;
     _retry?.cancel();
-    _retry = Timer(wait, () => unawaited(_runSync()));
+    _retry = timerFactory(wait, () => unawaited(_runSync()));
   }
 
   Future<void> _resumeUpload() async {
@@ -918,6 +1028,9 @@ class CloudService extends ChangeNotifier {
       );
       if (library.state == 'ready') {
         repo.db.transaction(() => repo.db.setMeta('cloud.phase', 'ready'));
+        _enabled = true;
+        repo.db.transaction(() => repo.db.setMeta('cloud.enabled', 'on'));
+        await start();
         return;
       }
       await uploadLibrary(await createVerifiedBackup());
@@ -953,14 +1066,14 @@ List<List<({int seq, String kind, Object record})>> _boundedUploadBatches(
       _ => const <String, Object?>{},
     };
     final size = utf8.encode(jsonEncode(json)).length + 128;
-    if (size > 240 * 1024) {
+    if (utf8.encode(jsonEncode(json)).length > 180 * 1024) {
       throw const CloudApiException(
         CloudErrorKind.malformed,
         'A record is too large to upload.',
       );
     }
     if (current.isNotEmpty &&
-        (current.length >= 50 || bytes + size > 240 * 1024)) {
+        (current.length >= 50 || bytes + size > 256 * 1024)) {
       batches.add(current);
       current = <({int seq, String kind, Object record})>[];
       bytes = 0;

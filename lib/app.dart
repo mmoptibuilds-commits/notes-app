@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_quill/flutter_quill.dart'
     show FlutterQuillLocalizations;
@@ -80,11 +79,12 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
     final sync = services.sync;
     final cloud = services.cloud;
     if (cloud != null) {
-      if (state == AppLifecycleState.resumed) {
-        unawaited(cloud.start());
-      } else if (Platform.isAndroid && state == AppLifecycleState.paused) {
-        unawaited(cloud.stop());
-      }
+      unawaited(
+        cloud.lifecycleChanged(
+          resumed: state == AppLifecycleState.resumed,
+          paused: state == AppLifecycleState.paused,
+        ),
+      );
     }
     if (sync == null) return;
     if (state == AppLifecycleState.resumed) {

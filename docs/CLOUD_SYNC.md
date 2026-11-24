@@ -21,6 +21,14 @@ from the vendors' pages on 2026-11-24):
 | Neon Free storage / egress | 1 GB, 5 GB per month | Library today is about 1.4 MB (61 notes, 3 images, 483 KB of images) |
 | Durable Objects Free | SQLite-backed classes only | Use `new_sqlite_classes` |
 
+Unified payload limits: a serialized record row is at most **180 KiB**, an
+individual attachment is at most **20 MiB**, a push batch is at most 50 rows /
+256 KiB, and a change page is requested at 256 KiB (the Worker maximum). The
+client leaves oversized notes and attachments locally, reports them in cloud
+status, and continues syncing other records. The Worker returns 413 for a row
+over 180 KiB. Change-feed rows include an additive `bytes` field containing
+`octet_length(row::text)`; clients ignore it when decoding the record itself.
+
 The Worker is a thin, authenticated, revisioned record store with a change
 feed and a blob store. **All merging happens in the Dart client**, which already
 has `merge.dart`, `RemoteApplier` and their tests. The server can read synced
@@ -98,7 +106,15 @@ held only as a Worker secret; the app protocol does not change.)
 
 Access token: `v1.<base64url payload>.<base64url HMAC-SHA256>`, payload
 `{dev, exp}`, lifetime 12 hours, verified with Web Crypto without touching the
-database. Refresh tokens are 32 random bytes; only their SHA-256 is stored.
+database. Refresh tokens use
+`r1.<base64url 32 random bytes>.<base64url HMAC-SHA256>`; the HMAC covers
+`refresh:<random>` with `SESSION_SECRET`. The Worker verifies this format and
+signature before querying Neon, while SQL stores and compares the SHA-256 of
+the full token. Random or malformed refresh strings return 401 without database
+work. The unauthenticated token exchange reaches Neon only after the
+Coordinator consumes a valid one-time code and the PKCE verifier matches;
+invalid and replayed exchanges do not reach Neon. Callback uses
+Google/Coordinator, while health, auth start and head use no database.
 Every non-auth route rejects a missing, malformed, expired or wrongly signed
 token **before** any Neon call (the workers.dev URL is public and Neon compute
 hours are the scarce resource). Revocation is checked on routes that touch Neon.
@@ -135,7 +151,7 @@ A record is one note row or one folder row exactly as the app serializes it
 | `GET /v1/library` | yes | yes | `{libraryId, state, createdAt, seq, counts:{notes,folders,blobs}, uploaderDeviceId}` or 404 when none |
 | `POST /v1/library/init` | yes | yes | `{libraryId, deviceId}`: creates the singleton in state `uploading`; 409 with the existing library if there is one |
 | `POST /v1/library/ready` | yes | yes | `{libraryId}`: `uploading` to `ready` (joiners require `ready`) |
-| `GET /v1/changes?since=&limit=&maxBytes=` | yes | yes | records with `seq > since`, ascending; `{libraryId, rows, next, more, head}`; defaults 50 rows / 200 KiB, maximum 100 / 256 KiB |
+| `GET /v1/changes?since=&limit=&maxBytes=` | yes | yes | records with `seq > since`, ascending; `{libraryId, rows, next, more, head}`; defaults 50 rows / 256 KiB, maximum 100 / 256 KiB |
 | `POST /v1/push` | yes | yes | section 3.5 |
 | `GET /v1/manifest?after=&limit=` | yes | yes | `{items:[{kind,id,rev,digest}], next, more}`, ordered by `(kind,id)`, up to 500 items, for the join dry run |
 | `POST /v1/blobs/check` | yes | yes | `{hashes:[up to 100]}` returns `{missing:[...], partial:{hash:length}}` |
@@ -143,7 +159,8 @@ A record is one note row or one folder row exactly as the app serializes it
 | `GET /v1/blobs/{sha256}?offset=&limit=` | yes | yes | `{size, mime, offset, data(base64), complete}`, at most 192 KiB per response |
 | `POST /v1/test/reset` | test only | yes | empties the library (test deployment only) |
 
-The Worker never decodes or encodes blob bytes: Postgres does
+Migration `0002_changes_bytes.sql` adds the per-row `bytes` response field; it
+must be applied before deploying the bundle that consumes it. The Worker never decodes or encodes blob bytes: Postgres does
 (`encode(substring(...),'base64')`, `decode($1,'base64')`, built-in `sha256()`).
 
 ### 3.5 Push (all or nothing, retry safe)
@@ -213,7 +230,10 @@ repeated in ARCHITECTURE.md with measured numbers from the test deployment.
    `observe` calls: rows go through `RemoteApplier`-equivalent merge. When the local
    row is concurrent with the pulled row and a base exists, use
    `threeWayMerge` (section 6). Otherwise use `mergeNotes` (whole-document conflict
-   copy). Clock skew guard (2 days) applies as on LAN.
+   copy). Clock skew guard (2 days) applies as on LAN. Malformed rows are kept
+   in bounded quarantine, counted in cloud status, and retried before each later
+   pull; a newer version replaces a quarantined copy. The cursor moves past a
+   malformed row so it cannot block other records.
 2. Push: candidates are rows with `local_seq > push_seq` whose digest differs
    from `cloud_notes.digest` (so rows merely received from the server are not
    echoed back). Send in batches of at most 50 rows / 256 KiB with
@@ -249,7 +269,8 @@ by default; the switch and its state are per device.
 
 * **Upload** (one device, after an explicit confirmation in the app): first a
   verified backup (existing export written atomically, then re-read, parsed with
-  `parseExport` and compared by counts and content digests with the database),
+  `parseExport` and compared with the same consistent read snapshot of rows,
+  attachments and local sequence),
   then `library/init`, blobs, folders and notes in batches (progress persisted;
   resumable after a crash or lost connection), then `library/ready`.
 * **Join** (every other device): read-only dry run first. Compare
@@ -260,6 +281,10 @@ by default; the switch and its state are per device.
   nothing is written, both copies stay as they are, and the screen shows the
   report. Joining writes bookkeeping only (`cloud_notes`, cursors), then pulls.
   An empty device joins by pulling.
+
+Run the live integration check against an isolated test Worker with
+`CLOUD_LIVE_URL=https://<test-worker> flutter test test/live/cloud_live_test.dart`.
+Without `CLOUD_LIVE_URL`, it is skipped with an explanatory message.
 
 ### 5.5 Sign-in on the device
 

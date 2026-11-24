@@ -56,6 +56,9 @@ import 'package:integration_test/integration_test_driver.dart';
 Future<void> main() => integrationDriver();
 DART
 
+echo "Resetting the test library..."
+dart run tool/cloud_test_reset.dart "$worker_url"
+
 set +e
 flutter test integration_test/cloud_device_test.dart -d linux \
   --dart-define=CLOUD_ROLE=L \

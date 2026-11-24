@@ -35,9 +35,9 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
     try {
       await action();
       pass(name);
-    } on Object {
+    } on Object catch (e) {
       // ignore: avoid_print
-      print('FAIL $name');
+      print('FAIL $name: $e');
       rethrow;
     }
   }
@@ -68,22 +68,9 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         .subtract(const Duration(seconds: 15))
         .millisecondsSinceEpoch;
 
-    await step('sign in', () async {
-      await cloudService.signIn();
-      if (role == CloudScenarioRole.linux) {
-        final session = await sessions.read();
-        if (session == null) throw StateError('sign in did not create session');
-        await _postJson(
-          worker.resolve('/v1/test/reset'),
-          session.access,
-          const {},
-        );
-        // Give the peer a polling window to observe the empty head before this
-        // role initializes the fresh library. This prevents stale readiness
-        // from a previous live run being mistaken for this run's upload.
-        await Future<void>.delayed(const Duration(seconds: 2));
-      }
-    });
+    // The caller resets the test library before either role starts
+    // (tool/cloud_test_reset.dart), so no role can observe a stale library.
+    await step('sign in', cloudService.signIn);
 
     if (role == CloudScenarioRole.linux) {
       await step('L creates and uploads initial library', () async {
@@ -92,7 +79,11 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         repo.createNote(
           id: _n1,
           title: 'Device test N1',
-          body: _body(['N1 first line', 'N1 second line'], image),
+          body: _body([
+            'N1 first line',
+            'N1 spacer line',
+            'N1 second line',
+          ], image),
           folderId: folder.id,
         );
         repo.createNote(
@@ -110,7 +101,17 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
     } else {
       await step('A waits for ready and joins empty library', () async {
         await _wait('A waits for ready', () async {
-          final library = await httpApi.library();
+          final CloudLibraryInfo library;
+          try {
+            library = await httpApi.library();
+          } on CloudApiException catch (e) {
+            // No library yet: the Linux role has not uploaded.
+            if (e.kind == CloudErrorKind.libraryMismatch ||
+                e.kind == CloudErrorKind.notFound) {
+              return false;
+            }
+            rethrow;
+          }
           if (library.state != 'ready') return false;
           final manifest = await httpApi.manifest();
           if (!manifest.items.any(
@@ -128,11 +129,13 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
           final createdAt = initial.first.row['createdAt'];
           return createdAt is int && createdAt >= joinedAfterMs;
         });
-        final report = await cloudService.inspectForJoin();
+        // Snapshot the counts first: the peer's barrier note may arrive while
+        // the join is inspected, so the report may only be larger.
         final library = await httpApi.library();
+        final report = await cloudService.inspectForJoin();
         final expected = library.notes + library.folders;
         if (report.onlyHere != 0 ||
-            report.onlyThere != expected ||
+            report.onlyThere < expected ||
             report.differing != 0 ||
             report.missingAttachments != 0 ||
             report.folderReferenceErrors != 0) {
@@ -168,7 +171,11 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         repo.saveContent(
           _n1,
           title: n.title,
-          body: _body(['N1 edited by Linux', 'N1 second line'], image),
+          body: _body([
+            'N1 edited by Linux',
+            'N1 spacer line',
+            'N1 second line',
+          ], image),
           base: n.contentVv,
         );
         await cloudService.syncNow();
@@ -220,7 +227,11 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         repo.saveContent(
           _n1,
           title: current1.title,
-          body: _body(['N1 Linux offline line', 'N1 second line']),
+          body: _body([
+            'N1 Linux offline line',
+            'N1 spacer line',
+            'N1 second line',
+          ], _imageRef(current1.body)),
           base: current1.contentVv,
         );
         repo.saveContent(
@@ -235,7 +246,11 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         repo.saveContent(
           _n1,
           title: current1.title,
-          body: _body(['N1 edited by Linux', 'N1 Android offline line']),
+          body: _body([
+            'N1 edited by Linux',
+            'N1 spacer line',
+            'N1 Android offline line',
+          ], _imageRef(current1.body)),
           base: current1.contentVv,
         );
         repo.saveContent(
@@ -256,6 +271,9 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         await cloudService.syncNow();
         return _sameDigests(repo, await _remoteDigestSnapshot(cloudService));
       });
+      // Both offline bodies keep the image embed and an unchanged spacer line
+      // separates the two edits: adjacent or overlapping edits are real diff3
+      // conflicts.
       final n1 = repo.getNote(_n1)!;
       final linuxLine = n1.body.contains('N1 Linux offline line');
       final androidLine = n1.body.contains('N1 Android offline line');
@@ -408,7 +426,13 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         await cloudService.syncNow();
         return _sameDigests(repo, await _remoteDigestSnapshot(cloudService));
       });
-      final all = _digests(repo);
+      // The final barrier notes appear at different times on each side.
+      final all = _digests(repo)
+        ..removeWhere(
+          (k, _) =>
+              k == 'note:${_barrierId('final-L')}' ||
+              k == 'note:${_barrierId('final-A')}',
+        );
       final summary = sha256
           .convert(
             utf8.encode(
@@ -551,14 +575,16 @@ void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);
 }
 
+String _barrierId(String name) =>
+    '00000000-0000-4000-8000-${sha256.convert(utf8.encode(name)).toString().substring(0, 12)}';
+
 Future<void> _publishBarrier(
   CloudService cloud,
   NoteRepository repo,
   String name,
   String body,
 ) async {
-  final suffix = sha256.convert(utf8.encode(name)).toString().substring(0, 12);
-  final id = '00000000-0000-4000-8000-$suffix';
+  final id = _barrierId(name);
   final existing = repo.getNote(id);
   if (existing == null) {
     repo.createNote(id: id, title: '~barrier:$name', body: _body([body]));
@@ -648,21 +674,4 @@ class _TestLogin implements CloudLoginLauncher {
 
   @override
   void cancel() {}
-}
-
-Future<void> _postJson(Uri uri, String token, Object body) async {
-  final client = HttpClient();
-  try {
-    final req = await client.postUrl(uri);
-    req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    req.headers.contentType = ContentType.json;
-    req.write(jsonEncode(body));
-    final response = await req.close();
-    await response.drain<void>();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('test library reset failed');
-    }
-  } finally {
-    client.close(force: true);
-  }
 }

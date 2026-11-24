@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../tool/cloud_test_reset.dart';
 import 'cloud_scenario.dart';
 
 void main() {
@@ -11,8 +12,9 @@ void main() {
   test(
     'two-role cloud device scenario',
     () async {
+      await resetCloudTestLibrary(worker!);
       await Future.wait([
-        runCloudScenario(CloudScenarioRole.linux, worker!),
+        runCloudScenario(CloudScenarioRole.linux, worker),
         runCloudScenario(CloudScenarioRole.android, worker),
       ]);
     },

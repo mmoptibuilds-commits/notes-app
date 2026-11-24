@@ -220,7 +220,7 @@ abstract interface class CloudApi {
     String libraryId,
     int since, {
     int limit = 50,
-    int maxBytes = 204800,
+    int maxBytes = 256 * 1024,
   });
   Future<List<CloudPushResult>> push(
     String libraryId,
@@ -317,13 +317,27 @@ class HttpCloudApi implements CloudApi {
     String libraryId,
     int since, {
     int limit = 50,
-    int maxBytes = 204800,
+    int maxBytes = 256 * 1024,
   }) async {
-    final j = await _json(
-      'GET',
-      '/v1/changes',
-      query: {'since': '$since', 'limit': '$limit', 'maxBytes': '$maxBytes'},
-    );
+    Map<String, Object?> j;
+    try {
+      j = await _json(
+        'GET',
+        '/v1/changes',
+        query: {'since': '$since', 'limit': '$limit', 'maxBytes': '$maxBytes'},
+      );
+    } on CloudApiException catch (e) {
+      if (!e.message.contains('row exceeds')) rethrow;
+      j = await _json(
+        'GET',
+        '/v1/changes',
+        query: {
+          'since': '$since',
+          'limit': '$limit',
+          'maxBytes': '${256 * 1024}',
+        },
+      );
+    }
     if (j['libraryId'] is! String ||
         j['rows'] is! List ||
         j['next'] is! int ||
@@ -497,12 +511,16 @@ class HttpCloudApi implements CloudApi {
         _cached = s;
         await sessions.write(s);
         return s;
+      } on CloudApiException catch (e) {
+        if (e.kind == CloudErrorKind.unauthorized) {
+          _cached = null;
+          await sessions.write(null);
+        }
+        rethrow;
       } on Object {
-        _cached = null;
-        await sessions.write(null);
         throw const CloudApiException(
-          CloudErrorKind.unauthorized,
-          'You are signed out of cloud sync. Sign in again.',
+          CloudErrorKind.network,
+          'Could not reach cloud sync.',
         );
       }
     }();
@@ -547,28 +565,40 @@ class HttpCloudApi implements CloudApi {
       result = await _send(method, uri, body, session).timeout(timeout);
     }
     if (result.statusCode < 200 || result.statusCode >= 300) {
+      final decoded = _tryJson(result.bytes);
+      final err = decoded?['error'];
       final kind = switch (result.statusCode) {
-        401 => CloudErrorKind.unauthorized,
+        401 =>
+          err == 'auth'
+              ? CloudErrorKind.unauthorized
+              : CloudErrorKind.malformed,
         404 => CloudErrorKind.notFound,
         409 => CloudErrorKind.conflict,
         429 => CloudErrorKind.rateLimited,
         >= 500 => CloudErrorKind.server,
         _ => CloudErrorKind.malformed,
       };
-      final decoded = _tryJson(result.bytes);
-      final err = decoded?['error'];
+      final errorKind = err == 'library'
+          ? CloudErrorKind.libraryMismatch
+          : kind;
       throw CloudApiException(
-        err == 'library' ? CloudErrorKind.libraryMismatch : kind,
-        switch (err == 'library' ? CloudErrorKind.libraryMismatch : kind) {
-          CloudErrorKind.unauthorized => 'You are signed out of cloud sync.',
-          CloudErrorKind.conflict => 'Cloud records changed on another device.',
-          CloudErrorKind.libraryMismatch =>
-            'The linked cloud library has changed.',
-          CloudErrorKind.notFound => 'The requested cloud item was not found.',
-          CloudErrorKind.rateLimited => 'Cloud sync is temporarily busy.',
-          CloudErrorKind.server => 'Cloud sync is temporarily unavailable.',
-          _ => 'Cloud request could not be completed.',
-        },
+        errorKind,
+        err == 'row_too_large'
+            ? 'Cloud change row exceeds the requested page size.'
+            : switch (errorKind) {
+                CloudErrorKind.unauthorized =>
+                  'You are signed out of cloud sync.',
+                CloudErrorKind.conflict =>
+                  'Cloud records changed on another device.',
+                CloudErrorKind.libraryMismatch =>
+                  'The linked cloud library has changed.',
+                CloudErrorKind.notFound =>
+                  'The requested cloud item was not found.',
+                CloudErrorKind.rateLimited => 'Cloud sync is temporarily busy.',
+                CloudErrorKind.server =>
+                  'Cloud sync is temporarily unavailable.',
+                _ => 'Cloud request could not be completed.',
+              },
         currentRows: [
           for (final r in decoded?['conflicts'] as List? ?? const [])
             if (r is Map) r.cast<String, Object?>(),

@@ -10,6 +10,7 @@ import {
   sha256,
   signedState,
   verifyAccess,
+  verifyRefreshToken,
   verifyGoogleIdToken,
 } from "../src/auth.js";
 import { CoordinatorStore } from "../src/coordinator.js";
@@ -36,8 +37,10 @@ class MemoryStorage {
   }
 }
 const pg = new PGlite();
+let databaseQueryCount = 0;
 const database: Database = {
   async query(sql, params = []) {
+    databaseQueryCount++;
     const r = await pg.query(sql, params as never[]);
     return { rows: r.rows as never[] };
   },
@@ -104,6 +107,7 @@ const request = (path: string, method = "GET", body?: unknown, token?: string) =
 
 beforeAll(async () => {
   await pg.exec(await readFile(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
+  await pg.exec(await readFile(new URL("../migrations/0002_changes_bytes.sql", import.meta.url), "utf8"));
 });
 
 describe("cryptography and state", () => {
@@ -113,6 +117,13 @@ describe("cryptography and state", () => {
     expect(await verifyAccess(secret, good + "x")).toBeNull();
     const expired = await accessToken(secret, "device", 1);
     expect(await verifyAccess(secret, expired)).toBeNull();
+  });
+  it("rejects arbitrary refresh strings before querying the database", async () => {
+    const before = databaseQueryCount;
+    const response = await worker.fetch(request("/v1/auth/refresh", "POST", { refresh: "random string" }), env);
+    expect(response.status).toBe(401);
+    expect(databaseQueryCount).toBe(before);
+    expect(await verifyRefreshToken(secret, "random string")).toBe(false);
   });
   it("signs state and rejects tampering and expiry", async () => {
     const value = {
@@ -543,6 +554,8 @@ describe("request boundary", () => {
     const issued = await worker.fetch(request("/v1/auth/token", "POST", { code, verifier }), env),
       credentials = (await issued.json()) as any;
     expect(issued.status).toBe(200);
+    expect(credentials.refresh).toMatch(/^r1\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
+    expect(await verifyRefreshToken(secret, credentials.refresh)).toBe(true);
     const first = await worker.fetch(
         request("/v1/auth/refresh", "POST", { refresh: credentials.refresh }),
         env,
@@ -576,6 +589,26 @@ describe("request boundary", () => {
       env,
     );
     expect(refused.status).toBe(409);
+  });
+  it("adds database byte counts to change records and rejects oversized pushed rows", async () => {
+    const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);
+    const pageResponse = await worker.fetch(request("/v1/changes?since=0", "GET", undefined, token), env);
+    expect(pageResponse.status).toBe(200);
+    const page = (await pageResponse.json()) as any;
+    for (const row of page.rows) {
+      const expected = await pg.query<{ bytes: number }>(
+        "SELECT octet_length(row::text) AS bytes FROM records WHERE kind=$1 AND id=$2",
+        [row.kind, row.id],
+      );
+      expect(row.bytes).toBe(Number(expected.rows[0].bytes));
+    }
+    const oversized = await worker.fetch(request("/v1/push", "POST", {
+      libraryId: id,
+      batchId: "oversized-row",
+      rows: [{ kind: "note", id, baseRev: 0, digest, row: { id, body: "x".repeat(181 * 1024) } }],
+    }, token), env);
+    expect(oversized.status).toBe(413);
+    expect(((await oversized.json()) as any).error).toBe("row_too_large");
   });
   it("uploads a multi-chunk blob and serves ranges with plain base64 (no line breaks)", async () => {
     const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);

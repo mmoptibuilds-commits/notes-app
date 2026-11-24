@@ -24,6 +24,15 @@ class CloudSyncEngine {
   final int Function() _now;
   CloudSyncProgress progress = const CloudSyncProgress();
   final Set<String> unavailableBlobs = {};
+  final Set<String> oversizedRows = {};
+  final Set<String> oversizedAttachments = {};
+  int get quarantinedRows =>
+      repo.db
+              .select(
+                "SELECT count(*) AS n FROM quarantine WHERE peer_id='cloud'",
+              )
+              .first['n']
+          as int;
   bool _cancelled = false;
 
   void cancel() => _cancelled = true;
@@ -45,6 +54,7 @@ class CloudSyncEngine {
   Future<void> sync() async {
     _checkActive();
     unavailableBlobs.clear();
+    oversizedAttachments.clear();
     final library = libraryId;
     if (library == null) {
       throw const CloudApiException(
@@ -98,6 +108,10 @@ class CloudSyncEngine {
           [hash],
         ).first;
         final data = local['data'] as Uint8List?;
+        if ((local['size'] as int) > 20 * 1024 * 1024) {
+          oversizedAttachments.add(hash);
+          continue;
+        }
         if (data != null &&
             (state.missing.contains(hash) || state.partial.containsKey(hash))) {
           var offset = state.partial[hash] ?? 0;
@@ -185,6 +199,7 @@ class CloudSyncEngine {
   }
 
   Future<void> _pull(String library) async {
+    _retryQuarantine();
     var cursor = pullSeq;
     var pages = 0;
     while (true) {
@@ -210,8 +225,7 @@ class CloudSyncEngine {
       var previousSeq = cursor;
       for (final remote in page.rows) {
         if (remote.seq <= previousSeq ||
-            !ids.add('${remote.kind}:${remote.id}') ||
-            utf8.encode(jsonEncode(remote.toJson())).length > 256 * 1024) {
+            !ids.add('${remote.kind}:${remote.id}')) {
           throw const CloudApiException(
             CloudErrorKind.malformed,
             'Cloud returned an invalid change page.',
@@ -231,6 +245,7 @@ class CloudSyncEngine {
         for (final remote in page.rows) {
           try {
             repo.db.savepoint(() => _apply(remote));
+            _deleteQuarantineFor(remote);
           } on ClockSkewException {
             throw const CloudApiException(
               CloudErrorKind.malformed,
@@ -239,6 +254,28 @@ class CloudSyncEngine {
           } on Object catch (e) {
             // Malformed rows are isolated with a savepoint, then quarantined.
             final raw = jsonEncode(remote.toJson());
+            final rawBytes = utf8.encode(raw);
+            final boundedRaw = rawBytes.length > 256 * 1024
+                ? utf8.decode(
+                    rawBytes.sublist(0, 256 * 1024),
+                    allowMalformed: true,
+                  )
+                : raw;
+            for (final old in repo.db.select(
+              "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
+              [remote.kind],
+            )) {
+              try {
+                final decoded = jsonDecode(old['raw'] as String);
+                if (decoded is Map && decoded['id'] == remote.id) {
+                  repo.db.execute('DELETE FROM quarantine WHERE id=?', [
+                    old['id'],
+                  ]);
+                }
+              } on Object {
+                // An unreadable older quarantine item cannot shadow the new row.
+              }
+            }
             repo.db.execute(
               'INSERT INTO quarantine(peer_id,kind,received_at,reason,raw) VALUES(?,?,?,?,?)',
               [
@@ -246,7 +283,7 @@ class CloudSyncEngine {
                 remote.kind,
                 _now(),
                 e.runtimeType.toString(),
-                raw.length > 65536 ? raw.substring(0, 65536) : raw,
+                boundedRaw,
               ],
             );
             repo.db.execute(
@@ -259,6 +296,40 @@ class CloudSyncEngine {
       });
       if (!page.more) break;
       cursor = page.next;
+    }
+  }
+
+  void _retryQuarantine() {
+    final rows = repo.db.select(
+      "SELECT id,raw FROM quarantine WHERE peer_id='cloud' ORDER BY id",
+    );
+    for (final entry in rows) {
+      try {
+        final decoded = jsonDecode(entry['raw'] as String);
+        if (decoded is! Map) continue;
+        final remote = CloudRecord.fromJson(decoded.cast<String, Object?>());
+        repo.db.transaction(() => repo.db.savepoint(() => _apply(remote)));
+        repo.db.execute('DELETE FROM quarantine WHERE id=?', [entry['id']]);
+        _deleteQuarantineFor(remote);
+      } on Object {
+        // Keep malformed rows for a later pull retry.
+      }
+    }
+  }
+
+  void _deleteQuarantineFor(CloudRecord remote) {
+    for (final old in repo.db.select(
+      "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
+      [remote.kind],
+    )) {
+      try {
+        final decoded = jsonDecode(old['raw'] as String);
+        if (decoded is Map && decoded['id'] == remote.id) {
+          repo.db.execute('DELETE FROM quarantine WHERE id=?', [old['id']]);
+        }
+      } on Object {
+        // An unreadable quarantine item has no reliable record identity.
+      }
     }
   }
 
@@ -433,16 +504,33 @@ class CloudSyncEngine {
 
   Future<void> _push(String library) async {
     var cursor = pushSeq;
+    var scanCursor = cursor;
+    var cursorBlocked = false;
     while (true) {
-      final candidates = repo.cloudRecordsSince(cursor, limit: 300);
+      final candidates = repo.cloudRecordsSince(scanCursor, limit: 300);
       if (candidates.isEmpty) break;
       final completed = <int>{};
-      var blocked = false;
       // Folders always precede notes within each bounded page.
       for (final kind in ['folder', 'note']) {
         final pending = candidates.where((r) => r.kind == kind).toList();
+        final eligible = <({int seq, String kind, Object record})>[];
+        for (final item in pending) {
+          final row = switch (item.record) {
+            NoteRecord n => n.toJson(),
+            FolderRecord f => f.toJson(),
+            _ => const <String, Object?>{},
+          };
+          final id = row['id'] as String? ?? '';
+          final key = '$kind:$id';
+          if (utf8.encode(jsonEncode(row)).length > 180 * 1024) {
+            oversizedRows.add(key);
+          } else {
+            oversizedRows.remove(key);
+            eligible.add(item);
+          }
+        }
         final batches = _boundedBatches(
-          pending,
+          eligible,
           (item) => jsonEncode(switch (item.record) {
             NoteRecord n => n.toJson(),
             FolderRecord f => f.toJson(),
@@ -462,9 +550,12 @@ class CloudSyncEngine {
                   .select('SELECT hash FROM note_attachments WHERE note_id=?', [
                     note.id,
                   ])
-                  .any((r) => unavailableBlobs.contains(r['hash']));
+                  .any(
+                    (r) =>
+                        unavailableBlobs.contains(r['hash']) &&
+                        !oversizedAttachments.contains(r['hash']),
+                  );
               if (missing.isNotEmpty || failedRefs) {
-                blocked = true;
                 continue;
               }
             }
@@ -545,14 +636,22 @@ class CloudSyncEngine {
         }
       }
       for (final item in candidates) {
-        if (!completed.contains(item.seq)) {
-          blocked = true;
-          break;
+        if (cursorBlocked) continue;
+        final itemId = switch (item.record) {
+          NoteRecord n => n.id,
+          FolderRecord f => f.id,
+          _ => '',
+        };
+        if (oversizedRows.contains('${item.kind}:$itemId') ||
+            !completed.contains(item.seq)) {
+          cursorBlocked = true;
+          continue;
         }
         cursor = item.seq;
       }
       repo.db.transaction(() => repo.db.setMeta('cloud.push_seq', '$cursor'));
-      if (blocked || candidates.length < 300) break;
+      if (candidates.length < 300) break;
+      scanCursor = candidates.last.seq;
     }
   }
 }
@@ -563,14 +662,14 @@ List<List<T>> _boundedBatches<T>(List<T> rows, String Function(T) encode) {
   var bytes = 0;
   for (final row in rows) {
     final size = utf8.encode(encode(row)).length + 128;
-    if (size > 240 * 1024) {
+    if (utf8.encode(encode(row)).length > 180 * 1024) {
       throw const CloudApiException(
         CloudErrorKind.malformed,
         'A record is too large to sync.',
       );
     }
     if (current.isNotEmpty &&
-        (current.length >= 50 || bytes + size > 240 * 1024)) {
+        (current.length >= 50 || bytes + size > 256 * 1024)) {
       result.add(current);
       current = <T>[];
       bytes = 0;

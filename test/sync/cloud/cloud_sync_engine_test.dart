@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_database.dart';
@@ -144,10 +145,11 @@ void main() {
       addTearDown(db.close);
       final repo = NoteRepository(db);
       final server = FakeCloudServer()..seq = 1;
-      final row = <String, Object?>{'id': 'not-a-note', 'body': '['};
-      server.records['note:not-a-note'] = CloudRecord(
+      const id = '00000000-0000-4000-8000-000000000097';
+      final row = <String, Object?>{'id': id, 'body': '['};
+      server.records['note:$id'] = CloudRecord(
         kind: 'note',
-        id: 'not-a-note',
+        id: id,
         rev: 1,
         seq: 1,
         digest: recordDigest(row),
@@ -163,6 +165,93 @@ void main() {
         hasLength(1),
       );
       expect(db.getMeta('cloud.pull_seq'), '1');
+
+      final sourceDb = AppDatabase.open(null);
+      addTearDown(sourceDb.close);
+      final validRepo = NoteRepository(sourceDb);
+      validRepo.createNote(id: id, title: 'repaired');
+      final valid = validRepo.getRecord(id)!.toJson();
+      server.seq = 2;
+      server.records['note:$id'] = CloudRecord(
+        kind: 'note',
+        id: id,
+        rev: 2,
+        seq: 2,
+        digest: recordDigest(valid),
+        row: valid,
+      );
+      await CloudSyncEngine(repo, server).sync();
+      expect(repo.getNote(id)?.title, 'repaired');
+      expect(
+        db.select("SELECT id FROM quarantine WHERE peer_id='cloud'"),
+        isEmpty,
+      );
+    },
+  );
+
+  test('oversized local note stays pending while smaller notes sync', () async {
+    final db = AppDatabase.open(null);
+    addTearDown(db.close);
+    final repo = NoteRepository(db);
+    final oversized = repo.createNote(
+      title: 'large',
+      body: jsonEncode([
+        {'insert': '${'x' * (181 * 1024)}\n'},
+      ]),
+      id: '00000000-0000-4000-8000-00000000e000',
+    );
+    for (var i = 1; i <= 300; i++) {
+      repo.createNote(
+        title: 'small',
+        id: '00000000-0000-4000-8000-${i.toString().padLeft(12, '0')}',
+      );
+    }
+    final server = FakeCloudServer();
+    db.transaction(() => db.setMeta('cloud.library_id', server.libraryId));
+    final engine = CloudSyncEngine(repo, server);
+
+    await engine.sync();
+
+    expect(
+      server.records.keys,
+      contains('note:00000000-0000-4000-8000-000000000300'),
+    );
+    expect(server.records.keys, isNot(contains('note:${oversized.id}')));
+    expect(engine.oversizedRows, contains('note:${oversized.id}'));
+    expect(db.getMeta('cloud.push_seq'), '0');
+    expect(repo.getRecord(oversized.id), isNotNull);
+  });
+
+  test(
+    'oversized attachment is reported but does not block its note',
+    () async {
+      final db = AppDatabase.open(null);
+      addTearDown(db.close);
+      final repo = NoteRepository(db);
+      final source = repo.putAttachment(
+        Uint8List(20 * 1024 * 1024 + 1),
+        'image/test',
+      );
+      const id = '00000000-0000-4000-8000-000000000096';
+      repo.createNote(
+        id: id,
+        title: 'attachment reference',
+        body: jsonEncode([
+          {
+            'insert': {'image': source},
+          },
+          {'insert': '\n'},
+        ]),
+      );
+      final server = FakeCloudServer();
+      db.transaction(() => db.setMeta('cloud.library_id', server.libraryId));
+      final engine = CloudSyncEngine(repo, server);
+
+      await engine.sync();
+
+      expect(server.blobPutCalls, 0);
+      expect(engine.oversizedAttachments, hasLength(1));
+      expect(server.records.keys, contains('note:$id'));
     },
   );
 

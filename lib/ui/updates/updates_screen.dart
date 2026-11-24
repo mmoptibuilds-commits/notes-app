@@ -537,11 +537,11 @@ class _StatusCard extends StatelessWidget {
         ),
         check('Check again'),
       ],
-      UpdateReadyToInstall(:final candidate) => [
+      UpdateReadyToInstall(:final candidate, :final retry) => [
         FilledButton(
           style: _filled(context),
           onPressed: () => _confirmInstall(context, candidate),
-          child: const Text('Install…'),
+          child: Text(retry ? 'Retry' : 'Install…'),
         ),
         check('Check again'),
       ],

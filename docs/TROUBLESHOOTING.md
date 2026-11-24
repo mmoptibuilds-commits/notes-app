@@ -121,6 +121,21 @@ matching strong ETag may cause Notes to download the file again from the start.
 Notes checks the complete file before it is marked ready. Linux also needs free
 space beside the managed installation for staging.
 
+## Linux update asks to Retry saving notes
+
+**Symptom:** Installing a Linux update returns to Notes and says some note
+changes could not be saved, with a **Retry** action.
+
+**Cause:** Before starting the updater, Notes freezes open editors and waits
+for autosaves and any retries handed off by closed editors to reach the
+database. A save failed or did not confirm, so the helper was not started and
+the installation was paused.
+
+**Fix:** Keep Notes open, resolve the storage problem (for example, free disk
+space), then choose **Retry**. Notes still has the unsaved edits and will flush
+them again before it starts the helper. Sync and the database stay open while
+the save is pending.
+
 ## Notes says it is finishing an update
 
 **Symptom:** Startup shows “Notes is finishing an update. Wait a few seconds,

@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/ids.dart';
 import '../data/app_database.dart';
 import '../data/app_settings.dart';
+import '../data/editor_save_barrier.dart';
 import '../data/note_repository.dart';
 import '../sync/peers.dart';
 import '../sync/sync_service.dart';
@@ -24,7 +25,9 @@ class AppServices {
     this.dataDir, {
     this.sync,
     this.updates,
-  });
+    EditorSaveBarrier? saveBarrier,
+    this.exitProcess = exit,
+  }) : saveBarrier = saveBarrier ?? EditorSaveBarrier();
 
   final AppDatabase db;
   final NoteRepository notes;
@@ -37,29 +40,44 @@ class AppServices {
   /// self-update.
   final UpdateController? updates;
 
+  /// Coordinates live editor saves and failed-save handoffs before Linux
+  /// starts its update helper.
+  final EditorSaveBarrier saveBarrier;
+
+  final void Function(int) exitProcess;
+
   /// Directory holding the database and local backups.
   final String dataDir;
 
   /// For tests: everything in memory, nothing on disk or in a keystore.
-  factory AppServices.inMemory({int Function()? clock}) {
+  factory AppServices.inMemory({
+    int Function()? clock,
+    void Function(int) exitProcess = exit,
+  }) {
     final db = AppDatabase.open(null, wallClock: clock);
     return AppServices(
       db,
       NoteRepository(db, nowMs: clock),
       AppSettings(db),
       '',
+      exitProcess: exitProcess,
     );
   }
 
-  /// Called by the Linux updater once its helper is running: closes the
-  /// database and sync cleanly and exits, so the helper (which waits for this
-  /// process) can replace the program files. User data is not touched.
+  /// Called before helper setup. It freezes editors and confirms every
+  /// pending editor save, including snapshots handed off by disposed editors.
+  Future<void> prepareForUpdate() => saveBarrier.prepare();
+
+  /// Releases a prepared barrier when helper setup fails and Notes stays open.
+  Future<void> abortUpdatePreparation() async => saveBarrier.release();
+
+  /// Called only after the helper is running: closes sync and the database,
+  /// then exits so the helper can replace the program files. User data is not
+  /// touched.
   Future<void> quitForUpdate() async {
-    // Let any debounced autosave or retry write finish first.
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
     sync?.dispose();
     db.close();
-    exit(0);
+    exitProcess(0);
   }
 
   void close() {
@@ -230,7 +248,9 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   settings.addListener(() => sync.deviceName = settings.deviceName);
   late final AppServices services;
   final installer = createPlatformInstaller(
+    onPrepareQuit: () => services.prepareForUpdate(),
     onQuit: () => services.quitForUpdate(),
+    onInstallAborted: () => services.abortUpdatePreparation(),
   );
   final updates = installer == null
       ? null

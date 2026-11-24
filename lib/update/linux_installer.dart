@@ -43,6 +43,8 @@ const kUpdateHelperRelativePath = 'update/notes-update-helper';
 class LinuxUpdateInstaller implements UpdateInstaller {
   LinuxUpdateInstaller({
     required this.onQuit,
+    Future<void> Function()? onPrepareQuit,
+    Future<void> Function()? onInstallAborted,
     UpdateProcessLauncher? launcher,
     Map<String, String>? environment,
     String? resolvedExecutable,
@@ -58,11 +60,18 @@ class LinuxUpdateInstaller implements UpdateInstaller {
        _tempRoot = tempRoot ?? Directory.systemTemp,
        _freeSpace = freeSpaceProbe ?? dfFreeSpace,
        _platform = platform ?? UpdatePlatform.current(),
-       _installOverride = installDir;
+       _installOverride = installDir,
+       onPrepareQuit = onPrepareQuit ?? _noOp,
+       onInstallAborted = onInstallAborted ?? _noOp;
 
-  /// Called after the helper has been started. The app flushes saves, closes
-  /// the database and sync, and exits so the helper can swap the files.
+  /// Freezes editors and confirms all saves before any helper setup starts.
+  final Future<void> Function() onPrepareQuit;
+
+  /// Closes the database and sync and exits after the helper has started.
   final Future<void> Function() onQuit;
+
+  /// Releases the editor freeze if helper setup fails and Notes stays open.
+  final Future<void> Function() onInstallAborted;
 
   final UpdateProcessLauncher _launcher;
   final Map<String, String> _env;
@@ -72,6 +81,7 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   final FreeSpaceProbe _freeSpace;
   final UpdatePlatform _platform;
   final String? _installOverride;
+  Future<InstallStart>? _installFlight;
 
   @override
   bool get acceptsUnsignedManifest => false;
@@ -179,13 +189,37 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   }
 
   @override
-  Future<InstallStart> install(ReadyUpdate update, InstallerInfo info) async {
+  Future<InstallStart> install(ReadyUpdate update, InstallerInfo info) {
+    final current = _installFlight;
+    if (current != null) return current;
+    final flight = _install(update, info);
+    late final Future<InstallStart> tracked;
+    tracked = flight.whenComplete(() {
+      if (identical(_installFlight, tracked)) _installFlight = null;
+    });
+    _installFlight = tracked;
+    return tracked;
+  }
+
+  Future<InstallStart> _install(ReadyUpdate update, InstallerInfo info) async {
     if (info.block != null) return InstallFailed(info.block!.message);
     final c = update.candidate;
     if (!c.signed) {
       return const InstallFailed('Release signing key not provisioned.');
     }
-    final Directory helperDir;
+
+    try {
+      await onPrepareQuit();
+    } on Object {
+      await _abortPreparation();
+      return const InstallFailed(
+        'Some note changes could not be saved. Notes is still open with your '
+        'edits. Resolve the save problem, then choose Retry.',
+        retry: true,
+      );
+    }
+
+    Directory? helperDir;
     try {
       await Directory(stateDir).create(recursive: true);
       helperDir = await _tempRoot.createTemp('notes-update-');
@@ -218,10 +252,27 @@ class LinuxUpdateInstaller implements UpdateInstaller {
         '--relaunch',
       ]);
     } on Object {
+      final dir = helperDir;
+      if (dir != null) {
+        try {
+          await dir.delete(recursive: true);
+        } on Object {
+          // Keep the original install error; a stale private copy is harmless.
+        }
+      }
+      await _abortPreparation();
       return const InstallFailed('Notes could not start the updater.');
     }
     await onQuit();
     return const InstallHandedToOs(willRestart: true);
+  }
+
+  Future<void> _abortPreparation() async {
+    try {
+      await onInstallAborted();
+    } on Object {
+      // The installer must still report its original failure.
+    }
   }
 
   @override
@@ -272,3 +323,5 @@ class LinuxUpdateInstaller implements UpdateInstaller {
     return s.length > 300 ? '${s.substring(0, 300)}…' : s;
   }
 }
+
+Future<void> _noOp() async {}

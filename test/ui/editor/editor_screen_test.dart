@@ -100,6 +100,23 @@ void main() {
     },
   );
 
+  testWidgets('the title field freezes with the editor during update handoff', (
+    tester,
+  ) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(title: 'Before');
+    await pumpEditor(tester, s, noteId: note.id);
+
+    await s.prepareForUpdate();
+    await tester.pump();
+    expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
+
+    await s.abortUpdatePreparation();
+    await tester.pump();
+    expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isFalse);
+  });
+
   testWidgets(
     'ticking a checkbox moves it to the completed section; restoring brings it back',
     (tester) async {

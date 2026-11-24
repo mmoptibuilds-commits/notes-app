@@ -73,9 +73,14 @@ class UpdateDownloadPaused extends UpdateStatus {
 /// Downloaded and verified, waiting for the user to confirm. [message] is set
 /// when an earlier install attempt failed or was cancelled.
 class UpdateReadyToInstall extends UpdateStatus {
-  const UpdateReadyToInstall(this.candidate, {this.message});
+  const UpdateReadyToInstall(
+    this.candidate, {
+    this.message,
+    this.retry = false,
+  });
   final UpdateCandidate candidate;
   final String? message;
+  final bool retry;
 }
 
 /// A download or the manifest failed verification and was discarded.

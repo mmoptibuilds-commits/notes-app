@@ -94,6 +94,7 @@ class _EditorScreenState extends State<EditorScreen>
     _completedCollapsed = app.settings.completedCollapsed;
     session = EditorSession(
       repo: app.notes,
+      saveBarrier: app.saveBarrier,
       noteId: widget.noteId,
       folderId: widget.folderId,
       useCompletedSection: app.settings.completedSection,
@@ -235,6 +236,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _deleteForever() async {
+    if (session.frozenForUpdate) return;
     final ok = await confirmDialog(
       context,
       title: 'Delete forever?',
@@ -244,7 +246,7 @@ class _EditorScreenState extends State<EditorScreen>
       confirmLabel: 'Delete forever',
       destructive: true,
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted || session.frozenForUpdate) return;
     final id = session.noteId;
     if (id != null) AppScope.of(context).notes.purge([id]);
     _leave();
@@ -285,7 +287,7 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       ),
     );
-    if (chosen == null || !mounted) return;
+    if (chosen == null || !mounted || session.readOnly) return;
     if (chosen.create) {
       final name = await _ask(title: 'New folder', hint: 'Folder name');
       if (name == null || name.trim().isEmpty) return;
@@ -314,6 +316,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _link() async {
+    if (session.readOnly) return;
     final q = session.quill;
     final existing = q
         .getSelectionStyle()
@@ -326,7 +329,7 @@ class _EditorScreenState extends State<EditorScreen>
       action: 'Apply',
       allowEmpty: true,
     );
-    if (url == null) return;
+    if (url == null || !mounted || session.readOnly) return;
     final target = url.trim();
     if (target.isEmpty) {
       q.formatSelection(Attribute.clone(Attribute.link, null));
@@ -350,6 +353,7 @@ class _EditorScreenState extends State<EditorScreen>
   static const _maxImageBytes = 25 * 1024 * 1024;
 
   Future<void> _image() async {
+    if (session.readOnly) return;
     final repo = AppScope.of(context).notes;
     final file = await openFile(
       acceptedTypeGroups: const [
@@ -366,12 +370,14 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       ],
     );
-    if (file == null || !mounted) return;
+    if (file == null || !mounted || session.readOnly) return;
     if (await file.length() > _maxImageBytes) {
       if (mounted) _toast('That image is larger than 25 MB.');
       return;
     }
+    if (session.readOnly) return;
     final bytes = await file.readAsBytes();
+    if (!mounted || session.readOnly) return;
     final ext = file.name.split('.').last.toLowerCase();
     final mime = switch (ext) {
       'jpg' || 'jpeg' => 'image/jpeg',
@@ -512,16 +518,18 @@ class _EditorScreenState extends State<EditorScreen>
             if (session.loadError != null) {
               return _Banner(text: session.loadError!);
             }
-            if (session.readOnly) {
+            if (session.isTrashed) {
               return _Banner(
                 text: 'This note is in Trash',
                 actions: [
                   TextButton(
-                    onPressed: session.restoreFromTrash,
+                    onPressed: session.frozenForUpdate
+                        ? null
+                        : session.restoreFromTrash,
                     child: const Text('Restore'),
                   ),
                   TextButton(
-                    onPressed: _deleteForever,
+                    onPressed: session.frozenForUpdate ? null : _deleteForever,
                     child: Text(
                       'Delete forever',
                       style: TextStyle(color: p.danger),
@@ -610,7 +618,7 @@ class _EditorScreenState extends State<EditorScreen>
               maxWidth: AppMetrics.editorMaxWidth,
             ),
             child: ListenableBuilder(
-              listenable: settings,
+              listenable: Listenable.merge([settings, session]),
               builder: (context, _) => Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

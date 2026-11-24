@@ -251,6 +251,7 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
       }
     });
     await step('reconnect merge and Review edits', () async {
+      await Future<void>.delayed(_settle);
       await cloudService.setEnabled(true);
       await cloudService.syncNow();
       // A peer can reconnect first and briefly see its own digest echoed by
@@ -269,6 +270,7 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
       _expect(
         linuxLine && androidLine,
         'N1 merge counts: linux=$linuxLine android=$androidLine '
+        'lines=${_lines(n1.body)} vv=${n1.contentVv.encode()} '
         'review=${n1.reviewEditsCount} copies=${repo.listNotes(scope: NoteScope.conflicts).where((n) => n.conflictOf == _n1).length}',
       );
       _expect(
@@ -312,6 +314,9 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
       }
       await _barrier(cloudService, repo, 'simultaneous-base', side);
       final base = repo.getNote(id)!;
+      // Edit offline: a role that leaves the barrier first must not push
+      // before the other has edited, or the edits would not be concurrent.
+      await cloudService.setEnabled(false);
       repo.saveContent(
         id,
         title: base.title,
@@ -322,7 +327,9 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
         ),
         base: base.contentVv,
       );
-      await Future.wait([cloudService.syncNow()]);
+      await Future<void>.delayed(_settle);
+      await cloudService.setEnabled(true);
+      await cloudService.syncNow();
       await _wait('simultaneous settle', () async {
         await cloudService.syncNow();
         final n = repo.getNote(id)!;
@@ -481,6 +488,11 @@ String _body(List<String> lines, [String? image]) => jsonEncode([
 Uint8List _bytes(int size, int seed) =>
     Uint8List.fromList(List.generate(size, (i) => (i * 19 + seed) % 251));
 
+String _lines(String body) => [
+  for (final op in jsonDecode(body) as List)
+    if (op['insert'] is String) (op['insert'] as String).trim(),
+].join(' / ');
+
 String _imageRef(String body) {
   final decoded = jsonDecode(body) as List;
   for (final op in decoded) {
@@ -539,6 +551,10 @@ Future<Map<String, String>> _remoteDigestSnapshot(CloudService cloud) async {
   }
   return result;
 }
+
+// Both roles leave a barrier within about a poll interval of each other; this
+// is how long a role stays offline after editing so the peer is offline too.
+const _settle = Duration(seconds: 8);
 
 // The phone can start minutes after Linux (install over wireless adb).
 const _firstContact = Duration(minutes: 15);

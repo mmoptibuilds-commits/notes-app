@@ -5,7 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/library/note_card.dart';
+import 'package:notes/doc/delta_text.dart';
+import 'package:notes/ui/review/review_edits_screen.dart';
 import 'package:notes/ui/material.dart';
+import 'package:notes/ui/theme/app_theme.dart';
+import 'package:notes/app.dart';
 
 import '../support/screenshot.dart';
 import '../ui/library/support.dart';
@@ -14,6 +18,46 @@ import '../ui/library/support.dart';
 /// assert that the screens build; a person looks at the images.
 void main() {
   setUpAll(loadAppFonts);
+
+  testWidgets('review edits screen phone and desktop', (tester) async {
+    final services = AppServices.inMemory();
+    addTearDown(services.close);
+    services.settings.theme = AppTheme.charcoal;
+    final main = services.notes.createNote(
+      title: 'Trip plan',
+      body: bodyFromPlainText('Train at nine\nPack lunch'),
+    );
+    final copy = services.notes.createNote(
+      id: 'visual-review-copy',
+      body: bodyFromPlainText('Train at ten\nPack lunch'),
+    );
+    services.db.transaction(
+      () => services.notes.writeRecord(
+        services.notes.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+      ),
+    );
+    for (final (size, name) in [
+      (const Size(412, 915), 'review_edits_phone'),
+      (const Size(1280, 800), 'review_edits_desktop'),
+    ]) {
+      await setWindow(tester, size, pixelRatio: 1);
+      await tester.pumpWidget(
+        AppScope(
+          services: services,
+          child: ListenableBuilder(
+            listenable: services.settings,
+            builder: (context, _) => MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: buildTheme(services.settings),
+              home: ReviewEditsScreen(noteId: main.id),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await shot(tester, name);
+    }
+  });
 
   Future<Seed> open(
     WidgetTester tester,

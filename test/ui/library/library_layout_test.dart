@@ -91,6 +91,22 @@ void main() {
     expect(find.byType(SliverMasonryGrid), findsWidgets);
   });
 
+  testWidgets('library card marks notes with pending review edits', (
+    tester,
+  ) async {
+    final s = seedLibrary();
+    addTearDown(s.services.close);
+    final main = s.services.notes.getNote(s.ids['short']!)!;
+    final copy = s.services.notes.createNote(id: 'library-review-copy');
+    s.services.db.transaction(
+      () => s.services.notes.writeRecord(
+        s.services.notes.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+      ),
+    );
+    await pumpLibrary(tester, s);
+    expect(find.text('Review edits'), findsOneWidget);
+  });
+
   for (final layout in [LibraryLayout.grid, LibraryLayout.masonry]) {
     testWidgets('phone search uses a one-column list in $layout layout', (
       tester,
@@ -128,27 +144,34 @@ void main() {
     expect(first, lessThan(later));
   });
 
-  testWidgets('card shows title, preview, date, progress, pin and conflict', (
-    tester,
-  ) async {
-    final s = seedLibrary();
-    addTearDown(s.services.close);
-    markConflict(s, 'short');
-    s.services.settings.layout = LibraryLayout.grid;
-    await pumpLibrary(tester, s);
-    expect(find.text('Groceries'), findsOneWidget);
-    expect(find.text('3/7'), findsOneWidget);
-    expect(find.text('5 min'), findsOneWidget);
-    expect(find.byIcon(Icons.push_pin_rounded), findsWidgets);
-    expect(find.text('Conflict copy'), findsOneWidget);
-    // Untitled note: first preview line carries the weight.
-    expect(
-      find.text('Call the plumber about the kitchen leak'),
-      findsOneWidget,
-    );
-    expect(find.text('Pinned'), findsOneWidget);
-    expect(find.text('Others'), findsOneWidget);
-  });
+  testWidgets(
+    'card shows title, preview, date, progress, pin and review marker',
+    (tester) async {
+      final s = seedLibrary();
+      addTearDown(s.services.close);
+      final main = s.services.notes.getNote(s.ids['short']!)!;
+      final copy = s.services.notes.createNote(id: 'card-conflict-copy');
+      s.services.db.transaction(
+        () => s.services.notes.writeRecord(
+          s.services.notes.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+        ),
+      );
+      s.services.settings.layout = LibraryLayout.grid;
+      await pumpLibrary(tester, s);
+      expect(find.text('Groceries'), findsOneWidget);
+      expect(find.text('3/7'), findsOneWidget);
+      expect(find.text('5 min'), findsOneWidget);
+      expect(find.byIcon(Icons.push_pin_rounded), findsWidgets);
+      expect(find.text('Review edits'), findsOneWidget);
+      // Untitled note: first preview line carries the weight.
+      expect(
+        find.text('Call the plumber about the kitchen leak'),
+        findsOneWidget,
+      );
+      expect(find.text('Pinned'), findsOneWidget);
+      expect(find.text('Others'), findsOneWidget);
+    },
+  );
 
   testWidgets('preview lines setting limits the preview', (tester) async {
     final s = seedLibrary();

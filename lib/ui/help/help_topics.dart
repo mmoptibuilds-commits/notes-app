@@ -114,8 +114,8 @@ const helpTopics = <HelpTopic>[
       'On Android, sync does not run in the background while the app is '
           'force-stopped. Open Notes again to sync.',
       'If the same note was changed on two devices, both versions are kept. '
-          'The other version is kept as a conflict copy, which you can find '
-          'under Conflicts in the library menu.',
+          'Open the main note and tap Review edits to compare and choose a '
+          'version. Conflict copies remain available in the Conflicts scope.',
     ],
   ),
   HelpTopic(

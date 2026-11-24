@@ -150,6 +150,8 @@ class CloudService extends ChangeNotifier {
   int _failures = 0;
   DateTime? _lastNeonBackstop;
   bool _running = false, _syncing = false, _enabled = false, _uploading = false;
+  bool _syncAgain = false;
+  Completer<void>? _syncCompleter;
   bool _signedIn = false;
   DateTime? _lastSync;
   String? _lastError;
@@ -804,7 +806,7 @@ class CloudService extends ChangeNotifier {
   Future<void> syncNow() async {
     _retry?.cancel();
     _failures = 0;
-    await _runSync();
+    await _runSync(manual: true);
   }
 
   /// Loads secure credentials before LAN auto-sync can be scheduled at app
@@ -818,14 +820,35 @@ class CloudService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _runSync() async {
+  /// Runs a sync, or queues exactly one more run if one is already in
+  /// progress (a request that arrives mid-sync must not be lost: an edit saved
+  /// while a sync runs is pushed by the follow-up run). Callers wait for the
+  /// run that covers their request.
+  Future<void> _runSync({bool manual = false}) async {
     if (unavailable ||
         !_enabled ||
-        !_running ||
-        _syncing ||
+        (!_running && !manual) ||
         repo.db.getMeta('cloud.library_id') == null) {
       return;
     }
+    final active = _syncCompleter;
+    if (active != null) {
+      _syncAgain = true;
+      return active.future;
+    }
+    final done = _syncCompleter = Completer<void>();
+    try {
+      do {
+        _syncAgain = false;
+        await _runSyncOnce();
+      } while (_syncAgain && (_running || manual) && _enabled);
+    } finally {
+      _syncCompleter = null;
+      done.complete();
+    }
+  }
+
+  Future<void> _runSyncOnce() async {
     _syncing = true;
     notifyListeners();
     try {

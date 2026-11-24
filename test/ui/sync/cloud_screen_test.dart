@@ -91,10 +91,7 @@ void main() {
     addTearDown(services.close);
     await pump(tester, services);
     expect(find.text('Upload this library'), findsNWidgets(2));
-    expect(
-      find.text('3 notes · 1 folder · 2 images · 1.5 KB'),
-      findsOneWidget,
-    );
+    expect(find.text('3 notes · 1 folder · 2 images · 1.5 KB'), findsOneWidget);
     final upload = find.widgetWithText(FilledButton, 'Upload this library');
     expect(tester.widget<FilledButton>(upload).onPressed, isNull);
     await tester.tap(find.text('Create verified backup'));

@@ -555,14 +555,14 @@ class HttpCloudApi implements CloudApi {
       );
     }
     var session = auth ? (_cached ??= await sessions.read()) : null;
-    var result = await _send(method, uri, body, session).timeout(timeout);
+    var result = await _bounded(_send(method, uri, body, session));
     if (result.statusCode == 401 && auth && session != null) {
       try {
         session = await refresh(session);
       } on CloudApiException {
         rethrow;
       }
-      result = await _send(method, uri, body, session).timeout(timeout);
+      result = await _bounded(_send(method, uri, body, session));
     }
     if (result.statusCode < 200 || result.statusCode >= 300) {
       final decoded = _tryJson(result.bytes);
@@ -609,7 +609,7 @@ class HttpCloudApi implements CloudApi {
       );
     }
     final decoded = _tryJson(result.bytes);
-    if (decoded == null) {
+    if (decoded == null || result.mime != 'application/json') {
       throw const CloudApiException(
         CloudErrorKind.malformed,
         'Cloud returned an invalid response.',
@@ -624,12 +624,8 @@ class HttpCloudApi implements CloudApi {
     bool auth = true,
     Object? body,
   }) => _request(method, uri, auth: auth, body: body);
-  Future<({int statusCode, Uint8List bytes, String? retryAfter})> _send(
-    String method,
-    Uri uri,
-    Object? body,
-    CloudSession? session,
-  ) async {
+  Future<({int statusCode, Uint8List bytes, String? retryAfter, String? mime})>
+  _send(String method, Uri uri, Object? body, CloudSession? session) async {
     try {
       final total = Stopwatch()..start();
       final encodedBody = body == null ? null : jsonEncode(body);
@@ -677,6 +673,7 @@ class HttpCloudApi implements CloudApi {
         statusCode: resp.statusCode,
         bytes: builder.takeBytes(),
         retryAfter: resp.headers.value(HttpHeaders.retryAfterHeader),
+        mime: resp.headers.contentType?.mimeType,
       );
     } on CloudApiException {
       rethrow;
@@ -687,6 +684,11 @@ class HttpCloudApi implements CloudApi {
       );
     }
   }
+
+  /// Bounds a request so a stalled server surfaces as a typed network error,
+  /// never as a raw [TimeoutException].
+  Future<T> _bounded<T>(Future<T> request) =>
+      request.timeout(timeout, onTimeout: () => throw _requestTimeout());
 
   CloudApiException _requestTimeout() => const CloudApiException(
     CloudErrorKind.network,

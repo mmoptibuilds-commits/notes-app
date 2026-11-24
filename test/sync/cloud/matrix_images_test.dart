@@ -165,6 +165,5 @@ void main() {
       await d.engine(server).sync();
       expect(server.records.keys, contains('note:${note.id}'));
     },
-    skip: 'BUG-1: oversized local attachment marks its note unavailable and blocks the push',
   );
 }

@@ -12,7 +12,7 @@ import 'package:notes/sync/cloud/record_digest.dart';
 import 'matrix2_support.dart';
 
 void main() {
-  test('HTTP timeout is bounded and a later healthy response works', skip: 'BUG-4: request timeout escapes HttpCloudApi as a raw TimeoutException.', () async {
+  test('HTTP timeout is bounded and a later healthy response works', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     var requests = 0;
     server.listen((request) {
@@ -115,31 +115,34 @@ void main() {
     },
   );
 
-  test('valid JSON with an incorrect response content type is rejected', skip: 'BUG-3: HTTP responses are parsed as JSON without validating Content-Type.', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    server.listen((request) {
-      request.response
-        ..headers.contentType = ContentType.html
-        ..write('{"ok":true,"v":1,"env":"test"}');
-      request.response.close();
-    });
-    addTearDown(() => server.close(force: true));
-    final api = HttpCloudApi(
-      baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: server.port),
-      sessions: MemoryCloudSessionStore(),
-    );
-    addTearDown(api.close);
-    await expectLater(
-      api.health(),
-      throwsA(
-        isA<CloudApiException>().having(
-          (e) => e.kind,
-          'malformed',
-          CloudErrorKind.malformed,
+  test(
+    'valid JSON with an incorrect response content type is rejected',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) {
+        request.response
+          ..headers.contentType = ContentType.html
+          ..write('{"ok":true,"v":1,"env":"test"}');
+        request.response.close();
+      });
+      addTearDown(() => server.close(force: true));
+      final api = HttpCloudApi(
+        baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: server.port),
+        sessions: MemoryCloudSessionStore(),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.health(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'malformed',
+            CloudErrorKind.malformed,
+          ),
         ),
-      ),
-    );
-  });
+      );
+    },
+  );
 
   for (final hostile in [
     'wrong library id',
@@ -205,6 +208,7 @@ void main() {
         final quarantined =
             hostile == 'wrong digest' ||
             hostile == 'record id differs from row id' ||
+            hostile == 'giant row' ||
             hostile == 'unknown kind';
         if (quarantined) {
           expect(failure, isNull);

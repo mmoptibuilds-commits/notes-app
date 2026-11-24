@@ -27,7 +27,8 @@ export interface Env {
 }
 const MAX_BODY = 256 * 1024;
 const responseStats = new WeakMap<Response, { rows?: number; bytes?: number }>();
-const json = (value: unknown, status = 200) => Response.json(value, { status });
+const json = (value: unknown, status = 200) =>
+  Response.json(value, { status, headers: { "cache-control": "no-store" } });
 const fail = (error: string, message: string, status: number) => json({ error, message }, status);
 async function limitedText(req: Request, limit = MAX_BODY): Promise<string> {
   const length = Number(req.headers.get("content-length") ?? 0);

@@ -133,7 +133,7 @@ describe("cryptography and state", () => {
       '["com.mmoptibuilds.notes:/cloud-auth","com.mmoptibuilds.notes.cloudtest:/cloud-auth","http://127.0.0.1/"]';
     expect(redirectAllowed("com.mmoptibuilds.notes:/cloud-auth", allowed)).toBe(true);
     expect(redirectAllowed("com.mmoptibuilds.notes.cloudtest:/cloud-auth", allowed)).toBe(true);
-    expect(redirectAllowed("com.mmoptibuilds.notes:/cloud-auth/elsewhere", allowed)).toBe(true);
+    expect(redirectAllowed("com.mmoptibuilds.notes:/cloud-auth/elsewhere", allowed)).toBe(false);
     expect(redirectAllowed("https://attacker.example.invalid/", allowed)).toBe(false);
     expect(redirectAllowed("http://127.0.0.1:42342/cb", allowed)).toBe(true);
     expect(redirectAllowed("http://127.0.0.1:42342/elsewhere", allowed)).toBe(false);
@@ -253,6 +253,72 @@ describe("cryptography and state", () => {
     await expect(
       verifyGoogleIdToken(parts.join("."), envAuth, now, fetcher, "nonce"),
     ).rejects.toThrow("signature");
+  });
+});
+
+describe("google key rotation", () => {
+  it("fetches the key set once more for an unknown key id, but not more than once a minute", async () => {
+    const gen = () =>
+      crypto.subtle.generateKey(
+        {
+          name: "RSASSA-PKCS1-v1_5",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["sign", "verify"],
+      );
+    const oldPair = await gen(),
+      newPair = await gen();
+    const publicJwk = async (pair: CryptoKeyPair, kid: string) =>
+      Object.assign(await crypto.subtle.exportKey("jwk", pair.publicKey), {
+        kid,
+        alg: "RS256",
+        use: "sig",
+      });
+    const oldJwk = await publicJwk(oldPair, "old-kid"),
+      newJwk = await publicJwk(newPair, "new-kid");
+    let served = [oldJwk],
+      fetches = 0;
+    const fetcher = async () => {
+      fetches++;
+      return Response.json({ keys: served }) as Response;
+    };
+    const sign = async (pair: CryptoKeyPair, kid: string, now: number) => {
+      const enc = (v: unknown) => base64url(new TextEncoder().encode(JSON.stringify(v)));
+      const input = `${enc({ alg: "RS256", kid })}.${enc({
+        iss: "https://accounts.google.com",
+        aud: "client-test",
+        exp: Math.floor(now / 1000) + 60,
+        iat: Math.floor(now / 1000),
+        nonce: "n",
+        email_verified: true,
+        sub: "test-owner-sub",
+      })}`;
+      const sig = await crypto.subtle.sign(
+        "RSASSA-PKCS1-v1_5",
+        pair.privateKey,
+        new TextEncoder().encode(input),
+      );
+      return `${input}.${base64url(new Uint8Array(sig))}`;
+    };
+    const envAuth = { GOOGLE_CLIENT_ID: "client-test", OWNER_SUB: "test-owner-sub" };
+    // Far in the future so the module-level cache from other tests is stale.
+    const t0 = Date.now() + 3 * 60 * 60_000;
+    await verifyGoogleIdToken(await sign(oldPair, "old-kid", t0), envAuth, t0, fetcher, "n");
+    expect(fetches).toBe(1);
+    // Google starts signing with a new key.
+    served = [oldJwk, newJwk];
+    const t1 = t0 + 70_000;
+    await verifyGoogleIdToken(await sign(newPair, "new-kid", t1), envAuth, t1, fetcher, "n");
+    expect(fetches).toBe(2);
+    // A forged key id right after cannot trigger another fetch.
+    const t2 = t1 + 1_000;
+    await expect(
+      verifyGoogleIdToken(await sign(newPair, "forged-kid", t2), envAuth, t2, fetcher, "n"),
+    ).rejects.toThrow("signature");
+    expect(fetches).toBe(2);
   });
 });
 

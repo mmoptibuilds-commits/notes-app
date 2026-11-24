@@ -88,7 +88,7 @@ type GoogleClaims = {
   sub?: string;
 };
 type GoogleJwk = JsonWebKey & { kid?: string };
-let jwksCache: { expires: number; keys: GoogleJwk[] } | undefined;
+let jwksCache: { expires: number; keys: GoogleJwk[]; fetchedAt: number } | undefined;
 export async function verifyGoogleIdToken(
   token: string,
   env: { GOOGLE_CLIENT_ID: string; OWNER_SUB?: string; JWKS_URL?: string },
@@ -103,28 +103,33 @@ export async function verifyGoogleIdToken(
     kid: string;
   };
   if (header.alg !== "RS256" || !header.kid) throw Error("signature");
+  const endpoint = env.JWKS_URL ?? "https://www.googleapis.com/oauth2/v3/certs";
+  const loadKeys = async (bypassCaches: boolean): Promise<GoogleJwk[]> => {
+    const cache = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default,
+      cacheKey = new Request(endpoint);
+    const cached = bypassCaches ? undefined : await cache?.match(cacheKey);
+    if (cached) return ((await cached.json()) as { keys: GoogleJwk[] }).keys;
+    const response = await fetcher(endpoint);
+    if (!response.ok) throw Error("jwks");
+    const keys = ((await response.json()) as { keys: GoogleJwk[] }).keys;
+    await cache?.put(
+      cacheKey,
+      new Response(JSON.stringify({ keys }), {
+        headers: { "cache-control": "public, max-age=3600", "content-type": "application/json" },
+      }),
+    );
+    return keys;
+  };
   if (!jwksCache || jwksCache.expires < now) {
-    const endpoint = env.JWKS_URL ?? "https://www.googleapis.com/oauth2/v3/certs",
-      cache = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default,
-      key = new Request(endpoint);
-    const cached = await cache?.match(key);
-    let keys: GoogleJwk[];
-    if (cached) {
-      keys = ((await cached.json()) as { keys: GoogleJwk[] }).keys;
-    } else {
-      const response = await fetcher(endpoint);
-      if (!response.ok) throw Error("jwks");
-      keys = ((await response.json()) as { keys: GoogleJwk[] }).keys;
-      await cache?.put(
-        key,
-        new Response(JSON.stringify({ keys }), {
-          headers: { "cache-control": "public, max-age=3600", "content-type": "application/json" },
-        }),
-      );
-    }
-    jwksCache = { keys, expires: now + 60 * 60_000 };
+    jwksCache = { keys: await loadKeys(false), expires: now + 60 * 60_000, fetchedAt: now };
   }
-  const jwk = jwksCache.keys.find((k) => k.kid === header.kid);
+  let jwk = jwksCache.keys.find((k) => k.kid === header.kid);
+  if (!jwk && now - jwksCache.fetchedAt >= 60_000) {
+    // Google rotates its signing keys: an unknown key id gets one fresh fetch,
+    // at most once a minute, so a forged kid cannot make us hammer the endpoint.
+    jwksCache = { keys: await loadKeys(true), expires: now + 60 * 60_000, fetchedAt: now };
+    jwk = jwksCache.keys.find((k) => k.kid === header.kid);
+  }
   if (!jwk) throw Error("signature");
   const key = await crypto.subtle.importKey(
     "jwk",
@@ -200,7 +205,7 @@ export function redirectAllowed(candidate: string, config: string): boolean {
         url.hostname === allowedUrl.hostname &&
         !url.username &&
         !url.password &&
-        url.pathname.startsWith(allowedUrl.pathname)
+        url.pathname === allowedUrl.pathname
       );
     } catch {
       return false;

@@ -48,13 +48,6 @@ fi
 
 # flutter drive installs this verified APK itself (-r, same package id).
 
-driver="$temp_dir/cloud_device_driver.dart"
-cat >"$driver" <<'DART'
-import 'package:integration_test/integration_test_driver.dart';
-
-Future<void> main() => integrationDriver();
-DART
-
 echo "Resetting the test library..."
 dart run tool/cloud_test_reset.dart "$worker_url"
 
@@ -66,7 +59,7 @@ flutter test integration_test/cloud_device_test.dart -d linux \
 linux_pid=$!
 flutter drive -d "$serial" \
   --target integration_test/cloud_device_test.dart \
-  --driver "$driver" \
+  --driver test_driver/integration_test.dart \
   --use-application-binary "$apk" \
   --dart-define=CLOUD_ROLE=A \
   --dart-define="NOTES_CLOUD_URL=$worker_url" \

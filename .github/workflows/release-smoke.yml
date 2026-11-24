@@ -128,7 +128,7 @@ jobs:
           grep -qx "${package_dir}/com.mmoptibuilds.notes.desktop" "$listing"
           grep -qx "${package_dir}/notes.png" "$listing"
           grep -qx "${package_dir}/BUILD" "$listing"
-          test "$(grep -c "^${package_dir}/.*-OFL\.txt$" "$listing")" -eq 4
+          test "$(grep -c "^${package_dir}/[^/]*-OFL\.txt$" "$listing" || true)" -eq 4
 
           mkdir -p "$RUNNER_TEMP/linux-package"
           tar -xzf "$package" -C "$RUNNER_TEMP/linux-package"

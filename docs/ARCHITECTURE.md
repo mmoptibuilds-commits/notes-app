@@ -781,8 +781,9 @@ widgets. It owns the `QuillController`, the title controller, the
 
 `EditorScreen` hosts the toolbar (`ToolbarItem` order from settings), completed
 items, image embeds (`att:` sources through `getAttachment`), copy as text and
-Markdown, and the editor shortcut scope. Quill's find-in-note handles Ctrl+F
-while the editor has focus.
+Markdown, and the editor shortcut scope. Quill handles Ctrl+C and Ctrl+X for
+selected editor text; cut edits flow through the session's normal autosave.
+Quill's find-in-note handles Ctrl+F while the editor has focus.
 
 ### 8.4 Shortcuts (`lib/ui/shortcuts/`)
 

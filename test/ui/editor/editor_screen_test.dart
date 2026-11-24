@@ -73,6 +73,16 @@ void expectDialogActionsAtLeast48(WidgetTester tester) {
   }
 }
 
+Future<void> pressControlKey(
+  WidgetTester tester,
+  LogicalKeyboardKey key,
+) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  await tester.sendKeyDownEvent(key);
+  await tester.sendKeyUpEvent(key);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+}
+
 void main() {
   setUpAll(loadAppFonts);
 
@@ -333,6 +343,148 @@ void main() {
       expect(copied, contains('- [x] Renew library card'));
       expect(copied, contains('[Link text](https://example.org)'));
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('Ctrl+C copies selected editor text without changing the note', (
+    tester,
+  ) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(
+      title: 'Clipboard',
+      body: jsonEncode((Delta()..insert('copy this text\n')).toJson()),
+    );
+    await pumpEditor(tester, s, noteId: note.id);
+    final quill = tester
+        .widget<QuillEditor>(find.byType(QuillEditor))
+        .controller;
+    quill.updateSelection(
+      const TextSelection(baseOffset: 0, extentOffset: 9),
+      ChangeSource.local,
+    );
+    await tester.pump();
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.tap(find.byType(QuillEditor));
+    quill.updateSelection(
+      const TextSelection(baseOffset: 0, extentOffset: 9),
+      ChangeSource.local,
+    );
+    await tester.pump();
+    await pressControlKey(tester, LogicalKeyboardKey.keyC);
+    await tester.pumpAndSettle();
+
+    expect(copied, 'copy this');
+    expect(quill.document.toPlainText(), 'copy this text\n');
+    expect(s.notes.getNote(note.id)!.preview, 'copy this text');
+  });
+
+  testWidgets('Ctrl+X copies, removes and persists selected editor text', (
+    tester,
+  ) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(
+      title: 'Clipboard',
+      body: jsonEncode((Delta()..insert('cut this text\n')).toJson()),
+    );
+    await pumpEditor(tester, s, noteId: note.id);
+    final quill = tester
+        .widget<QuillEditor>(find.byType(QuillEditor))
+        .controller;
+    await tester.tap(find.byType(QuillEditor));
+    quill.updateSelection(
+      const TextSelection(baseOffset: 0, extentOffset: 8),
+      ChangeSource.local,
+    );
+    await tester.pump();
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await pressControlKey(tester, LogicalKeyboardKey.keyX);
+    await tester.pumpAndSettle();
+    expect(copied, 'cut this');
+    expect(quill.document.toPlainText(), ' text\n');
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(s.notes.getNote(note.id)!.preview, ' text');
+  });
+
+  testWidgets(
+    'Ctrl+C and Ctrl+X with no selection leave clipboard and note alone',
+    (tester) async {
+      final s = AppServices.inMemory();
+      addTearDown(s.close);
+      final note = s.notes.createNote(
+        title: 'Clipboard',
+        body: jsonEncode((Delta()..insert('leave this intact\n')).toJson()),
+      );
+      await pumpEditor(tester, s, noteId: note.id);
+      final quill = tester
+          .widget<QuillEditor>(find.byType(QuillEditor))
+          .controller;
+      await tester.tap(find.byType(QuillEditor));
+      quill.updateSelection(
+        const TextSelection.collapsed(offset: 0),
+        ChangeSource.local,
+      );
+      await tester.pump();
+      var clipboardWrites = 0;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') clipboardWrites++;
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pressControlKey(tester, LogicalKeyboardKey.keyC);
+      await tester.pumpAndSettle();
+      expect(clipboardWrites, 0);
+      expect(quill.document.toPlainText(), 'leave this intact\n');
+      expect(s.notes.getNote(note.id)!.preview, 'leave this intact');
+
+      await pressControlKey(tester, LogicalKeyboardKey.keyX);
+      await tester.pumpAndSettle();
+      expect(clipboardWrites, 0);
+      expect(quill.document.toPlainText(), 'leave this intact\n');
+      expect(s.notes.getNote(note.id)!.preview, 'leave this intact');
     },
   );
 

@@ -2,6 +2,28 @@
 
 All notable changes to Notes are recorded here.
 
+## [1.2.0] - Unreleased (build candidate 20261125)
+
+### Added
+
+- A warning before every manual JSON backup export: the file is unencrypted, so
+  anyone who can access it can read your notes and attachments. Choose
+  **Cancel** or **Continue**; Cancel exports nothing.
+- A manual **Release build checks** GitHub workflow that builds Android arm64
+  and Linux x64 packages with a temporary CI-only certificate. It publishes
+  nothing and is not a release.
+
+### Fixed
+
+- Linux in-app updates now confirm that every open or recently closed note is
+  saved before the update helper starts. If a save fails, Notes stays open with
+  your edits and the update waits for **Retry**.
+
+### Changed
+
+- The `main` branch is protected from deletion and force pushes. Ordinary
+  direct pushes are unaffected.
+
 ## [1.1.0] - 2026-11-21
 
 ### Added

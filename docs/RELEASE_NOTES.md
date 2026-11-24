@@ -1,3 +1,26 @@
+# Notes 1.2.0 (build candidate)
+
+Notes is a personal, offline-first notes app for Android and Linux. Notes stay
+in an encrypted database on your device. There are no accounts, analytics or
+cloud service. This release is not published yet.
+
+## What's new
+
+- Exporting a JSON backup now warns that the file is unencrypted and asks you
+  to confirm each time. Cancel exports nothing.
+- Linux in-app updates save your open notes before the update starts. If Notes
+  cannot confirm a save, it stays open with your edits and offers **Retry**
+  instead of installing.
+
+## Upgrading from 1.1.0
+
+Open **Settings → Updates** and confirm the install when the update is ready.
+Your encrypted notes database and paired devices are kept when you update.
+Verification and signing are unchanged; see the 1.1.0 notes below for manual
+installation.
+
+---
+
 # Notes 1.1.0
 
 Notes is a personal, offline-first notes app for Android and Linux. Notes stay

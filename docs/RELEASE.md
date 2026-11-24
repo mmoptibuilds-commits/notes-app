@@ -9,6 +9,10 @@ that phone value as a dated snapshot, not a permanent current value. The
 distributed stable release (`20261124`, Notes 1.1.0, published 2026-11-21).
 Update it in the commit that follows each published release.
 
+Build candidate (unpublished): `1.2.0+20261125`. It is not tagged, signed for
+distribution or released; `tool/last_release_version_code.txt` stays at
+`20261124` until it is published.
+
 ## 1. Preflight
 
 Use Flutter 3.50.0 stable and JDK 21. From the repository root:
@@ -187,6 +191,14 @@ signing continuity, manifest signing, or installation on a device.
 
 ### Protection of main
 
-_Coordinator placeholder: record the rules applied to `main` and how the owner
-can change them._
+Applied 2026-11-24 as the repository ruleset "Protect main: no deletion, no
+force push" (id 27974079): enforcement active, target `refs/heads/main` only,
+no bypass actors, rules `deletion` and `non_fast_forward`. Ordinary authorized
+fast-forward pushes still work; there is no pull-request, review, status-check
+or update restriction. Other branches and tags are not affected.
+
+To change it, open **Settings → Rules → Rulesets** in the GitHub repository (or
+use `gh api repos/mmoptibuilds-commits/notes-app/rulesets`), edit or delete
+that ruleset, or set it to Disabled. Read the effective rules with
+`gh api repos/mmoptibuilds-commits/notes-app/rules/branches/main`.
 <!-- END MANUAL RELEASE SMOKE -->

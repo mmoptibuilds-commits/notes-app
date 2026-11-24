@@ -120,6 +120,78 @@ void main() {
     expect(repo.getNote(id), isNull, reason: 'a deleted copy stays deleted');
   });
 
+  test(
+    'review query counts several copies and keeps them out of ordinary lists',
+    () {
+      final folder = repo.createFolder('Review');
+      final main = repo.createNote(
+        title: 'main',
+        body: body('main'),
+        folderId: folder.id,
+      );
+      for (final value in ['one', 'two']) {
+        final copy = repo.createNote(
+          id: 'copy-$value',
+          title: value,
+          body: body(value),
+          folderId: folder.id,
+        );
+        db.transaction(
+          () => repo.writeRecord(
+            repo.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+          ),
+        );
+      }
+      expect(repo.conflictCopiesOf(main.id).map((n) => n.title), [
+        'one',
+        'two',
+      ]);
+      expect(repo.listNotes().map((n) => n.id), [main.id]);
+      expect(repo.counts().active, 1);
+      expect(repo.listFolders().single.noteCount, 1);
+      expect(repo.getNote(main.id)!.reviewEditsCount, 2);
+      repo.setArchived([main.id], true);
+      expect(repo.counts().archived, 1);
+      expect(
+        repo.listNotes(scope: NoteScope.archived).single.reviewEditsCount,
+        2,
+      );
+    },
+  );
+
+  test('review copies remain reachable after main is trashed or purged', () {
+    final main = repo.createNote(body: body('main'));
+    final copy = repo.createNote(id: 'copy-review', body: body('other'));
+    db.transaction(
+      () => repo.writeRecord(
+        repo.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+      ),
+    );
+    repo.trash([main.id]);
+    expect(repo.conflictCopiesOf(main.id), hasLength(1));
+    repo.purge([main.id]);
+    expect(repo.getNote(main.id), isNull);
+    expect(repo.conflictCopiesOf(main.id), hasLength(1));
+  });
+
+  test('use conflict copy preserves old main and consumes selected copy atomically', () {
+    final main = repo.createNote(title: 'main', body: body('before'));
+    final copy = repo.createNote(
+      id: 'copy-selected',
+      title: 'other',
+      body: body('after'),
+    );
+    db.transaction(
+      () => repo.writeRecord(
+        repo.getRecord(copy.id)!.copyWith(conflictOf: main.id),
+      ),
+    );
+    repo.useConflictCopy(main.id, 'copy-selected');
+    expect(repo.getNote(main.id)!.body, body('after'));
+    expect(repo.getNote('copy-selected'), isNull);
+    expect(repo.conflictCopiesOf(main.id).single.body, body('before'));
+  });
+
   test('pin, archive, trash, restore, purge and the scopes they land in', () {
     final a = repo.createNote(title: 'a');
     now += 10;

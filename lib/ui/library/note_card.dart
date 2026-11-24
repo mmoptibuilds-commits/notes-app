@@ -150,6 +150,7 @@ class _Tag extends StatelessWidget {
 List<Widget> noteTags(AppPalette p, NoteSummary n, {required bool searching}) =>
     [
       if (n.isConflictCopy) _Tag('Conflict copy', color: p.danger),
+      if (n.reviewEditsCount > 0) _Tag('Review edits', color: p.accent),
       if (searching && n.archived) _Tag('Archived', color: p.textMuted),
     ];
 

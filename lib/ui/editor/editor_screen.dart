@@ -27,6 +27,7 @@ import 'editor_session.dart';
 import 'editor_style.dart';
 import 'editor_toolbar.dart';
 import 'embeds.dart';
+import '../review/review_edits_screen.dart';
 
 /// Opens the editor. With [noteId] it edits that note; without, it starts a
 /// new untitled note (stored on the first real content) in [folderId].
@@ -622,6 +623,31 @@ class _EditorScreenState extends State<EditorScreen>
               builder: (context, _) => Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  ListenableBuilder(
+                    listenable: app.notes.changes,
+                    builder: (context, _) {
+                      final id = session.noteId;
+                      if (id == null) return const SizedBox.shrink();
+                      final count = app.notes.conflictCopiesOf(id).length;
+                      if (count == 0) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.difference_outlined),
+                            label: Text('Review edits ($count)'),
+                            onPressed: () async {
+                              session.flush();
+                              if (context.mounted) {
+                                await openReviewEdits(context, id);
+                              }
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   TextField(
                     controller: session.title,
                     focusNode: _titleFocus,

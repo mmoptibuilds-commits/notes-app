@@ -112,9 +112,57 @@ class NoteRepository {
       tasksTotal: s.tasksTotal,
       tasksDone: s.tasksDone,
       conflictOf: s.conflictOf,
+      reviewEditsCount: s.reviewEditsCount,
       body: r['body'] as String,
       contentVv: VersionVector.decode(r['content_vv'] as String),
     );
+  }
+
+  /// Live conflict copies for [noteId], including when the main note is in
+  /// Trash or has been purged. Purged copies are excluded.
+  List<Note> conflictCopiesOf(String noteId) {
+    final rows = db.select(
+      '$_noteSelect WHERE n.conflict_of = ? AND n.purged = 0 ORDER BY n.created_at, n.id',
+      [noteId],
+    );
+    return [for (final r in rows) _note(r)];
+  }
+
+  /// Adopts a competing version and preserves the displaced main version as
+  /// a conflict copy. Both writes commit together.
+  void useConflictCopy(String noteId, String copyId) {
+    db.transaction(() {
+      final main = getRecord(noteId);
+      final copy = getRecord(copyId);
+      if (main == null ||
+          main.purged ||
+          copy == null ||
+          copy.purged ||
+          copy.conflictOf != noteId) {
+        throw StateError('Review version is no longer available');
+      }
+      _insertConflictCopy(main);
+      final hlc = db.clock.now();
+      writeRecord(
+        main.copyWith(
+          title: copy.title,
+          body: copy.body,
+          updatedAt: _now(),
+          purged: false,
+          contentHlc: hlc,
+          contentVv: main.contentVv.merge(copy.contentVv).increment(_device),
+        ),
+      );
+      writeRecord(
+        copy.copyWith(
+          title: '',
+          body: emptyBodyJson,
+          purged: true,
+          contentHlc: hlc,
+          contentVv: copy.contentVv.increment(_device),
+        ),
+      );
+    });
   }
 
   /// Writes the editor's content.
@@ -198,14 +246,14 @@ class NoteRepository {
     if (match == null) return const [];
     var where = _scopeWhere(scope);
     if (scope == NoteScope.active && includeArchived) {
-      where = 'n.purged = 0 AND n.trashed_at IS NULL';
+      where = 'n.purged = 0 AND n.trashed_at IS NULL AND n.conflict_of IS NULL';
     }
     final rows = db.select(
       '''
       SELECT ${_summaryColumns.join(', ')}, n.pk AS pk
       FROM notes_fts
       JOIN notes n ON n.pk = notes_fts.rowid
-      LEFT JOIN folders f ON f.id = n.folder_id AND f.deleted = 0
+      $_summaryJoins
       WHERE notes_fts MATCH ? AND $where
       ORDER BY bm25(notes_fts, 6.0, 1.0), n.updated_at DESC
       LIMIT ?
@@ -352,9 +400,9 @@ class NoteRepository {
   LibraryCounts counts() {
     final r = db.select('''
       SELECT
-        sum(n.trashed_at IS NULL AND n.archived = 0) AS active,
-        sum(n.trashed_at IS NULL AND n.archived = 0 AND f.id IS NULL) AS unfiled,
-        sum(n.trashed_at IS NULL AND n.archived = 1) AS archived,
+        sum(n.trashed_at IS NULL AND n.archived = 0 AND n.conflict_of IS NULL) AS active,
+        sum(n.trashed_at IS NULL AND n.archived = 0 AND n.conflict_of IS NULL AND f.id IS NULL) AS unfiled,
+        sum(n.trashed_at IS NULL AND n.archived = 1 AND n.conflict_of IS NULL) AS archived,
         sum(n.trashed_at IS NOT NULL) AS trash,
         sum(n.trashed_at IS NULL AND n.conflict_of IS NOT NULL) AS conflicts
       FROM notes n
@@ -378,7 +426,8 @@ class NoteRepository {
       SELECT f.id, f.name,
         (SELECT count(*) FROM notes n
           WHERE n.folder_id = f.id AND n.purged = 0
-            AND n.trashed_at IS NULL AND n.archived = 0) AS cnt
+            AND n.trashed_at IS NULL AND n.archived = 0
+            AND n.conflict_of IS NULL) AS cnt
       FROM folders f
       WHERE f.deleted = 0
       ORDER BY f.name COLLATE NOCASE, f.id
@@ -747,10 +796,8 @@ class NoteRepository {
   }
 
   static String _scopeWhere(NoteScope scope) => switch (scope) {
-    NoteScope.active =>
-      'n.purged = 0 AND n.trashed_at IS NULL AND n.archived = 0',
-    NoteScope.archived =>
-      'n.purged = 0 AND n.trashed_at IS NULL AND n.archived = 1',
+    NoteScope.active => 'n.purged = 0 AND n.trashed_at IS NULL AND n.archived = 0 AND n.conflict_of IS NULL',
+    NoteScope.archived => 'n.purged = 0 AND n.trashed_at IS NULL AND n.archived = 1 AND n.conflict_of IS NULL',
     NoteScope.trash => 'n.purged = 0 AND n.trashed_at IS NOT NULL',
     NoteScope.conflicts =>
       'n.purged = 0 AND n.trashed_at IS NULL AND n.conflict_of IS NOT NULL',
@@ -769,15 +816,24 @@ class NoteRepository {
     'n.tasks_total',
     'n.tasks_done',
     'n.conflict_of',
+    'coalesce(review_copies.copy_count, 0) AS review_edits_count',
   ];
 
+  static const _summaryJoins = '''
+    LEFT JOIN folders f ON f.id = n.folder_id AND f.deleted = 0
+    LEFT JOIN (
+      SELECT conflict_of, count(*) AS copy_count
+      FROM notes
+      WHERE purged = 0 AND conflict_of IS NOT NULL
+      GROUP BY conflict_of
+    ) review_copies ON review_copies.conflict_of = n.id
+  ''';
+
   static final _summarySelect =
-      'SELECT ${_summaryColumns.join(', ')} FROM notes n '
-      'LEFT JOIN folders f ON f.id = n.folder_id AND f.deleted = 0';
+      'SELECT ${_summaryColumns.join(', ')} FROM notes n $_summaryJoins';
 
   static final _noteSelect =
-      'SELECT ${_summaryColumns.join(', ')}, n.body, n.content_vv FROM notes n '
-      'LEFT JOIN folders f ON f.id = n.folder_id AND f.deleted = 0';
+      'SELECT ${_summaryColumns.join(', ')}, n.body, n.content_vv FROM notes n $_summaryJoins';
 
   static NoteSummary _summary(Row r) => NoteSummary(
     id: r['id'] as String,
@@ -792,7 +848,29 @@ class NoteRepository {
     tasksTotal: r['tasks_total'] as int,
     tasksDone: r['tasks_done'] as int,
     conflictOf: r['conflict_of'] as String?,
+    reviewEditsCount: r['review_edits_count'] as int? ?? 0,
   );
+
+  static Note _note(Row r) {
+    final s = _summary(r);
+    return Note(
+      id: s.id,
+      title: s.title,
+      preview: s.preview,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      pinned: s.pinned,
+      archived: s.archived,
+      folderId: s.folderId,
+      trashedAt: s.trashedAt,
+      tasksTotal: s.tasksTotal,
+      tasksDone: s.tasksDone,
+      conflictOf: s.conflictOf,
+      reviewEditsCount: s.reviewEditsCount,
+      body: r['body'] as String,
+      contentVv: VersionVector.decode(r['content_vv'] as String),
+    );
+  }
 
   static DateTime _date(int ms) => DateTime.fromMillisecondsSinceEpoch(ms);
 

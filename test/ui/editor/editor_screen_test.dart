@@ -110,6 +110,37 @@ void main() {
     },
   );
 
+  testWidgets('shows a reachable Review edits banner for conflict copies', (
+    tester,
+  ) async {
+    final s = AppServices.inMemory();
+    addTearDown(s.close);
+    final note = s.notes.createNote(
+      title: 'Main',
+      body: '[{"insert":"main\\n"}]',
+    );
+    final copy = s.notes.createNote(
+      id: 'banner-copy',
+      body: '[{"insert":"other\\n"}]',
+    );
+    s.db.transaction(
+      () => s.notes.writeRecord(
+        s.notes.getRecord(copy.id)!.copyWith(conflictOf: note.id),
+      ),
+    );
+    await pumpEditor(tester, s, noteId: note.id);
+    final banner = find.text('Review edits (1)');
+    expect(banner, findsOneWidget);
+    expect(
+      tester.getTopLeft(banner).dy,
+      lessThan(tester.getTopLeft(find.byType(QuillEditor)).dy),
+    );
+    expect(
+      find.ancestor(of: banner, matching: find.byType(OutlinedButton)),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('the title field freezes with the editor during update handoff', (
     tester,
   ) async {

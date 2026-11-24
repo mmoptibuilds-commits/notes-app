@@ -16,6 +16,7 @@ class NoteSummary {
     required this.tasksTotal,
     required this.tasksDone,
     required this.conflictOf,
+    this.reviewEditsCount = 0,
   });
 
   final String id;
@@ -33,6 +34,9 @@ class NoteSummary {
   /// Set when this note is the kept losing side of a conflicting edit of the
   /// note with this id.
   final String? conflictOf;
+
+  /// Live competing versions waiting to be reviewed on this note.
+  final int reviewEditsCount;
 
   bool get isTrashed => trashedAt != null;
   bool get isConflictCopy => conflictOf != null;
@@ -53,6 +57,7 @@ class Note extends NoteSummary {
     required super.tasksTotal,
     required super.tasksDone,
     required super.conflictOf,
+    super.reviewEditsCount,
     required this.body,
     required this.contentVv,
   });

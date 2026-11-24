@@ -151,7 +151,7 @@ class CloudSyncEngine {
               part.offset != offset ||
               part.data.isEmpty && !part.complete ||
               size < 0 ||
-              size > 50 * 1024 * 1024 ||
+              size > 20 * 1024 * 1024 ||
               part.data.length > size - offset ||
               downloadedBytes + part.data.length > 200 * 1024 * 1024) {
             throw const CloudApiException(
@@ -186,12 +186,21 @@ class CloudSyncEngine {
 
   Future<void> _pull(String library) async {
     var cursor = pullSeq;
+    var pages = 0;
     while (true) {
+      if (++pages > 10000) {
+        throw const CloudApiException(
+          CloudErrorKind.malformed,
+          'Cloud returned too many change pages.',
+        );
+      }
       final page = await api.changes(library, cursor);
       _checkActive();
       if (page.libraryId != library ||
           page.next < cursor ||
-          page.rows.length > 100) {
+          page.rows.length > 100 ||
+          page.head < cursor ||
+          page.head < page.next) {
         throw const CloudApiException(
           CloudErrorKind.malformed,
           'Cloud returned an inconsistent change page.',
@@ -211,7 +220,8 @@ class CloudSyncEngine {
         previousSeq = remote.seq;
       }
       if ((page.rows.isNotEmpty && page.next != previousSeq) ||
-          (page.rows.isEmpty && page.more)) {
+          (page.rows.isEmpty && (page.more || page.head > cursor)) ||
+          (page.more && page.next >= page.head)) {
         throw const CloudApiException(
           CloudErrorKind.malformed,
           'Cloud returned an inconsistent change cursor.',
@@ -263,7 +273,22 @@ class CloudSyncEngine {
       );
     }
     final parsed = <CloudRecord>[];
+    final missing = <(String, String)>[];
     for (final row in rows) {
+      if (row['missing'] == true) {
+        final kind = row['kind'];
+        final id = row['id'];
+        if ((kind != 'note' && kind != 'folder') ||
+            id is! String ||
+            !_isUuid(id)) {
+          throw const CloudApiException(
+            CloudErrorKind.malformed,
+            'Cloud returned an invalid missing-record conflict.',
+          );
+        }
+        missing.add((kind as String, id));
+        continue;
+      }
       parsed.add(CloudRecord.fromJson(row));
     }
     final head = await api.head();
@@ -275,6 +300,15 @@ class CloudSyncEngine {
       );
     }
     repo.db.transaction(() {
+      // A nonzero base revision with no current server row means the server
+      // lost/deleted the row. Forget only its server revision so the next
+      // round retries the still-local record as a fresh insert (baseRev 0).
+      for (final (kind, id) in missing) {
+        repo.db.execute('DELETE FROM cloud_notes WHERE kind=? AND id=?', [
+          kind,
+          id,
+        ]);
+      }
       for (final remote in parsed) {
         try {
           repo.db.savepoint(() => _apply(remote));

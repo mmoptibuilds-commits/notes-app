@@ -275,13 +275,16 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   final updates = installer == null
       ? null
       : UpdateController.forApp(settings: settings, installer: installer);
+  // A development instance (explicit data directory, as in tests and
+  // `NOTES_DATA_DIR`) never reaches the default server and keeps its cloud
+  // session in its own directory, away from the real app's key store.
+  final devInstance = override != null;
   final cloudUrl = resolveCloudUrl(
     environment: Platform.environment,
     compiledUrl: const String.fromEnvironment('NOTES_CLOUD_URL'),
+    devInstance: devInstance,
   );
-  // A development instance keeps its cloud session in its own directory.
-  final CloudSessionStore cloudSessionStore =
-      (Platform.environment['NOTES_DATA_DIR'] ?? '').isNotEmpty
+  final CloudSessionStore cloudSessionStore = devInstance
       ? FileCloudSessionStore(dir)
       : const SecureCloudSessionStore();
   final cloud = cloudUrl.isEmpty

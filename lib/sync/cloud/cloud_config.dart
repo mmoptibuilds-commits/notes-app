@@ -20,6 +20,7 @@ const kDefaultCloudUrl = 'https://notes-sync.mmoptibuilds.workers.dev';
 String resolveCloudUrl({
   required Map<String, String> environment,
   required String compiledUrl,
+  required bool devInstance,
   String defaultUrl = kDefaultCloudUrl,
 }) {
   final fromEnvironment = environment['NOTES_CLOUD_URL'];
@@ -27,7 +28,6 @@ String resolveCloudUrl({
     return fromEnvironment;
   }
   if (compiledUrl.isNotEmpty) return compiledUrl;
-  final devInstance = (environment['NOTES_DATA_DIR'] ?? '').isNotEmpty;
   return devInstance ? '' : defaultUrl;
 }
 

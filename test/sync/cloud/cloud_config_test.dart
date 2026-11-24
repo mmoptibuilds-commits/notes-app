@@ -6,12 +6,16 @@ import 'package:notes/sync/cloud/cloud_config.dart';
 
 void main() {
   const defaultUrl = 'https://notes-sync.example.invalid';
-  String resolve(Map<String, String> env, [String compiled = '']) =>
-      resolveCloudUrl(
-        environment: env,
-        compiledUrl: compiled,
-        defaultUrl: defaultUrl,
-      );
+  String resolve(
+    Map<String, String> env, [
+    String compiled = '',
+    bool dev = false,
+  ]) => resolveCloudUrl(
+    environment: env,
+    compiledUrl: compiled,
+    devInstance: dev,
+    defaultUrl: defaultUrl,
+  );
 
   test('a normal installation uses the default server', () {
     expect(resolve({}), defaultUrl);
@@ -31,7 +35,7 @@ void main() {
   });
 
   test('a development instance never reaches the default server', () {
-    expect(resolve({'NOTES_DATA_DIR': '/tmp/x'}), '');
+    expect(resolve({}, '', true), '');
     expect(
       resolve({
         'NOTES_DATA_DIR': '/tmp/x',

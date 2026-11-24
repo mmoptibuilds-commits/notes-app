@@ -214,3 +214,43 @@ Linux smoke test launch the app in a real GTK window with Flutter's native
 engine, then verify encrypted SQLite persistence across a close and reopen.
 Widget tests remain useful for layout and interaction coverage, but they cannot
 prove the native desktop runner and on-disk database work together.
+
+## D20. Optional private cloud sync through a Cloudflare Worker and Neon
+Accounts, a cloud relay and an always-on server were excluded from the first
+design. The owner's devices are never reachable at the same time often enough
+for LAN sync alone, so Notes 1.3.0 adds an **opt-in** cloud path:
+
+- **Shape:** a Cloudflare Worker (TypeScript, Workers Free) in front of a Neon
+  Postgres project (Free plan), at a total cost of $0. The server is a thin
+  revisioned record store with a change feed and a blob store; it authenticates
+  one Google account (the owner's verified account ID) and merges nothing. See
+  [CLOUD_SYNC.md](CLOUD_SYNC.md).
+- **Not end-to-end encrypted.** The server stores notes as readable JSON and
+  its operator (the owner) can read them. This was chosen deliberately for a
+  single-owner private deployment; transport is HTTPS, tokens are short lived and
+  per device, and secrets exist only as Worker secrets. Anyone who wants the old
+  "nothing leaves my devices" model keeps cloud off (the default) and uses LAN
+  sync.
+- **Why not a managed sync product or Firebase:** a per-vendor account with its
+  own data model, quotas and terms, versus about a thousand lines we control and
+  can delete. **Why not Cloudflare D1 or Durable Object storage as the store:**
+  the owner asked for Neon, and Postgres keeps the data portable.
+- **Free-plan constraints drive the design:** 10 ms CPU per Worker request
+  (no server-side merging, no byte processing), and Neon's 100 CU-hours a month
+  with scale to zero after five idle minutes (an idle "anything new?" poll is
+  answered by a Durable Object and never wakes Neon).
+- **Sign-in:** OpenID Connect `id_token` in the system browser, verified by the
+  Worker; no OAuth client secret exists, and no Google SDK is added.
+- **LAN sync is unchanged on the wire** and keeps working with 1.2.0 devices.
+
+## D21. Automatic text merge for concurrent edits (supersedes "no text merge")
+Concurrent edits to one note used to keep both versions as a conflict copy,
+always. Cloud sync makes concurrent edits more common (devices sync while the
+user works), so edits to **different lines** are now merged automatically with a
+three-way line merge against the last cloud-synced version of that note. Edits
+that overlap keep the later version as the main note and preserve the other as a
+conflict copy that the editor presents as **Review edits**. Nothing is ever
+dropped silently. The merge lives in pure Dart (`lib/doc/line_merge.dart`,
+`lib/sync/three_way.dart`), has property tests, and is used only by the cloud
+path; LAN sync still has no base version and keeps whole-document conflict
+copies.

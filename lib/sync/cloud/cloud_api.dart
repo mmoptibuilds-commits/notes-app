@@ -585,6 +585,8 @@ class HttpCloudApi implements CloudApi {
         errorKind,
         err == 'row_too_large'
             ? 'Cloud change row exceeds the requested page size.'
+            : err == 'devices'
+            ? 'Five devices already use cloud sync. Remove one in Cloud sync settings first.'
             : switch (errorKind) {
                 CloudErrorKind.unauthorized =>
                   'You are signed out of cloud sync.',
@@ -639,15 +641,17 @@ class HttpCloudApi implements CloudApi {
       if (total.elapsed > timeout) throw _requestTimeout();
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      if (body != null) {
-        req.headers.contentType = ContentType.json;
-        req.write(encodedBody);
-      }
+      // All headers must be set before the first byte of the body is written:
+      // afterwards `HttpHeaders` are immutable and the request fails.
       if (session != null) {
         req.headers.set(
           HttpHeaders.authorizationHeader,
           'Bearer ${session.access}',
         );
+      }
+      if (body != null) {
+        req.headers.contentType = ContentType.json;
+        req.write(encodedBody);
       }
       final resp = await req.close().timeout(timeout);
       if (total.elapsed > timeout) throw _requestTimeout();

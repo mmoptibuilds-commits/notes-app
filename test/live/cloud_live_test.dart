@@ -95,10 +95,16 @@ void main() {
         );
         await serviceA.uploadLibrary(await serviceA.createVerifiedBackup());
         await serviceB.join(await serviceB.inspectForJoin());
+        await serviceB.syncNow();
         counts['joinedRecords'] = repoB
             .cloudRecordsSince(-1, limit: 10000)
             .length;
-        if (repoB.getAttachment(image) == null) {
+        if (repoB.getAttachment(_hashOf(image)) == null) {
+          // ignore: avoid_print
+          print('DBG missing=${repoB.missingAttachments().length} unavailable=${serviceB.engine.unavailableBlobs} err=${serviceB.status.lastError} phase=${serviceB.status.phase}');
+          final check = await apiB.checkBlobs([_hashOf(image)]);
+          // ignore: avoid_print
+          print('DBG serverMissing=${check.missing.length} partial=${check.partial}');
           throw StateError('Live sync check failed.');
         }
         counts['imagesDownloaded'] = 1;
@@ -119,7 +125,7 @@ void main() {
         );
         await serviceB.engine.sync();
         await serviceA.engine.sync();
-        if (repoA.getAttachment(extraImage) == null) {
+        if (repoA.getAttachment(_hashOf(extraImage)) == null) {
           throw StateError('Live sync check failed.');
         }
         counts['imagesUploaded'] = 1;
@@ -198,6 +204,15 @@ void main() {
         print('FAIL cloud live check');
         rethrow;
       } finally {
+        // Best effort, also after a failure: never leave test devices behind,
+        // the server allows five active devices.
+        for (final service in [serviceA, serviceB]) {
+          try {
+            await service.signOut();
+          } on Object {
+            // Already signed out, or the server is unreachable.
+          }
+        }
         await serviceA.stop();
         await serviceB.stop();
         serviceA.dispose();
@@ -231,6 +246,9 @@ CloudService _service(
   loginLauncher: launcher,
   unavailable: false,
 );
+
+/// `putAttachment` returns the embed reference (`att:<sha256>`).
+String _hashOf(String ref) => ref.startsWith('att:') ? ref.substring(4) : ref;
 
 Map<String, String> _digests(NoteRepository repo) => {
   for (final e in repo.cloudRecordsSince(-1, limit: 10000))

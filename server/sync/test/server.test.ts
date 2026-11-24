@@ -107,7 +107,9 @@ const request = (path: string, method = "GET", body?: unknown, token?: string) =
 
 beforeAll(async () => {
   await pg.exec(await readFile(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
-  await pg.exec(await readFile(new URL("../migrations/0002_changes_bytes.sql", import.meta.url), "utf8"));
+  await pg.exec(
+    await readFile(new URL("../migrations/0002_changes_bytes.sql", import.meta.url), "utf8"),
+  );
 });
 
 describe("cryptography and state", () => {
@@ -120,7 +122,10 @@ describe("cryptography and state", () => {
   });
   it("rejects arbitrary refresh strings before querying the database", async () => {
     const before = databaseQueryCount;
-    const response = await worker.fetch(request("/v1/auth/refresh", "POST", { refresh: "random string" }), env);
+    const response = await worker.fetch(
+      request("/v1/auth/refresh", "POST", { refresh: "random string" }),
+      env,
+    );
     expect(response.status).toBe(401);
     expect(databaseQueryCount).toBe(before);
     expect(await verifyRefreshToken(secret, "random string")).toBe(false);
@@ -184,6 +189,24 @@ describe("cryptography and state", () => {
     expect(seen!.headers.get("Neon-Connection-String")).toContain("postgres://");
     expect(await seen!.json()).toEqual({ query: "SELECT $1::jsonb", params: [{ x: 1 }] });
     expect(result.rows[0]).toEqual({ result: { ok: true } });
+  });
+  it("turns Neon raw-text booleans into booleans", async () => {
+    const client = new NeonDatabase("postgres://user:password@db.example.invalid/app", async () =>
+      Response.json({
+        fields: [
+          { name: "complete", dataTypeID: 16 },
+          { name: "incomplete", dataTypeID: 16 },
+          { name: "n", dataTypeID: 20 },
+        ],
+        rows: [["t", "f", "7"]],
+      }),
+    );
+    const { rows } = await client.query<{ complete: boolean; incomplete: boolean; n: string }>(
+      "SELECT 1",
+    );
+    expect(rows[0].complete).toBe(true);
+    expect(rows[0].incomplete).toBe(false);
+    expect(rows[0].n).toBe("7");
   });
   it("calls the global fetch without a `this` binding (Workers throw Illegal invocation otherwise)", async () => {
     const original = globalThis.fetch;
@@ -592,7 +615,10 @@ describe("request boundary", () => {
   });
   it("adds database byte counts to change records and rejects oversized pushed rows", async () => {
     const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);
-    const pageResponse = await worker.fetch(request("/v1/changes?since=0", "GET", undefined, token), env);
+    const pageResponse = await worker.fetch(
+      request("/v1/changes?since=0", "GET", undefined, token),
+      env,
+    );
     expect(pageResponse.status).toBe(200);
     const page = (await pageResponse.json()) as any;
     for (const row of page.rows) {
@@ -602,11 +628,21 @@ describe("request boundary", () => {
       );
       expect(row.bytes).toBe(Number(expected.rows[0].bytes));
     }
-    const oversized = await worker.fetch(request("/v1/push", "POST", {
-      libraryId: id,
-      batchId: "oversized-row",
-      rows: [{ kind: "note", id, baseRev: 0, digest, row: { id, body: "x".repeat(181 * 1024) } }],
-    }, token), env);
+    const oversized = await worker.fetch(
+      request(
+        "/v1/push",
+        "POST",
+        {
+          libraryId: id,
+          batchId: "oversized-row",
+          rows: [
+            { kind: "note", id, baseRev: 0, digest, row: { id, body: "x".repeat(181 * 1024) } },
+          ],
+        },
+        token,
+      ),
+      env,
+    );
     expect(oversized.status).toBe(413);
     expect(((await oversized.json()) as any).error).toBe("row_too_large");
   });

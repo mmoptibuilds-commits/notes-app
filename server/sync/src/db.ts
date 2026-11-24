@@ -40,9 +40,12 @@ export class NeonDatabase implements Database {
               const value = row[i];
               return [
                 f.name,
+                // Raw text output: json/jsonb arrive as text, booleans as "t"/"f".
                 (f.dataTypeID === 114 || f.dataTypeID === 3802) && typeof value === "string"
                   ? JSON.parse(value)
-                  : value,
+                  : f.dataTypeID === 16 && typeof value === "string"
+                    ? value === "t" || value === "true"
+                    : value,
               ];
             }),
           ) as T,

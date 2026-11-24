@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/sync/cloud/cloud_api.dart';
 
@@ -23,6 +26,38 @@ void main() {
       expect((await api.head())['libraryId'], 'test-library');
     },
   );
+
+  test('an authenticated POST with a body carries its bearer header', () async {
+    // Regression: the authorization header used to be set after the body was
+    // written, which fails with "HTTP headers are not mutable" on a real server.
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    String? seenAuth;
+    String? seenBody;
+    server.listen((request) async {
+      seenAuth = request.headers.value(HttpHeaders.authorizationHeader);
+      seenBody = await utf8.decoder.bind(request).join();
+      request.response
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': true}));
+      await request.response.close();
+    });
+    final sessions = MemoryCloudSessionStore()
+      ..session = const CloudSession(
+        deviceId: 'test-device',
+        access: 'test-access',
+        accessExp: 9999999999,
+        refresh: 'test-refresh',
+      );
+    final api = HttpCloudApi(
+      baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: server.port),
+      sessions: sessions,
+    );
+    addTearDown(api.close);
+    await api.logout();
+    expect(seenAuth, 'Bearer test-access');
+    expect(seenBody, isNotEmpty);
+  });
 
   test(
     'refresh retains credentials for retryable errors and clears only auth',

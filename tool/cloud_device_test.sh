@@ -31,8 +31,14 @@ if [[ ! -x $aapt ]]; then
 fi
 
 echo "Building isolated cloud-test debug APK..."
+abi=$(adb -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+case $abi in
+  arm64-v8a) platform=android-arm64 ;;
+  x86_64) platform=android-x64 ;;
+  *) echo "Unsupported device ABI: $abi" >&2; exit 1 ;;
+esac
 flutter build apk --debug --target integration_test/cloud_device_test.dart \
-  --target-platform android-arm64 \
+  --target-platform "$platform" \
   --dart-define=CLOUD_ROLE=A \
   --dart-define="NOTES_CLOUD_URL=$worker_url"
 if [[ ! -f $apk ]]; then

@@ -6,6 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
 
 import '../../app.dart';
+import '../../data/note_repository.dart';
 import '../../importer/atomic_export.dart';
 import '../../importer/legacy_backup.dart';
 import '../../importer/markdown_import.dart';
@@ -24,6 +25,7 @@ class DataScreen extends StatefulWidget {
     this.pickBackup,
     this.pickMarkdown,
     this.pickSaveFile,
+    this.createExport,
   });
 
   /// Replaceable for tests.
@@ -32,6 +34,9 @@ class DataScreen extends StatefulWidget {
   /// Replaceable for tests.
   final Future<List<XFile>> Function()? pickMarkdown;
   final Future<File?> Function(String suggestedName)? pickSaveFile;
+
+  /// Replaceable for tests so the confirmation gate can be verified.
+  final String Function(NoteRepository repo)? createExport;
 
   @override
   State<DataScreen> createState() => _DataScreenState();
@@ -265,6 +270,15 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<void> _export() async {
+    final go = await _confirm(
+      title: 'Continue with JSON backup?',
+      body:
+          'This JSON backup is unencrypted. Anyone who can access the file '
+          'can read your notes and attachments. Save it in a private location.',
+      action: 'Continue',
+    );
+    if (go != true || !mounted) return;
+
     final app = AppScope.of(context);
     final stamp = DateTime.now().toIso8601String().substring(0, 10);
     final name = 'notes-export-$stamp.json';
@@ -295,7 +309,7 @@ class _DataScreenState extends State<DataScreen> {
     setState(() => _busy = true);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 30));
-      final json = exportAll(app.notes);
+      final json = (widget.createExport ?? exportAll)(app.notes);
       final count =
           app.notes.counts().active +
           app.notes.counts().archived +

@@ -158,24 +158,60 @@ void main() {
     expect(find.text('Past imports'), findsNothing);
   });
 
-  testWidgets('export writes every note, including Trash', (tester) async {
+  testWidgets('JSON export waits for Continue and warns on every attempt', (
+    tester,
+  ) async {
     final s = AppServices.inMemory();
     addTearDown(s.close);
-    final a = s.notes.createNote(title: 'kept');
-    final b = s.notes.createNote(title: 'binned');
-    s.notes.trash([b.id]);
-    final dir = Directory.systemTemp.createTempSync('notes export ui ');
+    var pickerCalls = 0;
+    var exportCalls = 0;
+    final dir = Directory.systemTemp.createTempSync('notes export gate ');
     addTearDown(() => dir.deleteSync(recursive: true));
-    final out = File('${dir.path}/out.json');
-    await pumpData(tester, s, DataScreen(pickSaveFile: (_) async => out));
-    await tester.runAsync(() async {
-      await tester.tap(find.text('Export all notes'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
+    await pumpData(
+      tester,
+      s,
+      DataScreen(
+        pickSaveFile: (_) async {
+          pickerCalls++;
+          return File('${dir.path}/out.json');
+        },
+        createExport: (_) {
+          exportCalls++;
+          return '{}';
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Export all notes'));
     await tester.pumpAndSettle();
-    final json = jsonDecode(out.readAsStringSync()) as Map<String, Object?>;
-    final ids = {for (final n in json['notes'] as List) (n as Map)['id']};
-    expect(ids, {a.id, b.id});
+    expect(
+      find.textContaining('This JSON backup is unencrypted.'),
+      findsOneWidget,
+    );
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
+    expect([pickerCalls, exportCalls], [0, 0]);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect([pickerCalls, exportCalls], [0, 0]);
+
+    await tester.tap(find.text('Export all notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Continue'), findsOneWidget);
+    expect([pickerCalls, exportCalls], [0, 0]);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect([pickerCalls, exportCalls], [0, 0]);
+
+    await tester.tap(find.text('Export all notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Continue'), findsOneWidget);
+    expect([pickerCalls, exportCalls], [0, 0]);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect([pickerCalls, exportCalls], [1, 1]);
   });
 
   testWidgets('Notes export restore requires confirmation and preserves data', (
@@ -258,6 +294,8 @@ void main() {
       });
       await tester.tap(find.text('Export all notes'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
 
       expect(call!.method, 'saveFile');
       final args = call!.arguments as Map;
@@ -277,6 +315,8 @@ void main() {
       await setUp(tester, (c) async => null);
       await tester.tap(find.text('Export all notes'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('Exported'), findsNothing);
       expect(find.textContaining('failed'), findsNothing);
     });
@@ -286,6 +326,8 @@ void main() {
         throw PlatformException(code: 'write_failed', message: 'disk full');
       });
       await tester.tap(find.text('Export all notes'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
       expect(find.textContaining('The export failed'), findsOneWidget);
       expect(find.textContaining('disk full'), findsOneWidget);

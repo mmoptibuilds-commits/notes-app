@@ -55,6 +55,39 @@ void main() {
     );
   });
 
+  test('a missing server row resets its revision and is reinserted', () async {
+    final db = AppDatabase.open(null);
+    addTearDown(db.close);
+    final repo = NoteRepository(db);
+    const id = '00000000-0000-4000-8000-000000000012';
+    repo.createNote(title: 'before', id: id);
+    final server = FakeCloudServer();
+    db.transaction(() => db.setMeta('cloud.library_id', server.libraryId));
+    final engine = CloudSyncEngine(repo, server);
+
+    await engine.sync();
+    server.records.remove(
+      'note:$id',
+    ); // Model a server row lost after a local ack.
+    db.transaction(() => db.setMeta('cloud.pull_seq', '${server.seq}'));
+    final current = repo.getNote(id)!;
+    repo.saveContent(
+      id,
+      title: 'after',
+      body: current.body,
+      base: current.contentVv,
+    );
+
+    await engine.sync();
+
+    expect(server.records['note:$id']?.row['title'], 'after');
+    expect(server.records['note:$id']?.rev, 1);
+    expect(
+      db.select("SELECT id FROM cloud_notes WHERE kind='note' AND id=?", [id]),
+      hasLength(1),
+    );
+  });
+
   test(
     'future remote HLC stops sync without advancing cursor or clock',
     () async {

@@ -603,16 +603,22 @@ class CloudService extends ChangeNotifier {
     final totalRecords = library.notes + library.folders;
     final remote = <String, String>{};
     String? after;
+    var manifestPages = 0;
     while (true) {
       final page = await api.manifest(after: after);
-      if (page.length > 500 || remote.length + page.length > 100000) {
+      if (++manifestPages > 10000 ||
+          page.items.length > 500 ||
+          remote.length + page.items.length > 100000 ||
+          (page.more && (page.next.isEmpty || page.next == after)) ||
+          (page.items.isNotEmpty &&
+              page.next != '${page.items.last.kind}:${page.items.last.id}')) {
         throw const CloudApiException(
           CloudErrorKind.malformed,
           'Cloud manifest is too large.',
         );
       }
       var previous = after ?? '';
-      for (final x in page) {
+      for (final x in page.items) {
         final key = '${x.kind}:${x.id}';
         if ((x.kind != 'note' && x.kind != 'folder') ||
             !_validManifestId(x.id) ||
@@ -634,10 +640,10 @@ class CloudService extends ChangeNotifier {
         () => repo.db.setMeta('cloud.join_progress', '${remote.length}'),
       );
       notifyListeners();
-      if (page.length < 500) {
+      if (!page.more) {
         break;
       }
-      after = '${page.last.kind}:${page.last.id}';
+      after = page.next;
     }
     final local = <String, String>{};
     var localCursor = -1;

@@ -177,6 +177,13 @@ class CloudManifestItem {
   final int rev;
 }
 
+class CloudManifestPage {
+  const CloudManifestPage(this.items, this.next, this.more);
+  final List<CloudManifestItem> items;
+  final String next;
+  final bool more;
+}
+
 class CloudPushItem {
   const CloudPushItem(this.kind, this.id, this.baseRev, this.digest, this.row);
   final String kind, id, digest;
@@ -220,7 +227,7 @@ abstract interface class CloudApi {
     String batchId,
     List<CloudPushItem> rows,
   );
-  Future<List<CloudManifestItem>> manifest({String? after, int limit = 500});
+  Future<CloudManifestPage> manifest({String? after, int limit = 500});
   Future<({Set<String> missing, Map<String, int> partial})> checkBlobs(
     List<String> hashes,
   );
@@ -373,24 +380,34 @@ class HttpCloudApi implements CloudApi {
   }
 
   @override
-  Future<List<CloudManifestItem>> manifest({
-    String? after,
-    int limit = 500,
-  }) async {
+  Future<CloudManifestPage> manifest({String? after, int limit = 500}) async {
     final j = await _json(
       'GET',
       '/v1/manifest',
       query: {'after': ?after, 'limit': '$limit'},
     );
-    return [
+    if (j['items'] is! List || j['next'] is! String || j['more'] is! bool) {
+      throw const CloudApiException(
+        CloudErrorKind.malformed,
+        'Cloud returned an invalid manifest page.',
+      );
+    }
+    final items = [
       for (final v in j['items'] as List)
-        CloudManifestItem(
-          (v as Map)['kind'] as String,
-          v['id'] as String,
-          v['rev'] as int,
-          v['digest'] as String,
-        ),
+        if (v is Map)
+          CloudManifestItem(
+            v['kind'] as String,
+            v['id'] as String,
+            v['rev'] as int,
+            v['digest'] as String,
+          )
+        else
+          throw const CloudApiException(
+            CloudErrorKind.malformed,
+            'Cloud returned an invalid manifest item.',
+          ),
     ];
+    return CloudManifestPage(items, j['next'] as String, j['more'] as bool);
   }
 
   @override
@@ -419,7 +436,7 @@ class HttpCloudApi implements CloudApi {
     _validateHash(hash);
     if (offset < 0 ||
         size < 0 ||
-        size > 50 * 1024 * 1024 ||
+        size > 20 * 1024 * 1024 ||
         data.length > 96 * 1024) {
       throw const CloudApiException(
         CloudErrorKind.malformed,

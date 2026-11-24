@@ -93,6 +93,30 @@ void main() {
     });
 
     test(
+      'concurrent identical content picks later HLC without a conflict copy',
+      () {
+        final a = rec(
+          'n',
+          title: 'same',
+          text: 'same body',
+          vv: {'a': 2},
+          hlc: const Hlc(2000, 0, 'a'),
+        );
+        final b = rec(
+          'n',
+          title: 'same',
+          text: 'same body',
+          vv: {'b': 2},
+          hlc: const Hlc(3000, 0, 'b'),
+        );
+        for (final result in [mergeNotes(a, b), mergeNotes(b, a)]) {
+          expect(result.merged.contentHlc, b.contentHlc);
+          expect(result.conflictLoser, isNull);
+        }
+      },
+    );
+
+    test(
       'an edit beats an independent delete-forever, whatever the clocks say',
       () {
         final edit = rec(

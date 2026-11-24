@@ -1,5 +1,7 @@
 import '../core/hlc.dart';
 import '../core/version_vector.dart';
+import '../data/note_repository.dart';
+import '../doc/line_merge.dart';
 import 'merge.dart';
 import '../data/models.dart';
 
@@ -29,12 +31,49 @@ class MergeBase {
 /// note, the other is [NoteMerge.conflictLoser]). Registers (pinned, archived,
 /// folder, trash, conflict) always merge as in [mergeNotes].
 ///
-/// PLACEHOLDER: delegates to [mergeNotes] until the three-way implementation
-/// lands. Keep the signature.
 NoteMerge mergeNotesThreeWay(
   NoteRecord local,
   NoteRecord remote, {
   required MergeBase? base,
   required String node,
   required Hlc now,
-}) => mergeNotes(local, remote);
+}) {
+  final fallback = mergeNotes(local, remote);
+  if (local.contentVv.compare(remote.contentVv) != VvOrder.concurrent ||
+      local.purged ||
+      remote.purged ||
+      base == null ||
+      !_baseIncluded(base.contentVv, local.contentVv) ||
+      !_baseIncluded(base.contentVv, remote.contentVv)) {
+    return fallback;
+  }
+
+  final localTitleChanged = local.title != base.title;
+  final remoteTitleChanged = remote.title != base.title;
+  if (localTitleChanged && remoteTitleChanged && local.title != remote.title) {
+    return fallback;
+  }
+  final title = localTitleChanged ? local.title : remote.title;
+  final body = mergeBodies(base.body, local.body, remote.body);
+  if (body.isConflict) return fallback;
+
+  final version = fallback.merged.contentVv.increment(node);
+  return NoteMerge(
+    NoteRepository.normalise(
+      fallback.merged.copyWith(
+        title: title,
+        body: body.body!,
+        contentVv: version,
+        contentHlc: now,
+        updatedAt: now.millis,
+      ),
+    ),
+    null,
+  );
+}
+
+bool _baseIncluded(VersionVector base, VersionVector side) =>
+    switch (base.compare(side)) {
+      VvOrder.equal || VvOrder.dominated => true,
+      VvOrder.dominates || VvOrder.concurrent => false,
+    };

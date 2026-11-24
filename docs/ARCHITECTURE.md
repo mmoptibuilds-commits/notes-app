@@ -7,8 +7,12 @@ the stack in [DECISIONS.md](DECISIONS.md), update trust in
 [UPDATES.md](UPDATES.md), release steps in [RELEASE.md](RELEASE.md).
 
 Notes is an offline-first Flutter app for Android (arm64) and Linux (x64). It
-stores notes in one encrypted SQLite file and syncs directly between up to five
-of the owner's devices. There is no server and no account.
+stores notes in one encrypted SQLite file and syncs directly over LAN between
+up to five of the owner's devices. Optional private cloud sync uses one
+configured Google account and a Cloudflare Worker/Neon server. Cloud sync is
+off until sign-in and explicit upload; the server stores readable note JSON,
+so it is not end-to-end encrypted. See [section 6.9](#69-cloud-sync) and
+[CLOUD_SYNC.md](CLOUD_SYNC.md).
 
 ## 1. Overview and layering
 
@@ -18,9 +22,10 @@ of the owner's devices. There is no server and no account.
 |---|---|---|
 | `lib/core/` | ids, hybrid logical clock, version vectors, app version | Dart SDK, `crypto` only |
 | `lib/data/` | SQLite wrapper, migrations, models, `NoteRepository`, `AppSettings` | `core`, `doc`, `sqlite3`, `package:flutter/foundation.dart` (for `ChangeNotifier`) |
-| `lib/doc/` | Quill Delta helpers: digest, checklist projection, Markdown | `dart_quill_delta`, `markdown` |
+| `lib/doc/` | Quill Delta helpers: digest, checklist projection, Markdown, bounded line merge | `dart_quill_delta`, `markdown` |
 | `lib/importer/` | legacy Notebook import, Markdown import, Notes JSON export and restore | `core`, `data`, `doc`, `sync/merge.dart` |
 | `lib/sync/` | pairing, secure channel, session protocol, merge, TCP/UDP service | `core`, `data`, `doc`, `cryptography` |
+| `lib/sync/cloud/` | cloud API, revisioned pull/push, blobs, upload/join and cloud service | `core`, `data`, `doc`, `sync/merge.dart`, `platform/cloud_login.dart`, `dart:io`, `flutter_secure_storage`, `foundation.dart` |
 | `lib/update/` | GitHub release check, manifest verification, download, installers | `core`, `data/app_settings.dart` |
 | `lib/platform/` | `bootstrap()` and `AppServices`; native save-file channel | everything below `ui` |
 | `lib/ui/` | screens and widgets | everything; Material only through `lib/ui/material.dart` |
@@ -29,12 +34,13 @@ of the owner's devices. There is no server and no account.
 Dependency rules (a change that breaks one needs a reason):
 
 - `core`, `doc`, `data`, `importer`, `sync` contain no Flutter widgets. They
-  use only `foundation.dart` for `ChangeNotifier` and `defaultTargetPlatform`.
+  use only `foundation.dart` for `ChangeNotifier` and `defaultTargetPlatform`;
+  `sync/cloud` also uses platform secure storage and the HTTP client.
 - Nothing below `ui` imports `ui`. `data` does not import `sync`, `importer` or
   `update`. `sync` and `importer` reach the database only through
   `NoteRepository`, `PeerStore` and `AppDatabase.transaction`.
-- `lib/update/` is the only code that touches the network besides
-  `lib/sync/`. It stores its bookkeeping through `UpdateStateStore`, which is
+- `lib/update/` and `lib/sync/` touch the network. Cloud requests are isolated
+  behind `CloudApi`; update bookkeeping uses `UpdateStateStore`, which is
   backed by `AppSettings.writeSilently`.
 - `lib/ui/material.dart` is the single Material import (D3 in DECISIONS.md).
   Every UI file imports it, never `package:flutter/material.dart`.
@@ -75,10 +81,14 @@ lib/main.dart  main()
    releases it if helper setup fails, and quit closes services after the helper
    starts. `createPlatformInstaller` returns an Android or Linux installer,
    null elsewhere. If non-null, build `UpdateController.forApp`.
-8. Return `AppServices(db, notes, settings, dir, sync:, updates:)`.
+8. Resolve the cloud endpoint (section 6.9), select secure or development
+   session storage, construct `CloudService` when an endpoint is available, and
+   restore its local session state.
+9. Return `AppServices(db, notes, settings, dir, sync:, cloud:, updates:)`.
 
-`AppServices.inMemory()` is the test constructor: in-memory database, no sync,
-no updater. `AppServices.close()` disposes updates, sync, settings, database.
+`AppServices.inMemory()` is the test constructor: in-memory database, no LAN or
+cloud sync, no updater. `AppServices.close()` disposes updates, cloud, sync,
+settings and database.
 Before the Linux helper is copied or started, `EditorSaveBarrier` freezes all
 live editor sessions and waits for their pending writes and disposed-editor
 save handoffs to confirm persistence. A failed or timed-out save releases the
@@ -97,6 +107,9 @@ freeze and leaves Notes open for Retry. After the helper starts,
   `notes.changes` to request an auto sync 20 s after local edits settle.
 - On `AppLifecycleState.resumed`: `sync.start()` (idempotent) then
   `requestAutoSync(1 s)`.
+- `CloudService.start()` is also called at startup and resume. Android stops
+  cloud polling when the app is paused; Linux keeps it while the window is open
+  or minimized and stops when the process quits.
 - Home is `_Root`: `OnboardingScreen` when `settings.onboardingPending`, else
   `LibraryScreen`.
 
@@ -109,12 +122,12 @@ checked by `test/android/splash_resources_test.dart`).
 
 ### 2.1 Tables (`lib/data/migrations.dart`)
 
-Schema version 3 (`schemaVersion == migrations.length`). `PRAGMA user_version`
+Schema version 4 (`schemaVersion == migrations.length`). `PRAGMA user_version`
 holds the applied version.
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `local_meta` | device-local state, never synced | `device_id`, `hlc_last`, `seq`, `identity_private` (X25519 private key), `quarantine_retry_cursor_<peer>` |
+| `local_meta` | device-local state, never synced | `device_id`, `hlc_last`, `seq`, `identity_private` (X25519 private key), LAN/cloud cursors and cloud state |
 | `settings` | per-device preferences and small UI/updater state, never synced | `key`, `value` |
 | `folders` | flat folders | `id`, `name` + `name_hlc`, `deleted` + `deleted_hlc`, `local_seq` |
 | `notes` | every note, including deleted-forever tombstones | see 2.2 |
@@ -124,6 +137,7 @@ holds the applied version.
 | `import_batches`, `import_records` | legacy-import audit trail and rollback data | section 5 |
 | `peers` | paired devices (v2) | `id`, `public_key`, `endpoints` (JSON), `sent_cursor`, `recv_cursor`, `last_error` |
 | `quarantine` | rows received from a peer that could not be applied (v3) | `peer_id`, `kind`, `reason`, `raw` |
+| `cloud_notes` | cloud revision, digest and three-way merge base per record (v4) | `(kind,id)`, `rev`, `digest`, `base_title`, `base_body`, `base_vv`, `base_hlc` |
 
 ### 2.2 The `notes` row
 
@@ -253,6 +267,9 @@ sample notes; that would bump the change counter and sync to paired devices.
   earlier backup of the same name.
 - A database newer than the app throws `DatabaseTooNewException`; the app shows
   an error screen and changes nothing.
+- Migration 4 adds cloud merge bookkeeping. A 1.2.0 build refuses a database
+  after a 1.3.0 build has migrated it; LAN interoperability between 1.2.0
+  databases remains unchanged.
 - Every migration needs a test that creates a database at the previous version
   and upgrades it. The pattern is `AppDatabase.open(path, schema:
   migrations.sublist(0, n))`, then reopen with the full list: see
@@ -438,8 +455,10 @@ attachment placeholders.
 
 Records, not operations (D13). Each side sends note and folder rows whose
 `local_seq` is above the peer's confirmed cursor; the receiver merges whole rows
-with `RemoteApplier`, which is idempotent and order-independent. There is no
-text merge: concurrent edits keep both versions.
+with `RemoteApplier`, which is idempotent and order-independent. LAN sync has no
+shared merge base, so concurrent content edits keep both versions as conflict
+copies. Cloud sync can use a stored base for a bounded three-way line merge
+(section 6.9).
 
 ### 6.2 Merge rules (`merge.dart`)
 
@@ -614,6 +633,91 @@ Tailscale is not verified. `NOTES_DATA_DIR` instances use an ephemeral port, so
 pair them with a pasted code. If a peer was previously paired with another key,
 remove the old peer and pair again. Quarantined rows can mean the other app is
 newer or sent a damaged row.
+
+### 6.9 Cloud sync (`lib/sync/cloud/`, `server/sync/`)
+
+Cloud sync is optional and per device. `CloudService` owns sign-in, enablement,
+upload and join flows, device management, status, polling and retry timers;
+`CloudSyncEngine` owns record and attachment transfer. Detailed endpoints,
+limits and protocol are specified in [CLOUD_SYNC.md](CLOUD_SYNC.md).
+
+The deployed path is a TypeScript Cloudflare Worker with no runtime package
+dependencies, a SQLite-backed Durable Object named `Coordinator` (library head
+hint and one-time authorization codes), and a Neon Postgres database. Records,
+blobs, devices and singleton-library state live in Postgres; the `plpgsql`
+functions and append-only migrations `0001` and `0002` are in
+`server/sync/migrations/`. `server/sync/scripts/build.mjs` bundles one source
+into separate production and test bundles. Fake sign-in and `/v1/test/*` are
+compiled only into the test bundle. The tests assert those strings are absent
+from the production bundle.
+
+Sign-in opens the system browser and uses Google's OpenID Connect `id_token`
+with `response_mode=form_post`; no client secret is shipped to the app. The
+Worker checks Google's signature, audience, nonce, verified email and the
+configured owner subject. A PKCE verifier binds the one-time callback code to
+the app. Signed access tokens last 12 hours; signed refresh tokens rotate, with
+the previous refresh token accepted for 60 seconds to recover a lost response.
+The app does not retain email or account subject. The server allows five active
+devices total.
+
+The client pulls ordered change pages and pushes bounded batches, uploading
+folders before notes. It persists pull and push cursors and per-record server
+revision/digest plus the common content base. Digests prevent echoing records
+received from the server. A push conflict (409) causes the client to apply the
+returned current rows and retry; a `missing` conflict entry clears stale local
+revision bookkeeping so the row can be reinserted. It retries for at most five
+rounds. Blob checks identify
+missing and partial uploads; chunks resume from the returned length. Blob data
+is SHA-256 checked before local storage. Malformed rows are kept in bounded
+quarantine and retried on later pulls. Each page and batch updates rows and
+progress together in local transactions.
+
+Cloud `CloudService` phases are unavailable, off, signed out, signed in,
+uploading, ready and paused. While active it polls the Durable Object head every
+30 seconds (no Neon request), debounces local changes for 20 seconds, performs
+a Neon backstop at start/resume/manual sync and at most hourly, and retries
+failures after 30 seconds, 2 minutes, 10 minutes and 30 minutes. Only one sync
+runs at once; a request received during a run queues one follow-up. Android
+stops polling when paused and runs foreground-only; Linux runs while open or
+minimized and stops on quit. Active cloud sync suppresses LAN auto-sync; manual
+LAN sync remains usable.
+
+Uploading first creates and re-reads a verified export, then asks the user to
+confirm. It initializes the library and uploads blobs, folders and notes before
+marking it ready; progress is persisted so interrupted uploads can resume.
+Joining performs a read-only dry run first: record digests, attachment hashes
+and folder references must match, except an empty device can join by pulling.
+Mismatch reports counts and does not link or mutate the local library.
+
+Cloud rows are limited to 180 KiB and attachments to 20 MiB. Pushes contain at
+most 50 rows/256 KiB; change pages default to 50 rows/256 KiB and cap at 100
+rows/256 KiB; manifests page up to 500 records. Oversized local notes and
+attachments stay local, are reported in status, and do not block other records.
+
+The free-plan design uses Workers Free's 10 ms CPU per request and 100,000
+requests per day, and Neon Free's 100 compute hours per month with scale-to-zero
+after five idle minutes. Frequent head polls go through the Worker and
+Coordinator, never Neon, so idle polling does not wake the database. The app
+uses at most 14,400 head-poll requests per day for five devices polling
+continuously (5 devices × 2 requests/minute × 1,440 minutes); other requests are
+additional. Actual Neon compute usage depends on edits and transfer volume, and
+the repository contains no deployment usage measurements. The app ships the
+public endpoint `https://notes-sync.mmoptibuilds.workers.dev` by
+default. `NOTES_CLOUD_URL` environment variable overrides the compile-time
+`NOTES_CLOUD_URL` define, which overrides the default. When `NOTES_DATA_DIR` is
+set, no default is used: the development instance has no cloud unless an
+explicit URL is supplied, and its session is stored in that instance's own
+directory. Production session tokens are held in platform secure storage.
+The development session file is plain text and contains bearer credentials;
+use it only with the isolated test Worker, protect the directory and remove it
+with the test instance.
+
+Worker secrets (`DATABASE_URL`, `SESSION_SECRET`, `OWNER_SUB`) are configured
+only as Worker secrets. Public configuration includes the Google Web client ID,
+Worker URL, redirect allowlist and environment. No secret belongs in source,
+bundles, logs, CI output or documentation. Per-request logs contain request id,
+route, status, duration and aggregate row/byte counts; never note content,
+tokens, authorization headers, email, account subject or connection string.
 
 ## 7. Updates (`lib/update/`, `tool/linux/notes-update-helper`, `tool/release/`)
 
@@ -807,7 +911,10 @@ Quill's find-in-note handles Ctrl+F while the editor has focus.
 - Data screen: Notebook import (inspect first, then import with a snapshot),
   Notes JSON export and restore (inspect, then apply), rollback of an import
   batch.
-- Sync screen: addresses, paired devices, manual sync, pairing entry. Pair screen
+- Sync screen: addresses, paired devices, manual sync, pairing entry, and a
+  cloud-settings entry when cloud is configured. Cloud settings expose sign-in,
+  enablement, verified backup, confirmed upload, join check and device
+  management. Pair screen
   shows a code, accepts pasted text, and scans on Android only
   (`Platform.isAndroid`).
 - Updates screen: renders `UpdateStatus` from `UpdateController`; automatic
@@ -844,7 +951,7 @@ from acting in text fields, the editor, or dialogs.
 |---|---|
 | `core/`, `data/`, `doc/` | clocks, vectors, database and migrations, repository, onboarding state, digest, projection (property tests), Markdown |
 | `importer/` | legacy import (idempotency, rollback, interruption), export, restore, atomic write |
-| `sync/` | merge and randomised 3-device convergence, secure channel attacks, peers, session fault injection (connection cut at every frame, hostile peers), service over real loopback sockets |
+| `sync/` | merge and randomised 3-device convergence, secure channel attacks, peers, session fault injection, cloud pull/push/blob/upload/join/retry/crash and hostile-peer cases, service over real loopback sockets |
 | `update/`, `linux/`, `android/`, `tool/` | updater logic with fakes, installer and helper scripts, Android manifest, backup and signing config, release tooling, README checks |
 | `ui/` | widget tests per screen; `ui/library/`, `ui/editor/`, `ui/settings/`, `ui/shortcuts/`, `ui/updates/`, `ui/onboarding/`, `ui/help/`, `ui/splash/` |
 | `e2e/persistence_test.dart` | real encrypted database and key file across close and reopen |
@@ -872,6 +979,8 @@ disk set `NOTES_DATA_DIR` to a temp directory.
 export PATH="$HOME/development/flutter/bin:$PATH"   # Flutter 3.50.0
 NOTES_PRIVATE_BACKUP=/path/that/does/not/exist flutter test  # all synthetic tests
 flutter test test/sync                    # one area
+flutter test test/sync/cloud              # cloud engine/service tests
+flutter test test/live/cloud_live_test.dart # skipped unless CLOUD_LIVE_URL is set
 flutter test --plain-name "substring of a test name" test/data
 ```
 
@@ -904,6 +1013,9 @@ issues found"), `flutter test`.
   missing or malformed required values are quarantined. `hello.proto` and
   `hello.schema` are not enforced, so gate incompatible session changes or bump
   `secureChannelVersion` before shipping.
+- Cloud protocol changes must preserve Worker/client compatibility or be
+  versioned deliberately. Apply append-only Neon migrations before deploying
+  code that depends on them. Live tests may target only the isolated test Worker.
 - Keep merge symmetric and idempotent; test convergence and session failures.
   Batches and cursors stay atomic and in sender order, and future clocks remain
   refused (D13). Do not weaken `SyncLimits` without a security reason in
@@ -964,16 +1076,32 @@ Only items verified in code or tests:
   false` inside one `SingleChildScrollView` with the title and completed
   section) lays out every block, so opening and scrolling cost grows with note
   length. Fixing it needs a lazily laid-out editor, not a setting change.
-- Two devices that are never reachable at the same time cannot sync. There is no
-  relay.
+- LAN sync still requires devices to be reachable together. Optional cloud sync
+  can transfer their changes at different times, while both have a valid
+  session and a working connection.
 - Sync is IPv4 only (TCP bind on `anyIPv4`, UDP broadcast discovery); discovery
   does not cross routed subnets.
-- No periodic background sync; devices converge when the app opens, resumes, after
-  edits, or on a manual sync. On Android nothing runs while the app is closed.
+- LAN sync has no periodic timer; it runs on app open/resume, after edits,
+  manual sync, or an incoming peer connection. Cloud sync polls while the app
+  is active. On Android cloud stops when the app is paused; it does not run
+  while the app is closed.
 - At most 5 devices in total (4 peers).
-- Whole-document conflict handling: concurrent edits to one note produce a
-  conflict copy, never an automatic text merge. A concurrent edit beats a
-  delete-forever (an edit can undo a purge that arrived by sync).
+- Cloud line merge requires a stored common base and non-overlapping edits.
+  LAN sync continues to preserve concurrent edits as whole-document conflict
+  copies. A concurrent edit beats a delete-forever (an edit can undo a purge
+  that arrived by sync).
+- Two databases sharing one device id can produce equal version vectors with
+  different content; current merge handling keeps both content versions.
+- During an automatic cloud merge of a note that remains trashed, the trash
+  register is stamped with the merge clock. A concurrent offline restore made
+  before that merge can lose.
+- Cloud notes above 180 KiB and attachments above 20 MiB do not sync; cloud
+  status reports them while continuing with eligible records.
+- Android cloud sync is foreground-only and stops when the app is paused.
+  Linux syncs while the window is open or minimized and stops when Notes quits.
+- The Google consent screen is in Testing mode; only listed test users can sign
+  in. Deploying the Worker requires the Cloudflare API or Wrangler, and Neon
+  migrations are applied separately.
 - `hello.proto` and `hello.schema` are sent but not enforced (10.2).
 - Deleting a folder does not rewrite its notes' `folder_id`; queries join only
   live folders, so those notes show as unfiled while the stale id remains in the

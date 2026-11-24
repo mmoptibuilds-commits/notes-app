@@ -2,6 +2,41 @@
 
 All notable changes to Notes are recorded here.
 
+## [1.3.0] - 2026-11-25
+
+### Added
+
+- Optional private cloud sync for Android and Linux. It is off by default and
+  requires signing in with the owner's Google account and explicitly uploading
+  a library. The server stores notes as readable JSON; cloud sync is not
+  end-to-end encrypted. LAN sync remains available.
+- Automatic merging of edits to different lines when a shared base is
+  available. Conflicting edits are preserved for review.
+- **Review edits** on the main note. Conflict copies no longer appear in the
+  active or archive lists; they appear from the main note's review surface.
+- Cloud settings for verified backup, confirmed upload, join checks and device
+  management.
+
+### Changed
+
+- LAN automatic sync pauses on a device while its cloud sync is active. Manual
+  LAN sync remains available.
+- Local database schema is now version 4. Notes 1.2.0 devices continue to work
+  together over LAN. After a 1.3.0 device migrates a database, an older build
+  refuses to open that database.
+
+### Fixed
+
+- Concurrent cloud edits to separate lines are combined automatically; edits
+  that overlap retain a reviewable conflict copy.
+
+### Security
+
+- Cloud sign-in is limited to the configured owner's verified Google account.
+  Cloud data is readable by the server and is not end-to-end encrypted.
+- Cloud sync remains opt-in; nothing uploads before the user signs in and
+  confirms the library upload.
+
 ## [1.2.0] - 2026-11-24
 
 ### Added

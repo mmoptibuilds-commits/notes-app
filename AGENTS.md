@@ -1,9 +1,10 @@
 # Notes — instructions for developers and coding agents
 
 Notes is a personal, offline-first notes app for Android and native Linux,
-written in Flutter/Dart. One person, up to five of their own devices, no
-accounts, no server. This file is the entry point for any developer or coding
-agent (Claude Code, Codex, Gemini, …). Keep it short; details live in `docs/`.
+written in Flutter/Dart. One person, up to five of their own devices. Optional
+private cloud sync uses one Google account and a Worker/Neon server. This file
+is the entry point for any developer or coding agent (Claude Code, Codex,
+Gemini, …). Keep it short; details live in `docs/`.
 
 ## Read first
 
@@ -28,6 +29,7 @@ flutter test                              # unit, widget and integration tests
 flutter build linux --release             # -> build/linux/x64/release/bundle/notes
 flutter build apk --release --target-platform android-arm64   # needs the release key
 tool/package_linux.sh                     # -> dist/notes-<ver>-linux-x64.tar.gz
+cd server/sync && npm ci && npm run typecheck && npm test && npm run build
 ```
 
 Run a second, isolated instance with `NOTES_DATA_DIR=/tmp/x notes`; never point
@@ -48,8 +50,9 @@ experiments at real data.
 ## Conventions
 
 - Layers: `lib/core` (ids, clocks), `lib/data` (SQLite, repository), `lib/doc`
-  (Quill Delta helpers), `lib/importer`, `lib/sync`, `lib/update` are pure Dart
-  (no widgets); `lib/platform` adapts to the OS; `lib/ui` holds widgets.
+  (Quill Delta and merge helpers), `lib/importer`, `lib/sync` (LAN and cloud),
+  `lib/update` are Dart layers; `lib/platform` adapts to the OS; `lib/ui` holds
+  widgets. Details: `docs/ARCHITECTURE.md`.
 - Import Material only through `lib/ui/material.dart`.
 - No new dependency without an entry in `docs/DECISIONS.md`.
 - Version has one source: `pubspec.yaml` `version:`, mirrored by
@@ -78,3 +81,14 @@ experiments at real data.
 - Never touch the separate `com.saadhjawwadh.notebook` app on a device.
 - Publishing, pushing to `main`, tagging and installing on the owner's devices
   need the owner's approval.
+
+## Cloud safety
+
+- Never point experiments at the real cloud library. Use a development
+  instance or the test Worker; live tests may use only the test Worker.
+- Never print or commit Worker, Neon or Google secrets. Worker runtime has no
+  package dependencies; follow `server/sync/README.md` for server changes.
+- App schema is version 4. Apply append-only `server/sync/migrations/` to Neon
+  separately from Worker deployment.
+- A `NOTES_DATA_DIR` instance has no cloud unless `NOTES_CLOUD_URL` is set and
+  stores its session in its own directory.

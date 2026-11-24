@@ -20,13 +20,57 @@ maintainer's machine Flutter lives at `~/development/flutter/bin` and is not on
 flutter pub get
 dart format lib test tool
 flutter analyze
-flutter test                                  # everything (~1,300 tests, ~2 min)
+flutter test                                  # the full suite; takes several minutes
 flutter test test/sync                        # one area
 flutter test --plain-name 'autosave'          # one test by name
 flutter build linux --release
 flutter build apk --release --target-platform android-arm64
 tool/package_linux.sh                         # Linux release archive + .sha256
 ```
+
+The production build contains the public default cloud server address, so it
+needs no `NOTES_CLOUD_URL` define. To build and test the Worker:
+
+```bash
+cd server/sync
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+Use only the isolated test Worker for a live client check:
+
+```bash
+cd ../..                                  # return to the repository root
+CLOUD_LIVE_URL=https://<test worker> flutter test test/live/cloud_live_test.dart
+```
+
+The Android cloud test build requires an explicit test Worker URL and uses a
+separate application id (`com.mmoptibuilds.notes.cloudtest`); it cannot access
+the production app's private data:
+
+```bash
+cd ../..                                  # return to the repository root
+tool/build_cloudtest_apk.sh --dart-define=NOTES_CLOUD_URL=https://<test worker>
+```
+
+`tool/cloud_device_test.sh` is not present in the tracked `tool/` files yet.
+TODO (coordinator): document its two-device invocation when that script exists.
+
+For a Linux development instance, set both its data directory and explicit
+test endpoint. With no explicit endpoint, a `NOTES_DATA_DIR` instance has no
+cloud configured and never falls back to the production server:
+
+```bash
+mkdir -p /tmp/notes-dev
+NOTES_DATA_DIR=/tmp/notes-dev NOTES_CLOUD_URL=https://<test worker> notes
+```
+
+Development sessions stay in that instance's plain-text `cloud-session.json`
+file. Treat it as a credential, remove it with the disposable instance, and do
+not commit it. Do not point development instances or live tests at the
+production cloud library.
 
 CI runs formatting, analysis, the full test suite and the release-configuration
 checks on every push (`.github/workflows/ci.yml`). It never builds signed
@@ -65,6 +109,9 @@ artifacts and never holds signing keys.
   test that fails without the fix.
 - Tests touching the filesystem use temporary directories; perf and sync tests
   set `NOTES_DATA_DIR` to a temp dir.
+- The live cloud test is opt-in through `CLOUD_LIVE_URL` and must use the test
+  Worker and its isolated Neon project. Cloud tests otherwise use synthetic
+  in-memory servers.
 - The Linux desktop smoke test launches the real GTK app and uses a temporary
   encrypted database. Run it on a desktop session with:
 

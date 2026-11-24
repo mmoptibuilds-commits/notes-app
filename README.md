@@ -3,8 +3,11 @@
 Notes is an offline-first personal notes app for Android and Linux. Android
 uses a phone layout; on Linux, a desktop sidebar stays beside the library and
 notes open in an editor pane. Notes live in an encrypted local database, with
-optional direct sync between your own devices over a local network. No account
-or cloud service is required. Import and export Markdown notes as well as Notes
+optional direct sync between your own devices over a local network, and
+optional private cloud sync. Cloud sync requires the owner's Google account
+and is off until the user signs in and uploads a library. The cloud server
+stores notes as readable JSON; cloud sync is not end-to-end encrypted. LAN sync
+remains available. Import and export Markdown notes as well as Notes
 and legacy Notebook backups. Stable updates can download in the background and
 are installed only after you confirm.
 
@@ -15,8 +18,8 @@ are installed only after you confirm.
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/app/?id=notes-app)
 
-The current stable release is [Notes 1.2.0](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.2.0) (build 20261125). Installed
-copies of Notes find later stable releases themselves (Settings → About → App
+This source tree is Notes 1.3.0 (build 20261126). Installed copies of Notes
+find later stable releases themselves (Settings → About → App
 updates); pre-releases are never offered.
 
 You need Android 7.0 or later (in-app updates need Android 9 or later), or a
@@ -98,7 +101,7 @@ updates an existing installation with an APK signed by the same certificate.
 
 ## Status
 
-Notes 1.2.0 (build 20261125) is the current stable release, published 2026-11-24:
+The previous stable release was Notes 1.2.0 (build 20261125), published 2026-11-24:
 [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.2.0).
 Notes 1.1.0 was published 2026-11-21:
 [release page](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.1.0).
@@ -135,7 +138,7 @@ Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
 
 ## Features
 
-- **Local-first storage:** notes saved in an encrypted local SQLite database; no account required.
+- **Local-first storage:** notes saved in an encrypted local SQLite database; cloud use requires the owner's Google account and remains opt-in.
 - **Rich text editing:** headings, lists, checklists, blockquotes, code blocks, links and inline formatting.
 - **Organized library:** Unfiled is the default start view; choose Unfiled, All
   notes or Last viewed. Folders, search, grid/masonry/list layouts, sorting and
@@ -144,9 +147,10 @@ Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
 - **Import and export:** import Markdown files (one note per file), export a
   note as Markdown, import legacy Notebook backup JSON, and export or restore
   Notes JSON with a preview and confirmation. JSON exports are not encrypted.
-- **Device sync:** pair your own devices by QR code or copied code, then sync
-  directly over the local network with an encrypted connection. No relay server
-  is used.
+- **Device sync:** pair your own devices by QR code or copied code for direct,
+  encrypted LAN sync. Optional cloud sync works across networks; the server
+  stores readable note JSON and is not end-to-end encrypted. See
+  [privacy and sync details](docs/PRODUCT.md#sync).
 - **Stable updates:** Notes checks for stable releases and can download them in
   the background when automatic updates are enabled. You confirm installation
   through Android's installer or, on Linux, through a managed installation.
@@ -165,6 +169,9 @@ flutter test
 flutter build linux --release
 flutter build apk --release --target-platform android-arm64
 ```
+
+Production builds use the default private sync server address from the source;
+no `NOTES_CLOUD_URL` define is needed.
 
 An Android release build requires the existing signing configuration at
 `android/key.properties`; release builds fail when it is missing. Official

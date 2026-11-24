@@ -216,12 +216,13 @@ Widget tests remain useful for layout and interaction coverage, but they cannot
 prove the native desktop runner and on-disk database work together.
 
 ## D20. Optional private cloud sync through a Cloudflare Worker and Neon
-Accounts, a cloud relay and an always-on server were excluded from the first
-design. The owner's devices are never reachable at the same time often enough
-for LAN sync alone, so Notes 1.3.0 adds an **opt-in** cloud path:
+Notes 1.3.0 adds an **opt-in** cloud path for one owner and up to five devices.
+The user signs in with the configured owner's verified Google account and
+explicitly uploads a library:
 
-- **Shape:** a Cloudflare Worker (TypeScript, Workers Free) in front of a Neon
-  Postgres project (Free plan), at a total cost of $0. The server is a thin
+- **Shape:** a Cloudflare Worker (TypeScript, no runtime dependencies, Workers
+  Free) in front of a Neon Postgres project (Free plan), intended to stay
+  within the plans' free quotas. The server is a thin
   revisioned record store with a change feed and a blob store; it authenticates
   one Google account (the owner's verified account ID) and merges nothing. See
   [CLOUD_SYNC.md](CLOUD_SYNC.md).
@@ -235,22 +236,33 @@ for LAN sync alone, so Notes 1.3.0 adds an **opt-in** cloud path:
   own data model, quotas and terms, versus about a thousand lines we control and
   can delete. **Why not Cloudflare D1 or Durable Object storage as the store:**
   the owner asked for Neon, and Postgres keeps the data portable.
-- **Free-plan constraints drive the design:** 10 ms CPU per Worker request
-  (no server-side merging, no byte processing), and Neon's 100 CU-hours a month
-  with scale to zero after five idle minutes (an idle "anything new?" poll is
-  answered by a Durable Object and never wakes Neon).
+- **Free-plan constraints drive the design:** 10 ms CPU and 100,000 requests a
+  day on Workers Free; 100 Neon compute hours per month with scale to zero
+  after five idle minutes. Idle head polls are served by the Durable Object and
+  do not wake Neon.
 - **Sign-in:** OpenID Connect `id_token` in the system browser, verified by the
   Worker; no OAuth client secret exists, and no Google SDK is added.
-- **LAN sync is unchanged on the wire** and keeps working with 1.2.0 devices.
+- **LAN sync is unchanged on the wire** and keeps working between 1.2.0 devices.
+  A database migrated to schema 4 by 1.3.0 cannot be opened by an older build.
 
-## D21. Automatic text merge for concurrent edits (supersedes "no text merge")
-Concurrent edits to one note used to keep both versions as a conflict copy,
-always. Cloud sync makes concurrent edits more common (devices sync while the
-user works), so edits to **different lines** are now merged automatically with a
-three-way line merge against the last cloud-synced version of that note. Edits
-that overlap keep the later version as the main note and preserve the other as a
-conflict copy that the editor presents as **Review edits**. Nothing is ever
-dropped silently. The merge lives in pure Dart (`lib/doc/line_merge.dart`,
-`lib/sync/three_way.dart`), has property tests, and is used only by the cloud
-path; LAN sync still has no base version and keeps whole-document conflict
-copies.
+## D21. Automatic line merge for concurrent cloud edits
+Concurrent cloud edits are merged with a three-way line merge only when both
+versions are concurrent, a stored common base is available and included in both
+versions, the notes are not purged, and the changed lines do not overlap. A
+shared insertion at the same position, edits to the same line, conflicting title
+changes, invalid Delta data or an oversized diff falls back to the usual
+whole-document conflict handling. The later version stays as the main note and
+the loser remains a conflict copy. Conflict copies leave active, archive and
+trash views and are reached from **Review edits** on their main note. This path
+is cloud-only; LAN sync keeps whole-document conflict copies. See
+[ARCHITECTURE.md](ARCHITECTURE.md#6-merge-rules).
+
+## D22. Default cloud endpoint and isolated development instances
+Production builds use `https://notes-sync.mmoptibuilds.workers.dev` by default.
+An explicit `NOTES_CLOUD_URL` environment variable takes precedence, followed
+by the compile-time define. A process with `NOTES_DATA_DIR` set does not inherit
+the production default: cloud is unavailable unless one of those explicit URLs
+is supplied. Its session is stored inside that development instance's directory
+instead of the system secure store. This prevents experiments from signing in
+to or replacing the production app's local cloud session. Live tests must use
+the isolated test Worker.

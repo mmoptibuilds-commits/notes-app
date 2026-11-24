@@ -10,6 +10,11 @@ staging directory was absent in this worktree, so the package classifications
 were not independently rechecked here. “Direct” means listed in
 `pubspec.yaml`; “transitive” means resolved through another dependency.
 
+The Cloudflare Worker under `server/sync/` has zero runtime package
+dependencies. Its `package.json` declares development-only dependencies for
+type checking, tests, and bundling; these are not included in the production
+Worker bundle.
+
 `*` means the licence has redistribution conditions: include the copyright and
 licence terms and preserve required notices/disclaimers in source/binary
 redistributions. Apache-2.0 also requires its licence text; preserve any

@@ -15,6 +15,7 @@ import '../sync/peers.dart';
 import '../sync/sync_service.dart';
 import '../sync/cloud/cloud_api.dart';
 import '../sync/cloud/cloud_service.dart';
+import 'cloud_login.dart';
 import '../update/platform_installer.dart';
 import '../update/update_controller.dart';
 
@@ -289,9 +290,11 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
           sessions: cloudSessionStore,
           dataDir: dir,
           deviceName: settings.deviceName,
-          loginLauncher: null,
+          loginLauncher: _cloudLoginLauncher(),
           unavailable: false,
         );
+  sync.suppressAutoSync = () => cloud?.active ?? false;
+  await cloud?.restoreState();
   services = AppServices(
     db,
     notes,
@@ -302,4 +305,12 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
     updates: updates,
   );
   return services;
+}
+
+CloudLoginLauncher? _cloudLoginLauncher() {
+  try {
+    return createCloudLoginLauncher();
+  } on UnsupportedError {
+    return null;
+  }
 }

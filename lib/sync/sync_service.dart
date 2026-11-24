@@ -155,6 +155,10 @@ class SyncService extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Cloud sync owns automatic synchronization while active. Explicit
+  /// [syncAll] and [syncPeer] calls continue to work.
+  bool Function()? suppressAutoSync;
+
   @override
   void dispose() {
     _disposed = true;
@@ -540,10 +544,14 @@ class SyncService extends ChangeNotifier {
   /// Called when the app opens or resumes, and shortly after local edits:
   /// syncs with devices that are due, without nagging unreachable ones.
   void requestAutoSync({Duration after = Duration.zero}) {
-    if (_stopped || peers.list().isEmpty) return;
+    if (_stopped || suppressAutoSync?.call() == true || peers.list().isEmpty) {
+      return;
+    }
     _debounce?.cancel();
     _debounce = Timer(after, () async {
+      if (_stopped || suppressAutoSync?.call() == true) return;
       for (final p in peers.list()) {
+        if (suppressAutoSync?.call() == true) return;
         final next = _nextAttempt[p.id];
         if (next != null && next.isAfter(DateTime.now())) continue;
         if (_busy.contains(p.id) || _outgoingDials.containsKey(p.id)) {
@@ -561,7 +569,9 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<void> _drainPendingAutoSync() async {
+    if (suppressAutoSync?.call() == true) return;
     for (final id in _pendingAutoSync.keys.toList()) {
+      if (suppressAutoSync?.call() == true) return;
       if (_busy.contains(id) || _outgoingDials.containsKey(id)) continue;
       final requestedAt = _pendingAutoSync.remove(id);
       if (requestedAt == null || peers.get(id) == null) continue;

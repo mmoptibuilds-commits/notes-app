@@ -550,13 +550,36 @@ class NoteRepository {
     int seq, {
     int limit = 100,
   }) {
-    final rows = <({int seq, String kind, Object record})>[
-      for (final (s, r) in noteRecordsSince(seq))
-        (seq: s, kind: 'note', record: r),
-      for (final (s, r) in folderRecordsSince(seq))
-        (seq: s, kind: 'folder', record: r),
-    ]..sort((a, b) => a.seq.compareTo(b.seq));
-    return rows.take(limit).toList();
+    if (limit <= 0) return const [];
+    final page = db.select(
+      '''SELECT local_seq,kind,id FROM (
+        SELECT local_seq,'note' AS kind,id FROM notes WHERE local_seq > ?
+        UNION ALL
+        SELECT local_seq,'folder' AS kind,id FROM folders WHERE local_seq > ?
+      ) ORDER BY local_seq LIMIT ?''',
+      [seq, seq, limit],
+    );
+    return [
+      for (final item in page)
+        if (item['kind'] == 'note')
+          (
+            seq: item['local_seq'] as int,
+            kind: 'note',
+            record: _record(
+              db.select('SELECT * FROM notes WHERE id=?', [item['id']]).single,
+            ),
+          )
+        else
+          (
+            seq: item['local_seq'] as int,
+            kind: 'folder',
+            record: _folderRecord(
+              db.select('SELECT * FROM folders WHERE id=?', [
+                item['id'],
+              ]).single,
+            ),
+          ),
+    ];
   }
 
   Uint8List? attachmentBytes(String hash) => getAttachment(hash);

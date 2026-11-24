@@ -335,6 +335,24 @@ void main() {
     }
   });
 
+  test(
+    'cloud suppresses LAN auto-sync but manual syncPeer still works',
+    () async {
+      final code = await a.service.beginPairing();
+      await b.service.pairWith(PairingCode.decode(code.encode()));
+      a.repo.createNote(title: 'cloud owned');
+      b.service.suppressAutoSync = () => true;
+
+      b.service.requestAutoSync();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(b.repo.listNotes(), isEmpty);
+
+      b.service.suppressAutoSync = () => false;
+      await b.service.syncPeer(a.id);
+      expect(b.repo.listNotes().map((n) => n.title), contains('cloud owned'));
+    },
+  );
+
   test('local edit during a session is sent in one follow-up sync', () async {
     final code = await a.service.beginPairing();
     await b.service.pairWith(PairingCode.decode(code.encode()));

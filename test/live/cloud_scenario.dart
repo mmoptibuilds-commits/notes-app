@@ -47,7 +47,7 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
     services = bootstrapped;
     // bootstrap gives this process its real encrypted database and platform
     // key store. The scenario supplies fake HTTP login and isolated sessions.
-    bootstrapped.cloud?.dispose();
+    await bootstrapped.cloud?.stop(); // services.close() disposes it later
     final httpApi = _DropNextPushApi(baseUrl: worker, sessions: sessions);
     api = httpApi;
     final cloudService = CloudService(

@@ -46,8 +46,7 @@ if [[ $package != com.mmoptibuilds.notes.cloudtest ]]; then
   exit 1
 fi
 
-echo "Installing verified cloud-test package on $serial..."
-adb -s "$serial" install -r "$apk"
+# flutter drive installs this verified APK itself (-r, same package id).
 
 driver="$temp_dir/cloud_device_driver.dart"
 cat >"$driver" <<'DART'

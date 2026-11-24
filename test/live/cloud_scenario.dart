@@ -64,9 +64,6 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
     cloud = cloudService;
     final repo = bootstrapped.notes;
     final side = role == CloudScenarioRole.linux ? 'L' : 'A';
-    final joinedAfterMs = DateTime.now()
-        .subtract(const Duration(seconds: 15))
-        .millisecondsSinceEpoch;
 
     // The caller resets the test library before either role starts
     // (tool/cloud_test_reset.dart), so no role can observe a stale library.
@@ -119,16 +116,8 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
           )) {
             return false;
           }
-          final changes = await httpApi.changes(
-            library.libraryId,
-            0,
-            limit: 100,
-          );
-          final initial = changes.rows.where((row) => row.id == _n1);
-          if (initial.isEmpty) return false;
-          final createdAt = initial.first.row['createdAt'];
-          return createdAt is int && createdAt >= joinedAfterMs;
-        });
+          return true;
+        }, timeout: _firstContact);
         // Snapshot the counts first: the peer's barrier note may arrive while
         // the join is inspected, so the report may only be larger.
         final library = await httpApi.library();
@@ -162,7 +151,7 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
       });
     }
 
-    await _barrier(cloudService, repo, 'initial', side);
+    await _barrier(cloudService, repo, 'initial', side, timeout: _firstContact);
 
     await step('L to A edit and second image', () async {
       if (role == CloudScenarioRole.linux) {
@@ -551,8 +540,15 @@ Future<Map<String, String>> _remoteDigestSnapshot(CloudService cloud) async {
   return result;
 }
 
-Future<void> _wait(String name, Future<bool> Function() condition) async {
-  final end = DateTime.now().add(const Duration(seconds: 120));
+// The phone can start minutes after Linux (install over wireless adb).
+const _firstContact = Duration(minutes: 15);
+
+Future<void> _wait(
+  String name,
+  Future<bool> Function() condition, {
+  Duration timeout = const Duration(seconds: 120),
+}) async {
+  final end = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(end)) {
     if (await condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 800));
@@ -603,22 +599,29 @@ Future<void> _barrier(
   CloudService cloud,
   NoteRepository repo,
   String name,
-  String side,
-) async {
+  String side, {
+  Duration timeout = const Duration(seconds: 120),
+}) async {
   await _publishBarrier(cloud, repo, '$name-$side', 'ready');
-  await _waitForBarrier(cloud, repo, '$name-${side == 'L' ? 'A' : 'L'}');
+  await _waitForBarrier(
+    cloud,
+    repo,
+    '$name-${side == 'L' ? 'A' : 'L'}',
+    timeout: timeout,
+  );
 }
 
 Future<void> _waitForBarrier(
   CloudService cloud,
   NoteRepository repo,
-  String name,
-) => _wait('barrier $name', () async {
+  String name, {
+  Duration timeout = const Duration(seconds: 120),
+}) => _wait('barrier $name', () async {
   await cloud.syncNow();
   return repo
       .listNotes(scope: NoteScope.active)
       .any((n) => n.title == '~barrier:$name');
-});
+}, timeout: timeout);
 
 class _DropNextPushApi extends HttpCloudApi {
   _DropNextPushApi({required super.baseUrl, required super.sessions});

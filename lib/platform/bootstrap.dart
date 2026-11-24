@@ -75,9 +75,18 @@ class AppServices {
   /// then exits so the helper can replace the program files. User data is not
   /// touched.
   Future<void> quitForUpdate() async {
-    sync?.dispose();
-    db.close();
-    exitProcess(0);
+    try {
+      sync?.dispose();
+    } on Object {
+      // The helper is waiting for this process to exit; keep shutting down.
+    }
+    try {
+      db.close();
+    } on Object {
+      // The helper is waiting for this process to exit; keep shutting down.
+    } finally {
+      exitProcess(0);
+    }
   }
 
   void close() {
@@ -249,6 +258,7 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
   late final AppServices services;
   final installer = createPlatformInstaller(
     onPrepareQuit: () => services.prepareForUpdate(),
+    onConfirmStillClean: () => services.saveBarrier.confirmStillClean(),
     onQuit: () => services.quitForUpdate(),
     onInstallAborted: () => services.abortUpdatePreparation(),
   );

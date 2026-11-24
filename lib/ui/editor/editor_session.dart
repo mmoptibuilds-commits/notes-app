@@ -158,7 +158,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   /// Called synchronously for every change to the document.
   void _onCompose(Delta change) {
-    if (_applying || _frozenForUpdate) return;
+    if (_applying) return;
     _projection.transformBy(change);
     if (useCompletedSection &&
         !_extractScheduled &&
@@ -185,12 +185,16 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
         }
       });
     }
-    _markDirty();
+    _markDirty(allowFrozen: true);
   }
 
   void _extract() {
+    if (_disposed) {
+      _extractScheduled = false;
+      return;
+    }
+    if (_frozenForUpdate) return;
     _extractScheduled = false;
-    if (_disposed || _frozenForUpdate) return;
     final change = _projection.extractChecked(quill.document.toDelta());
     if (change != null) _applyProjectionChange(change);
   }
@@ -244,8 +248,8 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   // ------------------------------------------------------------- saving
 
-  void _markDirty() {
-    if (_disposed || _readOnly || _frozenForUpdate) return;
+  void _markDirty({bool allowFrozen = false}) {
+    if (_disposed || _readOnly || (_frozenForUpdate && !allowFrozen)) return;
     _dirty = true;
     final wasPending = status == SaveStatus.pending;
     status = SaveStatus.pending;
@@ -281,6 +285,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
     if (_disposed || !_frozenForUpdate) return;
     _frozenForUpdate = false;
     quill.readOnly = _readOnly;
+    if (_extractScheduled) _extract();
     notifyListeners();
   }
 

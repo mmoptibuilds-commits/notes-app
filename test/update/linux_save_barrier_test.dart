@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dart_quill_delta/dart_quill_delta.dart';
 import 'package:flutter/widgets.dart' show TextSelection;
+import 'package:flutter_quill/flutter_quill.dart' show Attribute;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:notes/core/version_vector.dart';
@@ -27,11 +28,13 @@ class _FakeLauncher implements UpdateProcessLauncher {
   final runs = <List<String>>[];
   final started = <({String executable, List<String> args})>[];
   Future<void> Function()? beforeStart;
+  Future<void> Function(String executable, List<String> args)? beforeRun;
   Object? startError;
 
   @override
   Future<int> run(String executable, List<String> args) async {
     runs.add([executable, ...args]);
+    await beforeRun?.call(executable, args);
     return 0;
   }
 
@@ -75,10 +78,12 @@ class _CountingSyncService extends SyncService {
        );
 
   var disposeCount = 0;
+  Object? disposeError;
 
   @override
   void dispose() {
     disposeCount++;
+    if (disposeError != null) throw disposeError!;
     super.dispose();
   }
 }
@@ -175,6 +180,7 @@ void main() {
     Future<void> Function()? onQuit,
   }) => LinuxUpdateInstaller(
     onPrepareQuit: onPrepareQuit ?? h.services.prepareForUpdate,
+    onConfirmStillClean: h.barrier.confirmStillClean,
     onQuit: onQuit ?? h.services.quitForUpdate,
     onInstallAborted: () => h.services.abortUpdatePreparation(),
     launcher: launcher,
@@ -264,6 +270,99 @@ void main() {
       expect(h.sync.disposeCount, 1);
       expect(session.readOnly, isTrue);
       session.dispose();
+    },
+  );
+
+  test('a frozen checklist compose is included in the barrier save', () async {
+    final h = await makeHarness();
+    final note = h.repo.createNote(body: _body('task\n'));
+    final session = EditorSession(
+      repo: h.repo,
+      saveBarrier: h.barrier,
+      noteId: note.id,
+      autosaveDelay: const Duration(hours: 1),
+    );
+    var composed = false;
+    session.addListener(() {
+      if (!session.frozenForUpdate || composed) return;
+      composed = true;
+      session.quill.formatText(4, 0, Attribute.checked);
+    });
+
+    await h.barrier.prepare();
+
+    expect(composed, isTrue);
+    expect(
+      jsonDecode(h.repo.getNote(note.id)!.body),
+      (Delta()
+            ..insert('task')
+            ..insert('\n', {'list': 'checked'}))
+          .toJson(),
+    );
+
+    h.barrier.release();
+    await pumpEventQueue();
+    expect(session.completed.map((line) => line.text), ['task']);
+    expect(session.quill.document.toPlainText(), '\n');
+    session.dispose();
+  });
+
+  test(
+    'compose after prepare aborts before launch and Retry saves it',
+    () async {
+      final h = await makeHarness();
+      final note = h.repo.createNote(body: _body('old text\n'));
+      final session = openSession(h, note.id);
+      final i = installer(h);
+      final info = await i.prepare();
+      final update = await ready();
+      var edited = false;
+      launcher.beforeRun = (_, _) async {
+        if (edited) return;
+        edited = true;
+        session.quill.replaceText(
+          0,
+          0,
+          'late ',
+          const TextSelection.collapsed(offset: 5),
+        );
+      };
+
+      final failed = await i.install(update, info);
+
+      expect(failed, isA<InstallFailed>());
+      expect((failed as InstallFailed).retry, isTrue);
+      expect(launcher.started, isEmpty);
+      expect(session.readOnly, isFalse);
+      expect(h.repo.getNote(note.id)!.preview, 'old text');
+      expect(h.db.select('SELECT count(*) AS n FROM notes').single['n'], 1);
+      expect(h.sync.disposeCount, 0);
+      expect(h.exitCalls, 0);
+
+      launcher.beforeRun = null;
+      launcher.beforeStart = () async {
+        expect(h.repo.getNote(note.id)!.preview, 'late old text');
+      };
+      final retried = await i.install(update, info);
+      expect(retried, isA<InstallHandedToOs>());
+      expect(launcher.started, hasLength(1));
+      expect(h.sync.disposeCount, 1);
+      expect(h.exitCalls, 1);
+      session.dispose();
+    },
+  );
+
+  test(
+    'quit exits and closes the database when sync disposal throws',
+    () async {
+      final h = await makeHarness();
+      h.sync.disposeError = StateError('synthetic sync disposal failure');
+
+      await h.services.quitForUpdate();
+
+      expect(h.sync.disposeCount, 1);
+      expect(h.exitCalls, 1);
+      expect(() => h.db.select('SELECT 1'), throwsA(anything));
     },
   );
 

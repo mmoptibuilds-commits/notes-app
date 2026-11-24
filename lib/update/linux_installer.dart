@@ -44,6 +44,7 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   LinuxUpdateInstaller({
     required this.onQuit,
     Future<void> Function()? onPrepareQuit,
+    void Function()? onConfirmStillClean,
     Future<void> Function()? onInstallAborted,
     UpdateProcessLauncher? launcher,
     Map<String, String>? environment,
@@ -62,10 +63,14 @@ class LinuxUpdateInstaller implements UpdateInstaller {
        _platform = platform ?? UpdatePlatform.current(),
        _installOverride = installDir,
        onPrepareQuit = onPrepareQuit ?? _noOp,
+       onConfirmStillClean = onConfirmStillClean ?? _noOpSync,
        onInstallAborted = onInstallAborted ?? _noOp;
 
   /// Freezes editors and confirms all saves before any helper setup starts.
   final Future<void> Function() onPrepareQuit;
+
+  /// Rechecks editor saves immediately before the detached helper starts.
+  final void Function() onConfirmStillClean;
 
   /// Closes the database and sync and exits after the helper has started.
   final Future<void> Function() onQuit;
@@ -230,6 +235,21 @@ class LinuxUpdateInstaller implements UpdateInstaller {
       await _chmod(helper.path);
       // Run through the shell so a temp directory mounted noexec cannot stop
       // the update (the copy's executable bit is then not needed at all).
+      try {
+        onConfirmStillClean();
+      } on Object {
+        try {
+          await helperDir.delete(recursive: true);
+        } on Object {
+          // Keep the save failure; a stale private copy is harmless.
+        }
+        await _abortPreparation();
+        return const InstallFailed(
+          'Some note changes could not be saved. Notes is still open with your '
+          'edits. Resolve the save problem, then choose Retry.',
+          retry: true,
+        );
+      }
       await _launcher.startDetached('/bin/sh', [
         helper.path,
         'apply',
@@ -325,3 +345,5 @@ class LinuxUpdateInstaller implements UpdateInstaller {
 }
 
 Future<void> _noOp() async {}
+
+void _noOpSync() {}

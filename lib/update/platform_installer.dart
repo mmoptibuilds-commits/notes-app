@@ -11,6 +11,7 @@ import 'linux_installer.dart';
 /// fails.
 UpdateInstaller? createPlatformInstaller({
   Future<void> Function() onPrepareQuit = _noOp,
+  void Function() onConfirmStillClean = _noOpSync,
   required Future<void> Function() onQuit,
   Future<void> Function() onInstallAborted = _noOp,
 }) {
@@ -18,6 +19,7 @@ UpdateInstaller? createPlatformInstaller({
   if (Platform.isLinux) {
     return LinuxUpdateInstaller(
       onPrepareQuit: onPrepareQuit,
+      onConfirmStillClean: onConfirmStillClean,
       onQuit: onQuit,
       onInstallAborted: onInstallAborted,
     );
@@ -26,3 +28,5 @@ UpdateInstaller? createPlatformInstaller({
 }
 
 Future<void> _noOp() async {}
+
+void _noOpSync() {}

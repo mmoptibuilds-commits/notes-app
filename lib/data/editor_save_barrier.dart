@@ -76,6 +76,15 @@ class EditorSaveBarrier {
     }
   }
 
+  /// Rechecks every participant immediately before an updater starts.
+  void confirmStillClean() {
+    if (!_prepared ||
+        !_frozen ||
+        _participants.any((participant) => participant.hasUnconfirmedSaves)) {
+      throw const EditorSaveBarrierException();
+    }
+  }
+
   /// Releases a successful prepare when helper setup fails, or an incomplete
   /// prepare after a save failure. Safe to call more than once.
   void release() {

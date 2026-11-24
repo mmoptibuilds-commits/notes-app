@@ -144,10 +144,13 @@ artifact hash/size, the Linux installer freezes open editors and flushes their
 pending saves. This barrier also sees retry snapshots from editors that have
 already closed. If a save fails or remains unconfirmed, Notes stays open with
 the edits available, sync and the database remain open, and the ready update
-offers **Retry**. No helper is copied or started until a retry confirms every
-save. After the barrier succeeds, Notes passes the archive and signed metadata
-values to the installed helper and exits only after the helper starts. The
-helper copies itself to a private temporary directory before execution, waits
+offers **Retry**. No helper setup starts until a retry confirms every save.
+After the barrier succeeds, Notes passes the archive and signed metadata
+values to the installed helper and exits only after the helper starts.
+Immediately before helper launch, Notes rechecks the frozen editors for
+unconfirmed saves; after launch, shutdown attempts sync disposal and database
+close in that order, swallows either error, and exits in all cases. The helper
+copies itself to a private temporary directory before execution, waits
 for the app to exit, validates the archive, stages it beside the installation,
 then swaps program directories. It uses `flock`, checks the managed marker
 and current user ownership, and never runs `sudo`. It has no network or

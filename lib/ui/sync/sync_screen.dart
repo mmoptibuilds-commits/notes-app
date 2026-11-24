@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/touch.dart';
 import 'pair_screen.dart';
+import 'cloud_screen.dart';
 
 /// Narrowest window that puts the two sync buttons side by side.
 const _sideBySideMinWidth = 400.0;
@@ -176,6 +177,20 @@ class _Body extends StatelessWidget {
             style: TextStyle(color: p.textFaint, fontSize: 12, height: 1.45),
           ),
         ),
+        if (AppScope.of(context).cloud != null) ...[
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              minimumSize: touchButtonMinimumSize(context),
+              visualDensity: touchVisualDensity(context),
+            ),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CloudScreen()),
+            ),
+            icon: const Icon(Icons.cloud_outlined),
+            label: const Text('Cloud sync settings'),
+          ),
+        ],
       ],
     );
   }

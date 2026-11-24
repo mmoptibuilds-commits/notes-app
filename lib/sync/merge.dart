@@ -47,7 +47,9 @@ NoteMerge mergeNotes(NoteRecord a, NoteRecord b) {
       continue concurrent;
     concurrent:
     case VvOrder.concurrent:
-      if (a.purged != b.purged) {
+      if (a.title == b.title && a.body == b.body && a.purged == b.purged) {
+        winner = _later(a, b);
+      } else if (a.purged != b.purged) {
         winner = a.purged ? b : a;
       } else {
         winner = _later(a, b);

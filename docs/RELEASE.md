@@ -192,6 +192,61 @@ old device rows using the SQL above before the new owner signs in. Keep the
 Google consent screen's test-user list current while it is in Testing mode. No
 Worker, Neon or Google secret may be committed.
 
+## Private rollout and rollback (1.3.0)
+
+The 1.3.0 build is installed on the owner's devices before anything is tagged,
+signed into the update manifest or published. Nothing in this section
+publishes, tags or signs.
+
+Artifacts of the 1.3.0 candidate (built from `feature/cloud-sync`):
+
+- Android: `build/app/outputs/flutter-apk/app-release.apk` (versionCode
+  20261126, higher than the installed 1.2.0 build 20261125; signed with the
+  pinned release certificate in `tool/release_cert_sha256.txt`).
+- Linux: `dist/notes-1.3.0-linux-x64.tar.gz` with its `.sha256` file.
+
+Before installing 1.3.0 on a device, on that device:
+
+1. In the 1.2.0 app open Data and export a Notes JSON backup, check that the
+   export completes, and copy it off the device.
+2. On Linux, with Notes closed, also copy the data directory:
+   `cp -a ~/.local/share/com.mmoptibuilds.notes ~/Backups/notes-data-pre-1.3.0`.
+3. Keep the 1.2.0 artifacts: `dist/notes-1.2.0-android-arm64.apk`,
+   `dist/notes-1.2.0-linux-x64.tar.gz`, its `.sha256`, the manifest and its
+   signature, or the same files on the GitHub release `v1.2.0`.
+
+Install 1.3.0 only as an in-place update signed with the same key. Never
+uninstall or clear the installed app to get past a signing mismatch.
+
+To roll back, first stop cloud sync on every device so no device keeps pushing
+(Cloud sync, turn off, then sign out). LAN sync between 1.2.0 and 1.3.0 devices
+is unchanged, so devices on different versions still sync with each other over
+the LAN. Then, per device:
+
+- Linux: close Notes. 1.3.0 migrated the database to schema 4 and wrote
+  `~/.local/share/com.mmoptibuilds.notes/notes.db.pre-v4.bak`, a copy of the
+  database as it was when 1.3.0 first opened it. A 1.2.0 build refuses the
+  migrated database. Extract the 1.2.0 archive, check its SHA-256, run its
+  `install.sh`, move `notes.db`, `notes.db-wal` and `notes.db-shm` aside, and
+  copy `notes.db.pre-v4.bak` to `notes.db`. The key stays in the keyring. Edits
+  made after the upgrade are not in that backup: export them from 1.3.0 first
+  and restore them with Data, Restore. Alternatively restore the directory copy
+  made before the upgrade.
+- Android: the system refuses to install build 20261125 over 20261126, and the
+  `.pre-v4.bak` copy is in app-private storage that cannot be reached without
+  root. The rollback is therefore an owner decision: save a verified export
+  from 1.3.0 off the device, uninstall Notes (this deletes its data), install
+  the 1.2.0 APK, then restore the export with Data, Restore. Do this only with
+  a verified export in hand.
+- Cloud library: it stays in Neon and does no harm unused. To discard it, run
+  `SELECT sync_reset();` in the Neon SQL console as the project owner (the app
+  role cannot run it), then revoke device rows with the SQL in the Cloud server
+  section. Worker code rolls back as described there.
+
+The real library upload happens once, only after the owner confirms it in the
+1.3.0 app (Linux uploads after a verified backup, then Android joins). It is
+not part of any automated test.
+
 ## CI review
 
 `.github/workflows/ci.yml` requests only `contents: read`. It uses Java 21 and

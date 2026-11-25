@@ -65,6 +65,13 @@ tool/cloud_device_test.sh <adb-serial> https://<test-worker-url>
 Details, scope and limits: `tool/cloud_device_test.md`. For a single-process run
 of the same scenario: `CLOUD_LIVE_URL=<test-worker-url> flutter test test/live/cloud_scenario_test.dart`.
 
+For the v1.3.1 empty-library release check, which drives first upload and join
+through the real setup UI on Linux and Android after test sign-in, run
+`tool/cloud_setup_ui_test.sh <adb-serial> https://notes-sync-test.<worker-domain>`.
+It resets the test Worker and confirms the library endpoint is empty before
+starting; the script refuses non-test Worker URLs. Details:
+`tool/cloud_device_test.md`.
+
 `tool/build_cloudtest_apk.sh` writes `build/app/outputs/flutter-apk/app-release.apk`,
 the same path as the release build: build the real release APK last.
 

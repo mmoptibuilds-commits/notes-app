@@ -38,3 +38,22 @@ test against that deployment at the same time. The phone can start minutes after
 Linux (a wireless-ADB install), so the first handshake waits up to 15 minutes;
 offline edits wait 8 seconds before reconnecting so both sides edit before
 either syncs.
+
+## Empty-library setup through the UI
+
+The v1.3.1 release check starts with an empty test library and drives the real
+CloudScreen on Linux and Android, including verified backup, upload
+confirmation, device check and join. The harness signs in both peers with its
+test login before opening the screen. After joining, it verifies that each
+peer's repository receives edits from the other through automatic cloud sync.
+Run it only against the deployed test Worker; the script rejects URLs that do
+not contain `notes-sync-test`:
+
+```sh
+tool/cloud_setup_ui_test.sh <android-serial> https://notes-sync-test.<worker-domain>
+```
+
+The script resets the test library and checks authenticated `GET /v1/library`
+returns 404 before starting either role. It builds the isolated cloud-test APK
+and runs Linux and Android together. Do not run another test against that test
+Worker until the script finishes.

@@ -83,6 +83,16 @@ Future<void> resetCloudTestLibrary(Uri worker) async {
     final access = session['access']! as String;
     try {
       await post('/v1/test/reset', const {}, access);
+      final check = await client.getUrl(worker.resolve('/v1/library'));
+      check.headers.set(HttpHeaders.authorizationHeader, 'Bearer $access');
+      final emptyResponse = await check.close();
+      await emptyResponse.drain<void>();
+      if (emptyResponse.statusCode != HttpStatus.notFound) {
+        throw StateError(
+          'Expected GET /v1/library to return 404 after reset; got '
+          '${emptyResponse.statusCode}.',
+        );
+      }
     } finally {
       await post('/v1/auth/logout', const {}, access); // frees the device slot
     }

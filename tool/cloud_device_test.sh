@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 <android-serial> <worker-url>" >&2
+if [[ $# -lt 2 || $# -gt 3 || (${3:-scenario} != scenario && ${3:-scenario} != latency) ]]; then
+  echo "Usage: $0 <android-serial> <worker-url> [scenario|latency]" >&2
   exit 2
 fi
 
 serial=$1
 worker_url=$2
+mode=${3:-scenario}
+# `latency` measures automatic sync delay (tool/cloud_latency_report.dart).
+if [[ $mode == latency ]]; then
+  entry=integration_test/cloud_latency_test.dart
+else
+  entry=integration_test/cloud_device_test.dart
+fi
 export PATH="$HOME/development/flutter/bin:$PATH"
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 export ORG_GRADLE_PROJECT_cloudTest=true
@@ -37,7 +44,7 @@ case $abi in
   x86_64) platform=android-x64 ;;
   *) echo "Unsupported device ABI: $abi" >&2; exit 1 ;;
 esac
-flutter build apk --debug --target integration_test/cloud_device_test.dart \
+flutter build apk --debug --target "$entry" \
   --target-platform "$platform" \
   --dart-define=CLOUD_ROLE=A \
   --dart-define="NOTES_CLOUD_URL=$worker_url"
@@ -57,14 +64,31 @@ fi
 echo "Resetting the test library..."
 dart run tool/cloud_test_reset.dart "$worker_url"
 
+offset_ms=0
+if [[ $mode == latency ]]; then
+  # Phone clock minus Linux clock, from the sample with the shortest round trip.
+  best_rtt=-1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    t0=$(date +%s%N)
+    remote=$(adb -s "$serial" shell date +%s%N | tr -d '\r')
+    t1=$(date +%s%N)
+    rtt=$((t1 - t0))
+    if [[ $best_rtt -lt 0 || $rtt -lt $best_rtt ]]; then
+      best_rtt=$rtt
+      offset_ms=$(((remote - (t0 + t1) / 2) / 1000000))
+    fi
+  done
+  echo "Phone clock offset: ${offset_ms} ms (best round trip $((best_rtt / 1000)) us)"
+fi
+
 set +e
-flutter test integration_test/cloud_device_test.dart -d linux \
+flutter test "$entry" -d linux \
   --dart-define=CLOUD_ROLE=L \
   --dart-define="NOTES_CLOUD_URL=$worker_url" \
   >"$temp_dir/linux.log" 2>&1 &
 linux_pid=$!
 flutter drive -d "$serial" \
-  --target integration_test/cloud_device_test.dart \
+  --target "$entry" \
   --driver test_driver/integration_test.dart \
   --use-application-binary "$apk" \
   --dart-define=CLOUD_ROLE=A \
@@ -94,6 +118,12 @@ report_side() {
     echo "$name: FAIL${step:+ (step: $step)}"
   fi
 }
+
+if [[ $mode == latency ]]; then
+  echo "--- Latency report ---"
+  dart run tool/cloud_latency_report.dart --offset-ms "$offset_ms" \
+    "$temp_dir/linux.log" "$temp_dir/android.log" | tee "${CLOUD_LATENCY_REPORT:-/dev/null}"
+fi
 
 echo "--- Cloud device test summary ---"
 report_side Linux "$linux_status" "$temp_dir/linux.log"

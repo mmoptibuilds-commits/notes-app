@@ -15,10 +15,14 @@ void main(List<String> args) {
     }
   }
   final line = RegExp(r'\bLAT k=(\d+) kind=(\w+) to=(\w) (.*)$');
+  final idle = RegExp(r'\bLATIDLE (.*)$');
+  final idleLines = <String>[];
   final samples = <String, List<int>>{};
   final problems = <String, int>{};
   for (final file in files) {
     for (final text in File(file).readAsLinesSync()) {
+      final i = idle.firstMatch(text);
+      if (i != null) idleLines.add(i.group(1)!);
       final m = line.firstMatch(text);
       if (m == null) continue;
       final kind = m.group(2)!;
@@ -64,6 +68,9 @@ void main(List<String> args) {
       '${key.padRight(34)} ${values.length}  ${_s(median)}  ${_s(values.last)}   '
       '${values.map(_s).join(' ')}',
     );
+  }
+  for (final l in idleLines) {
+    stdout.writeln('idle: $l');
   }
   for (final entry in problems.entries) {
     stdout.writeln('${entry.key} x${entry.value}');

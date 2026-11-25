@@ -22,6 +22,10 @@ class CloudSyncEngine {
   final NoteRepository repo;
   final CloudApi api;
   final int Function() _now;
+
+  /// True while this engine writes cloud rows into the local database, so the
+  /// service does not treat those writes as new local edits.
+  bool applyingRemote = false;
   CloudSyncProgress progress = const CloudSyncProgress();
   final Set<String> unavailableBlobs = {};
   final Set<String> oversizedRows = {};
@@ -184,7 +188,12 @@ class CloudSyncEngine {
             'Cloud attachment length does not match.',
           );
         }
-        repo.storeCloudAttachment(hash, mime!, builder.takeBytes());
+        applyingRemote = true;
+        try {
+          repo.storeCloudAttachment(hash, mime!, builder.takeBytes());
+        } finally {
+          applyingRemote = false;
+        }
       } on CloudApiException catch (e) {
         if (e.kind == CloudErrorKind.notFound ||
             e.kind == CloudErrorKind.malformed) {
@@ -241,59 +250,64 @@ class CloudSyncEngine {
           'Cloud returned an inconsistent change cursor.',
         );
       }
-      repo.db.transaction(() {
-        for (final remote in page.rows) {
-          try {
-            repo.db.savepoint(() => _apply(remote));
-            _deleteQuarantineFor(remote);
-          } on ClockSkewException {
-            throw const CloudApiException(
-              CloudErrorKind.malformed,
-              "This device's or another device's clock looks wrong. Cloud sync stopped.",
-            );
-          } on Object catch (e) {
-            // Malformed rows are isolated with a savepoint, then quarantined.
-            final raw = jsonEncode(remote.toJson());
-            final rawBytes = utf8.encode(raw);
-            final boundedRaw = rawBytes.length > 256 * 1024
-                ? utf8.decode(
-                    rawBytes.sublist(0, 256 * 1024),
-                    allowMalformed: true,
-                  )
-                : raw;
-            for (final old in repo.db.select(
-              "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
-              [remote.kind],
-            )) {
-              try {
-                final decoded = jsonDecode(old['raw'] as String);
-                if (decoded is Map && decoded['id'] == remote.id) {
-                  repo.db.execute('DELETE FROM quarantine WHERE id=?', [
-                    old['id'],
-                  ]);
+      applyingRemote = true;
+      try {
+        repo.db.transaction(() {
+          for (final remote in page.rows) {
+            try {
+              repo.db.savepoint(() => _apply(remote));
+              _deleteQuarantineFor(remote);
+            } on ClockSkewException {
+              throw const CloudApiException(
+                CloudErrorKind.malformed,
+                "This device's or another device's clock looks wrong. Cloud sync stopped.",
+              );
+            } on Object catch (e) {
+              // Malformed rows are isolated with a savepoint, then quarantined.
+              final raw = jsonEncode(remote.toJson());
+              final rawBytes = utf8.encode(raw);
+              final boundedRaw = rawBytes.length > 256 * 1024
+                  ? utf8.decode(
+                      rawBytes.sublist(0, 256 * 1024),
+                      allowMalformed: true,
+                    )
+                  : raw;
+              for (final old in repo.db.select(
+                "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
+                [remote.kind],
+              )) {
+                try {
+                  final decoded = jsonDecode(old['raw'] as String);
+                  if (decoded is Map && decoded['id'] == remote.id) {
+                    repo.db.execute('DELETE FROM quarantine WHERE id=?', [
+                      old['id'],
+                    ]);
+                  }
+                } on Object {
+                  // An unreadable older quarantine item cannot shadow the new row.
                 }
-              } on Object {
-                // An unreadable older quarantine item cannot shadow the new row.
               }
+              repo.db.execute(
+                'INSERT INTO quarantine(peer_id,kind,received_at,reason,raw) VALUES(?,?,?,?,?)',
+                [
+                  'cloud',
+                  remote.kind,
+                  _now(),
+                  e.runtimeType.toString(),
+                  boundedRaw,
+                ],
+              );
+              repo.db.execute(
+                'DELETE FROM quarantine WHERE id NOT IN (SELECT id FROM quarantine ORDER BY id DESC LIMIT 100)',
+              );
             }
-            repo.db.execute(
-              'INSERT INTO quarantine(peer_id,kind,received_at,reason,raw) VALUES(?,?,?,?,?)',
-              [
-                'cloud',
-                remote.kind,
-                _now(),
-                e.runtimeType.toString(),
-                boundedRaw,
-              ],
-            );
-            repo.db.execute(
-              'DELETE FROM quarantine WHERE id NOT IN (SELECT id FROM quarantine ORDER BY id DESC LIMIT 100)',
-            );
+            cursor = remote.seq;
           }
-          cursor = remote.seq;
-        }
-        repo.db.setMeta('cloud.pull_seq', '$cursor');
-      });
+          repo.db.setMeta('cloud.pull_seq', '$cursor');
+        });
+      } finally {
+        applyingRemote = false;
+      }
       if (!page.more) break;
       cursor = page.next;
     }
@@ -308,7 +322,12 @@ class CloudSyncEngine {
         final decoded = jsonDecode(entry['raw'] as String);
         if (decoded is! Map) continue;
         final remote = CloudRecord.fromJson(decoded.cast<String, Object?>());
-        repo.db.transaction(() => repo.db.savepoint(() => _apply(remote)));
+        applyingRemote = true;
+        try {
+          repo.db.transaction(() => repo.db.savepoint(() => _apply(remote)));
+        } finally {
+          applyingRemote = false;
+        }
         repo.db.execute('DELETE FROM quarantine WHERE id=?', [entry['id']]);
         _deleteQuarantineFor(remote);
       } on Object {

@@ -83,6 +83,7 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
         cloud.lifecycleChanged(
           resumed: state == AppLifecycleState.resumed,
           paused: state == AppLifecycleState.paused,
+          hidden: state == AppLifecycleState.hidden,
         ),
       );
     }

@@ -206,9 +206,12 @@ headers, email, `sub`, or connection strings.
 ## 4. Why polling does not drain Neon
 
 Each active device polls `GET /v1/head` (Worker plus Coordinator only, no Neon)
-every 30 s while the app is running. Android stops polling when paused; Linux
-keeps polling while the window is open or minimized. It pulls from Neon only
-when `seq` exceeds its cursor. Pushes touch Neon. A real Neon pull occurs at
+every 10 s while its window is visible (focused or not) and every 30 s while it
+is minimized. Android stops polling when paused; Linux keeps polling while the
+window is open or minimized. It pulls from Neon only when `seq` exceeds its
+cursor. On the Workers Free plan (100,000 requests a day for the Worker and for
+Durable Object requests) one visible device polling all day is 8,640 requests,
+so two devices use under a fifth of the limit and five use under half. Pushes touch Neon. A real Neon pull occurs at
 start, resume, manual sync and at most once an hour while running, which covers
 a lost head update. Idle polling does not wake Neon; actual compute use depends
 on the user's edits and transfer volume, so this source tree does not claim a
@@ -262,13 +265,16 @@ Every step is idempotent: replaying a pull page or a push batch changes nothing.
 Progress is persisted after each page or batch. Local saves never wait for the
 network: the engine runs asynchronously, reads and writes only through
 `NoteRepository` / `AppDatabase.transaction`, and a failing sync never blocks or
-fails an editor save. Network errors back off (30 s, 2 min, 10 min, 30 min) and
-a manual **Sync now** always tries immediately.
+fails an editor save. Network errors back off (30 s, 2 min, 10 min, 30 min), but
+the first head poll that succeeds after a failure syncs at once, and a manual
+**Sync now** always tries immediately.
 
 ### 5.3 Triggers (`CloudService`, a `ChangeNotifier`)
 
-Start and resume, after local edits settle (20 s, like LAN), a poll timer
-(section 4), manual. Linux keeps syncing while the window is open or minimized
+Start and resume, after local edits settle (2 s after the last save, and at the
+latest 10 s after the first save of a run), a poll timer (section 4), manual.
+Rows the engine itself applied from the cloud never trigger another push. When
+Android is paused it first pushes any waiting edit (at most 8 s), then stops. Linux keeps syncing while the window is open or minimized
 and stops when the process quits. Android polls while foregrounded and stops
 when paused; no background service is used. While cloud is **active** on a
 device, LAN auto-sync stops (manual LAN sync stays), otherwise LAN conflict

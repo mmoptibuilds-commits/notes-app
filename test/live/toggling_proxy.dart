@@ -11,6 +11,9 @@ class TogglingProxy {
   final HttpClient _client;
   bool online = true;
 
+  /// Requests seen so far by path (without query), counted before forwarding.
+  final counts = <String, int>{};
+
   Uri get url => Uri.parse('http://127.0.0.1:${_server.port}');
 
   static Future<TogglingProxy> start(Uri target) async {
@@ -29,6 +32,7 @@ class TogglingProxy {
   };
 
   Future<void> _handle(HttpRequest request) async {
+    counts.update(request.uri.path, (n) => n + 1, ifAbsent: () => 1);
     if (!online) {
       (await request.response.detachSocket(writeHeaders: false)).destroy();
       return;

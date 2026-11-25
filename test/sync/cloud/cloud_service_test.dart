@@ -54,9 +54,7 @@ void main() {
 
     await service.start();
     final startingChanges = server.changesCalls;
-    final poll = timers.singleWhere(
-      (t) => t.duration == const Duration(seconds: 30),
-    );
+    final poll = timers.singleWhere((t) => t.duration == cloudPollVisible);
     poll.fire();
     await Future<void>.delayed(const Duration(milliseconds: 5));
     expect(server.headCalls, 1);
@@ -89,7 +87,7 @@ void main() {
     await service.lifecycleChanged(resumed: false, paused: true);
     repo.createNote(title: 'edited');
     final debounce = timers.last;
-    expect(debounce.duration, const Duration(seconds: 20));
+    expect(debounce.duration, cloudSaveDelay);
     final headCalls = server.headCalls;
     server.responseDelay = const Duration(milliseconds: 10);
     debounce.fire();
@@ -140,7 +138,7 @@ void main() {
       await service.start();
       server.failStatusAtRequest = server.requestCount + 1;
       repo.createNote(title: 'synthetic');
-      timers.lastWhere((t) => t.duration == const Duration(seconds: 20)).fire();
+      timers.lastWhere((t) => t.duration == cloudSaveDelay).fire();
       await Future<void>.delayed(const Duration(milliseconds: 5));
       var retry = timers.last;
       expect(retry.duration, const Duration(seconds: 30));
@@ -156,7 +154,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
       server.failStatusAtRequest = server.requestCount + 1;
       repo.createNote(title: 'after recovery');
-      timers.lastWhere((t) => t.duration == const Duration(seconds: 20)).fire();
+      timers.lastWhere((t) => t.duration == cloudSaveDelay).fire();
       await Future<void>.delayed(const Duration(milliseconds: 5));
       expect(timers.last.duration, const Duration(seconds: 30));
     },
@@ -200,9 +198,7 @@ void main() {
     );
     addTearDown(service.dispose);
     await service.start();
-    final poll = timers.singleWhere(
-      (t) => t.duration == const Duration(seconds: 30),
-    );
+    final poll = timers.singleWhere((t) => t.duration == cloudPollVisible);
     await service.lifecycleChanged(resumed: false, paused: true);
     expect(poll.isActive, isFalse);
     final timerCount = timers.length;
@@ -212,6 +208,170 @@ void main() {
     expect(server.records, hasLength(1));
     await service.stop();
     expect(timers.every((timer) => !timer.isActive), isTrue);
+  });
+
+  group('automatic sync timing', () {
+    late AppDatabase db;
+    late NoteRepository repo;
+    late FakeCloudServer server;
+    late List<_ManualTimer> timers;
+    late DateTime now;
+    late CloudService service;
+
+    Future<void> open({bool android = false}) async {
+      db = AppDatabase.open(null);
+      addTearDown(db.close);
+      repo = NoteRepository(db);
+      server = FakeCloudServer();
+      timers = [];
+      now = DateTime.utc(2026, 1, 1);
+      db.transaction(() {
+        db.setMeta('cloud.library_id', server.libraryId);
+        db.setMeta('cloud.enabled', 'on');
+      });
+      service = CloudService(
+        repo: repo,
+        api: server,
+        sessions: MemoryCloudSessionStore()
+          ..session = const CloudSession(
+            deviceId: 'test-device',
+            access: 'a',
+            accessExp: 1,
+            refresh: 'r',
+          ),
+        dataDir: '',
+        deviceName: 'Synthetic',
+        loginLauncher: null,
+        unavailable: false,
+        clock: () => now,
+        timerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+        periodicTimerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback, periodic: true);
+          timers.add(timer);
+          return timer;
+        },
+        platformIsAndroid: () => android,
+      );
+      addTearDown(service.dispose);
+      await service.start();
+    }
+
+    Future<void> settle() =>
+        Future<void>.delayed(const Duration(milliseconds: 5));
+
+    test('a burst of saves is pushed after a short pause, never later than the maximum wait', () async {
+      await open();
+      repo.createNote(title: 'one');
+      expect(timers.last.duration, cloudSaveDelay);
+      now = now.add(const Duration(milliseconds: 1500));
+      repo.createNote(title: 'two');
+      expect(timers.last.duration, cloudSaveDelay);
+      now = now.add(const Duration(seconds: 7));
+      repo.createNote(title: 'three');
+      // 8.5 s since the first save: only 1.5 s of the 10 s maximum are left.
+      expect(timers.last.duration, const Duration(milliseconds: 1500));
+      now = now.add(const Duration(seconds: 3));
+      repo.createNote(title: 'four');
+      expect(timers.last.duration, Duration.zero);
+    });
+
+    test('rows applied from the cloud do not schedule another push', () async {
+      await open();
+      final source = NoteRepository(AppDatabase.open(null));
+      addTearDown(source.db.close);
+      final remote = source.createNote(
+        id: '00000000-0000-4000-8000-000000000092',
+        title: 'remote',
+      );
+      final row = source.getRecord(remote.id)!.toJson();
+      server.seq = 1;
+      server.records['note:${remote.id}'] = CloudRecord(
+        kind: 'note',
+        id: remote.id,
+        rev: 1,
+        seq: 1,
+        digest: recordDigest(row),
+        row: row,
+      );
+      final pushTimers = timers
+          .where((t) => t.duration == cloudSaveDelay)
+          .length;
+      timers.singleWhere((t) => t.duration == cloudPollVisible).fire();
+      await settle();
+      expect(repo.getNote(remote.id)?.title, 'remote');
+      expect(
+        timers.where((t) => t.duration == cloudSaveDelay).length,
+        pushTimers,
+      );
+    });
+
+    test(
+      'Android pushes waiting edits before it stops syncing in the background',
+      () async {
+        await open(android: true);
+        repo.createNote(title: 'saved just before leaving the app');
+        expect(server.records, isEmpty);
+        await service.lifecycleChanged(resumed: false, paused: true);
+        expect(server.records, hasLength(1));
+        expect(timers.every((t) => !t.isActive), isTrue);
+      },
+    );
+
+    test('the first poll that succeeds after failures syncs without waiting for the backoff', () async {
+      await open();
+      server.failStatusAtRequest = server.requestCount + 1;
+      repo.createNote(title: 'edited while offline');
+      timers.lastWhere((t) => t.duration == cloudSaveDelay).fire();
+      await settle();
+      final retry = timers.last;
+      expect(retry.duration, const Duration(seconds: 30));
+      expect(server.records, isEmpty);
+      server.failStatusAtRequest = null;
+      timers.singleWhere((t) => t.duration == cloudPollVisible).fire();
+      await settle();
+      expect(server.records, hasLength(1));
+      expect(retry.isActive, isFalse);
+    });
+
+    test('a minimised or backgrounded window polls less often', () async {
+      await open();
+      expect(
+        timers.where((t) => t.duration == cloudPollVisible && t.isActive),
+        hasLength(1),
+      );
+      await service.lifecycleChanged(
+        resumed: false,
+        paused: false,
+        hidden: true,
+      );
+      expect(
+        timers.where((t) => t.duration == cloudPollHidden && t.isActive),
+        hasLength(1),
+      );
+      expect(
+        timers.where((t) => t.duration == cloudPollVisible && t.isActive),
+        isEmpty,
+      );
+      await service.lifecycleChanged(resumed: true, paused: false);
+      expect(
+        timers.where((t) => t.duration == cloudPollVisible && t.isActive),
+        hasLength(1),
+      );
+      expect(
+        timers.where((t) => t.duration == cloudPollHidden && t.isActive),
+        isEmpty,
+      );
+      // An unfocused but visible window keeps the fast poll.
+      await service.lifecycleChanged(resumed: false, paused: false);
+      expect(
+        timers.where((t) => t.duration == cloudPollVisible && t.isActive),
+        hasLength(1),
+      );
+    });
   });
 
   test(

@@ -65,6 +65,29 @@ tool/cloud_device_test.sh <adb-serial> https://<test-worker-url>
 Details, scope and limits: `tool/cloud_device_test.md`. For a single-process run
 of the same scenario: `CLOUD_LIVE_URL=<test-worker-url> flutter test test/live/cloud_scenario_test.dart`.
 
+`tool/build_cloudtest_apk.sh` writes `build/app/outputs/flutter-apk/app-release.apk`,
+the same path as the release build: build the real release APK last.
+
+Automatic sync timing (synthetic notes, no taps on Sync now): two roles pass
+notes back and forth and the report prints, per case, how long a note takes to
+appear on the other device.
+
+```bash
+CLOUD_LATENCY_REPORT=/tmp/latency.txt \
+  tool/cloud_device_test.sh <adb-serial> https://<test-worker-url> latency
+# without a phone: both roles in one process
+CLOUD_LIVE_URL=<test-worker-url> flutter test test/live/cloud_latency_test.dart
+```
+
+It covers a plain save, a save pushed at once (poll only), resume, a save
+followed by backgrounding, and reconnecting after 100 s offline (a local proxy
+drops the connection), then counts the requests each device sends while idle.
+Cross-device times are corrected for the phone/Linux clock offset measured over
+ADB. The isolated test Worker is reset first, so run nothing else against it.
+
+Mobile-data smoke test (phone on mobile data, Linux on Wi-Fi, no ADB while it
+runs): `tool/cloud_manual_smoke.sh setup|run` and `tool/cloud_manual_smoke.md`.
+
 For a Linux development instance, set both its data directory and explicit
 test endpoint. With no explicit endpoint, a `NOTES_DATA_DIR` instance has no
 cloud configured and never falls back to the production server:

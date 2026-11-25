@@ -674,9 +674,13 @@ progress together in local transactions.
 
 Cloud `CloudService` phases are unavailable, off, signed out, signed in,
 uploading, ready and paused. While active it polls the Durable Object head every
-30 seconds (no Neon request), debounces local changes for 20 seconds, performs
-a Neon backstop at start/resume/manual sync and at most hourly, and retries
-failures after 30 seconds, 2 minutes, 10 minutes and 30 minutes. Only one sync
+10 seconds while the window is visible and every 30 seconds while minimized (no
+Neon request), pushes local changes 2 seconds after the last save (10 seconds
+at most after the first save of a run), performs a Neon backstop at
+start/resume/manual sync and at most hourly, and retries failures after
+30 seconds, 2 minutes, 10 minutes and 30 minutes, except that the first head
+poll that succeeds after a failure syncs immediately. Android pushes waiting
+edits when it is paused, before it stops. Only one sync
 runs at once; a request received during a run queues one follow-up. Android
 stops polling when paused and runs foreground-only; Linux runs while open or
 minimized and stops on quit. Active cloud sync suppresses LAN auto-sync; manual
@@ -1097,8 +1101,17 @@ Only items verified in code or tests:
   before that merge can lose.
 - Cloud notes above 180 KiB and attachments above 20 MiB do not sync; cloud
   status reports them while continuing with eligible records.
-- Android cloud sync is foreground-only and stops when the app is paused.
-  Linux syncs while the window is open or minimized and stops when Notes quits.
+- Android cloud sync is foreground-only and stops when the app is paused. On
+  pause it first tries to push waiting edits (up to 8 s); if the system freezes
+  the process before that finishes, the edit waits until the app is opened
+  again. Linux syncs while the window is open or minimized and stops when Notes
+  quits.
+- Changing the Worker's `OWNER_SUB` does not sign out devices that are already
+  registered: revoke their rows (docs/RELEASE.md) when changing the owner.
+- `GET /v1/head` checks the token signature and expiry but not device
+  revocation, so that idle polls never touch Neon. A revoked device can read
+  the library id, state and sequence number (no note data) until its access
+  token expires, at most 12 hours.
 - The Google consent screen is in Testing mode; only listed test users can sign
   in. Deploying the Worker requires the Cloudflare API or Wrangler, and Neon
   migrations are applied separately.

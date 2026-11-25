@@ -7,6 +7,8 @@ export ORG_GRADLE_PROJECT_cloudTest=true
 
 # The default server is the owner's real one: a test build must name its own.
 case " $* " in
+  *"notes-sync.mmoptibuilds"*)
+    echo "error: a test build must not point at the production Worker" >&2; exit 2 ;;
   *"NOTES_CLOUD_URL="*) ;;
   *) echo "error: pass --dart-define=NOTES_CLOUD_URL=<test worker url>" >&2; exit 2 ;;
 esac

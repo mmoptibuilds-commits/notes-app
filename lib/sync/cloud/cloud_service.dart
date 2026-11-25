@@ -49,6 +49,17 @@ class CloudStatus {
   final int oversizedRows, oversizedAttachments, quarantinedRows;
 }
 
+/// After a local save the push waits for this long without another save.
+const cloudSaveDelay = Duration(seconds: 2);
+
+/// A run of saves is pushed at the latest this long after the first.
+const cloudSaveMaxWait = Duration(seconds: 10);
+
+/// Head poll interval while the window is visible and while it is not. The poll
+/// is one small request to the Durable Object (never to Neon).
+const cloudPollVisible = Duration(seconds: 10);
+const cloudPollHidden = Duration(seconds: 30);
+
 typedef CloudTimerFactory = Timer Function(Duration, void Function());
 typedef CloudPeriodicTimerFactory = Timer Function(Duration, void Function());
 
@@ -147,6 +158,13 @@ class CloudService extends ChangeNotifier {
   final CloudPeriodicTimerFactory periodicTimerFactory;
   final bool Function() platformIsAndroid;
   Timer? _poll, _debounce, _retry;
+  Duration? _pollEvery;
+  // True while the window is visible (focused or not); minimised or
+  // backgrounded apps poll less often.
+  bool _visible = true;
+  // The first unsynced local edit, for the debounce's maximum wait.
+  DateTime? _pendingSince;
+  bool _unsyncedEdit = false;
   int _failures = 0;
   DateTime? _lastNeonBackstop;
   bool _running = false, _syncing = false, _enabled = false, _uploading = false;
@@ -849,6 +867,8 @@ class CloudService extends ChangeNotifier {
   }
 
   Future<void> _runSyncOnce() async {
+    _unsyncedEdit = false;
+    _pendingSince = null;
     _syncing = true;
     notifyListeners();
     try {
@@ -947,19 +967,35 @@ class CloudService extends ChangeNotifier {
     if (!wasRunning) repo.changes.addListener(_localChanged);
     await _runSync();
     _lastNeonBackstop ??= clock();
-    _poll ??= periodicTimerFactory(
-      const Duration(seconds: 30),
-      () => unawaited(_pollHead()),
-    );
+    _ensurePoll();
   }
 
+  void _ensurePoll() {
+    final every = _visible ? cloudPollVisible : cloudPollHidden;
+    if (_poll != null && _pollEvery == every) return;
+    _poll?.cancel();
+    _pollEvery = every;
+    _poll = periodicTimerFactory(every, () => unawaited(_pollHead()));
+  }
+
+  /// Called from the app lifecycle. [hidden] is a minimised desktop window;
+  /// an unfocused but visible window ("inactive") keeps the fast poll.
   Future<void> lifecycleChanged({
     required bool resumed,
     required bool paused,
+    bool hidden = false,
   }) async {
+    _visible = !(paused || hidden);
+    if (_running) _ensurePoll();
     if (resumed) {
       await start();
     } else if (paused && platformIsAndroid()) {
+      // Android may freeze the process right after this: push what is waiting
+      // now instead of letting it sit until the app is opened again.
+      if (_running && (_unsyncedEdit || _failures > 0)) {
+        _debounce?.cancel();
+        await _runSync().timeout(const Duration(seconds: 8), onTimeout: () {});
+      }
       await stop();
     }
   }
@@ -978,7 +1014,12 @@ class CloudService extends ChangeNotifier {
       if ((h['seq'] as int) >
               (int.tryParse(repo.db.getMeta('cloud.pull_seq') ?? '') ?? 0) ||
           _lastNeonBackstop == null ||
-          clock().difference(_lastNeonBackstop!) >= const Duration(hours: 1)) {
+          clock().difference(_lastNeonBackstop!) >= const Duration(hours: 1) ||
+          // The head answered, so the network is back: do not wait out the
+          // retry backoff for edits that failed to push while it was down.
+          _failures > 0) {
+        _retry?.cancel();
+        _retry = null;
         await _runSync();
       }
     } on Object {
@@ -987,11 +1028,19 @@ class CloudService extends ChangeNotifier {
   }
 
   void _localChanged() {
+    // Rows the engine just applied from the cloud are already in sync.
+    if (engine.applyingRemote) return;
+    _unsyncedEdit = true;
+    final first = _pendingSince ??= clock();
+    final left = cloudSaveMaxWait - clock().difference(first);
+    final wait = left <= Duration.zero
+        ? Duration.zero
+        : (left < cloudSaveDelay ? left : cloudSaveDelay);
     _debounce?.cancel();
-    _debounce = timerFactory(
-      const Duration(seconds: 20),
-      () => unawaited(_runSync()),
-    );
+    _debounce = timerFactory(wait, () {
+      _pendingSince = null;
+      unawaited(_runSync());
+    });
   }
 
   Future<void> stop() async {
@@ -999,6 +1048,7 @@ class CloudService extends ChangeNotifier {
     engine.cancel();
     _poll?.cancel();
     _poll = null;
+    _pollEvery = null;
     _debounce?.cancel();
     _debounce = null;
     _retry?.cancel();

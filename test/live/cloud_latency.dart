@@ -229,6 +229,18 @@ Future<void> runCloudLatency(
         }
       }
     }
+    // Idle: nothing is edited, so only head polls should reach the Worker.
+    final before = Map<String, int>.of(live.counts);
+    const idle = Duration(seconds: 90);
+    await Future<void>.delayed(idle);
+    final delta = <String, int>{
+      for (final e in live.counts.entries)
+        if (e.value - (before[e.key] ?? 0) > 0)
+          e.key: e.value - (before[e.key] ?? 0),
+    };
+    say(
+      'LATIDLE role=$me seconds=${idle.inSeconds} requests=${jsonEncode(delta)}',
+    );
     await service.signOut();
     say('LATDONE role=$me');
   } finally {

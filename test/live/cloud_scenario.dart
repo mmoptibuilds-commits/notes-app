@@ -48,6 +48,14 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
     // bootstrap gives this process its real encrypted database and platform
     // key store. The scenario supplies fake HTTP login and isolated sessions.
     await bootstrapped.cloud?.stop(); // services.close() disposes it later
+    // Cloud is the only path under test: LAN sync must be neither running nor
+    // paired, so no result can come from a direct device-to-device link.
+    final lan = bootstrapped.sync;
+    if (lan != null && (lan.running || lan.peers.list().isNotEmpty)) {
+      throw StateError(
+        'LAN sync is active; the cloud path would not be isolated',
+      );
+    }
     final httpApi = _DropNextPushApi(baseUrl: worker, sessions: sessions);
     api = httpApi;
     final cloudService = CloudService(

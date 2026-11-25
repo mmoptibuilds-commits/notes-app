@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, vi, afterEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import worker, { type Env } from "../src/worker.js";
@@ -746,5 +746,142 @@ describe("request boundary", () => {
       "utf8",
     ).catch(() => "");
     if (built) expect(built).not.toContain("/v1/test/");
+  });
+});
+
+describe("account authorization (production sign-in path)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  // Drives the real /v1/auth/callback route as production runs it: a Google
+  // ID token with a valid signature but a different account ID must not get a
+  // sign-in code, a device, or any database access.
+  it("refuses a valid Google identity with a different account ID and forged tokens", async () => {
+    const pair = await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    );
+    const attacker = await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    );
+    const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    Object.assign(jwk, { kid: "authz-kid", alg: "RS256", use: "sig" });
+    // Jump a day ahead, past the one-hour key cache that earlier tests filled
+    // (the rotation test uses times a few hours out), so this key set is fetched.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 24 * 3600_000);
+    vi.stubGlobal("fetch", async () => Response.json({ keys: [jwk] }));
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const sign = async (key: CryptoKey, claims: Record<string, unknown>) => {
+      const enc = (v: unknown) => base64url(new TextEncoder().encode(JSON.stringify(v)));
+      const input = `${enc({ alg: "RS256", kid: "authz-kid" })}.${enc(claims)}`;
+      const sig = await crypto.subtle.sign(
+        "RSASSA-PKCS1-v1_5",
+        key,
+        new TextEncoder().encode(input),
+      );
+      return `${input}.${base64url(new Uint8Array(sig))}`;
+    };
+    const claims = (sub: string, extra: Record<string, unknown> = {}) => ({
+      iss: "https://accounts.google.com",
+      aud: "client-test",
+      exp: nowSeconds + 300,
+      iat: nowSeconds,
+      nonce: "authz-nonce",
+      email_verified: true,
+      sub,
+      ...extra,
+    });
+    const untouched: Database = {
+      query: async () => {
+        throw new Error("database must not be touched during sign-in");
+      },
+    };
+    const production = {
+      ...env,
+      ENVIRONMENT: "production",
+      DB: untouched,
+      JWKS_URL: "https://keys.example.invalid/certs",
+    } as unknown as Env;
+    const state = await signedState(secret, {
+      challenge: await sha256("v".repeat(43)),
+      redirect: "com.mmoptibuilds.notes:/cloud-auth",
+      appState: "a".repeat(32),
+      nonce: "authz-nonce",
+      name: "Synthetic device",
+      exp: Date.now() + 60_000,
+    });
+    const callback = (idToken: string) =>
+      worker.fetch(
+        new Request("https://worker.example.invalid/v1/auth/callback", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ id_token: idToken, state }).toString(),
+        }),
+        production,
+      );
+    const codes = () => [...doState.values.keys()].filter((k) => k.startsWith("code:")).length;
+    const before = codes();
+
+    // Different account ID, otherwise a perfect Google token.
+    const other = await callback(await sign(pair.privateKey, claims("some-other-google-account")));
+    const otherText = await other.text();
+    expect([other.status, otherText]).toEqual([403, expect.stringContaining("private")]);
+    // Same account ID but signed by a key Google does not publish.
+    expect((await callback(await sign(attacker.privateKey, claims("test-owner-sub")))).status).toBe(
+      401,
+    );
+    // Right account, but a nonce that does not belong to this sign-in.
+    expect(
+      (await callback(await sign(pair.privateKey, claims("test-owner-sub", { nonce: "other" }))))
+        .status,
+    ).toBe(401);
+    // Right account, unverified email.
+    expect(
+      (
+        await callback(
+          await sign(pair.privateKey, claims("test-owner-sub", { email_verified: false })),
+        )
+      ).status,
+    ).toBe(401);
+    expect(codes()).toBe(before);
+
+    // Control: the same harness signs the owner in, proving the denials above
+    // come from the account check and not from a broken test setup.
+    const owner = await callback(await sign(pair.privateKey, claims("test-owner-sub")));
+    expect(owner.status).toBe(200);
+    expect(codes()).toBe(before + 1);
+  });
+
+  it("serves no sync data to any request without a device token, whoever the caller is", async () => {
+    const production = { ...env, ENVIRONMENT: "production" } as Env;
+    for (const [method, path] of [
+      ["GET", "/v1/library"],
+      ["GET", "/v1/manifest"],
+      ["GET", "/v1/changes?library=" + id + "&after=0"],
+      ["POST", "/v1/push"],
+      ["GET", "/v1/devices"],
+    ] as const) {
+      const response = await worker.fetch(
+        request(path, method, method === "POST" ? {} : undefined),
+        production,
+      );
+      expect(response.status, `${method} ${path}`).toBe(401);
+    }
   });
 });

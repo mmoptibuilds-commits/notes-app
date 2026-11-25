@@ -22,8 +22,15 @@ class MatrixDevice {
   void close() => db.close();
 }
 
+// One strictly increasing wall clock shared by every device in the test, so two
+// devices never stamp a change in the same millisecond. A tie is broken by the
+// random device id, which made order-dependent assertions fail now and then.
+var _wallTick = DateTime.now().millisecondsSinceEpoch;
+
 MatrixDevice matrixDevice(FakeCloudServer server) {
-  final device = MatrixDevice(AppDatabase.open(null));
+  final device = MatrixDevice(
+    AppDatabase.open(null, wallClock: () => ++_wallTick),
+  );
   device.link(server);
   return device;
 }

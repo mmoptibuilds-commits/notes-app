@@ -578,7 +578,11 @@ class HttpCloudApi implements CloudApi {
         >= 500 => CloudErrorKind.server,
         _ => CloudErrorKind.malformed,
       };
-      final errorKind = err == 'library'
+      final emptyLibraryLookup =
+          method == 'GET' &&
+          uri.path == '/v1/library' &&
+          result.statusCode == 404;
+      final errorKind = err == 'library' && !emptyLibraryLookup
           ? CloudErrorKind.libraryMismatch
           : kind;
       throw CloudApiException(

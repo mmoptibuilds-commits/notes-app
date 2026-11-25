@@ -457,6 +457,19 @@ describe("SQL contract", () => {
 });
 
 describe("request boundary", () => {
+  it("returns the documented empty-library response for an authenticated device", async () => {
+    const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);
+    const emptyDatabase: Database = {
+      query: async () => ({ rows: [] }),
+    };
+    const response = await worker.fetch(request("/v1/library", "GET", undefined, token), {
+      ...env,
+      DB: emptyDatabase,
+    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "library", message: "No library" });
+  });
+
   it("rejects missing and invalid access tokens before touching the database", async () => {
     const untouched: Database = {
       query: async () => {

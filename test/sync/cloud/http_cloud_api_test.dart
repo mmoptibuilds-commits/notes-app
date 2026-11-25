@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/sync/cloud/cloud_api.dart';
 
 import '../../support/fake_cloud_server.dart';
+import 'fake_http_client.dart';
 
 void main() {
   test(
@@ -58,6 +59,126 @@ void main() {
     expect(seenAuth, 'Bearer test-access');
     expect(seenBody, isNotEmpty);
   });
+
+  test(
+    'an empty library response is not found only on GET /v1/library',
+    () async {
+      const workerBody = '{"error":"library","message":"No library"}';
+
+      HttpCloudApi apiFor(int status, String body, {bool signedIn = true}) {
+        final sessions = MemoryCloudSessionStore();
+        if (signedIn) {
+          sessions.session = const CloudSession(
+            deviceId: 'test-device',
+            access: 'test-access',
+            accessExp: 9999999999,
+            refresh: 'test-refresh',
+          );
+        }
+        final api = HttpCloudApi(
+          baseUrl: Uri.parse('https://worker.example.invalid'),
+          sessions: sessions,
+          client: ScriptedHttpClient(
+            (method, uri) => (status: status, body: body),
+          ),
+        );
+        addTearDown(api.close);
+        return api;
+      }
+
+      final empty = apiFor(404, workerBody);
+      await expectLater(
+        empty.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.notFound,
+          ),
+        ),
+      );
+
+      final otherEndpoint = apiFor(404, workerBody);
+      await expectLater(
+        otherEndpoint.push('library-id', 'batch-id', const []),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.libraryMismatch,
+          ),
+        ),
+      );
+
+      final wrongLibrary = apiFor(409, '{"error":"library"}');
+      await expectLater(
+        wrongLibrary.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.libraryMismatch,
+          ),
+        ),
+      );
+
+      final unauthorized = apiFor(401, '{"error":"auth"}', signedIn: false);
+      await expectLater(
+        unauthorized.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.unauthorized,
+          ),
+        ),
+      );
+
+      final serverFailure = apiFor(500, '{"error":"internal"}');
+      await expectLater(
+        serverFailure.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.server,
+          ),
+        ),
+      );
+
+      final malformed = apiFor(400, 'not-json');
+      await expectLater(
+        malformed.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.malformed,
+          ),
+        ),
+      );
+
+      final offline = HttpCloudApi(
+        baseUrl: Uri.parse('https://worker.example.invalid'),
+        sessions: MemoryCloudSessionStore(),
+        timeout: const Duration(milliseconds: 100),
+        client: ScriptedHttpClient(
+          (method, uri) => throw const SocketException('offline'),
+        ),
+      );
+      addTearDown(offline.close);
+      await expectLater(
+        offline.library(),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.kind,
+            'kind',
+            CloudErrorKind.network,
+          ),
+        ),
+      );
+    },
+  );
 
   test(
     'refresh retains credentials for retryable errors and clears only auth',

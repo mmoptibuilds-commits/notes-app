@@ -85,6 +85,22 @@ drops the connection), then counts the requests each device sends while idle.
 Cross-device times are corrected for the phone/Linux clock offset measured over
 ADB. The isolated test Worker is reset first, so run nothing else against it.
 
+Measured 2026-11-25 with Linux and the Android emulator against the test Worker
+(seconds from saving on one device to seeing it on the other, no Sync now):
+
+| Case | Before 1.3.0 timing fix | After |
+|---|---|---|
+| Plain save | 22 to 49 | 2.6 to 11.5 |
+| Save pushed at once (poll only) | 7 to 14 | 2.4 to 7.6 |
+| Save, then app sent to the background | 52 to 70 | 2.6 to 14.5 |
+| Reconnect after 100 s offline | 72 to 84 | 11.5 to 14.5 |
+| Resume | 0.1 | 0.2 |
+| Idle requests per 90 s (head polls) | 3 | 9 |
+
+The cost is one head request every 10 s while a window is visible, about 8,640 a
+day per device, against the Workers Free limit of 100,000 a day; polls do not
+touch Neon.
+
 Mobile-data smoke test (phone on mobile data, Linux on Wi-Fi, no ADB while it
 runs): `tool/cloud_manual_smoke.sh setup|run` and `tool/cloud_manual_smoke.md`.
 

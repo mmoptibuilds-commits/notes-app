@@ -21,12 +21,22 @@ All notable changes to Notes are recorded here.
 
 - LAN automatic sync pauses on a device while its cloud sync is active. Manual
   LAN sync remains available.
+- Cloud sync pushes a local edit 2 seconds after you stop typing (at most 10
+  seconds after the first edit of a run) and checks for remote changes every 10
+  seconds while the window is visible, every 30 seconds while it is minimized.
+  Idle checks stay on the Durable Object and never wake the database.
 - Local database schema is now version 4. Notes 1.2.0 devices continue to work
   together over LAN. After a 1.3.0 device migrates a database, an older build
   refuses to open that database.
 
 ### Fixed
 
+- Android pushes waiting edits when the app is sent to the background instead
+  of leaving them until the app is opened again.
+- Edits made while offline are pushed on the first successful check after the
+  connection returns, instead of waiting for the retry backoff (up to 30
+  minutes).
+- Rows received from the cloud no longer schedule a second, redundant push.
 - Concurrent cloud edits to separate lines are combined automatically; edits
   that overlap retain a reviewable conflict copy.
 

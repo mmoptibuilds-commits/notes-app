@@ -149,7 +149,10 @@ Screenshots use synthetic notes (`test/visual/review_screens_test.dart`).
   Notes JSON with a preview and confirmation. JSON exports are not encrypted.
 - **Device sync:** pair your own devices by QR code or copied code for direct,
   encrypted LAN sync. Optional cloud sync works across networks; the server
-  stores readable note JSON and is not end-to-end encrypted. See
+  stores readable note JSON and is not end-to-end encrypted. While cloud sync
+  is on and the app is open, a saved note usually reaches your other open
+  devices within fifteen seconds without tapping Sync now (Android syncs while the
+  app is in the foreground). See
   [privacy and sync details](docs/PRODUCT.md#sync).
 - **Stable updates:** Notes checks for stable releases and can download them in
   the background when automatic updates are enabled. You confirm installation

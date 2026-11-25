@@ -22,7 +22,7 @@ void main() {
     final temp = await Directory.systemTemp.createTemp('notes-readme-test-');
     addTearDown(() => temp.delete(recursive: true));
     final script = _verifyBlock(readme).replaceAll(
-      'notes-1.2.0-linux-x64.tar.gz',
+      'notes-1.3.0-linux-x64.tar.gz',
       'notes-1.0.1-linux-x64.tar.gz',
     );
 

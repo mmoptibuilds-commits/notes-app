@@ -1,13 +1,14 @@
 # Stable release procedure
 
 Source release version: `1.3.0+20261126` (versionName `1.3.0`, Android
-versionCode `20261126`). The previous distributed stable release is
-`1.2.0+20261125`, published 2026-11-24. The latest recorded read-only phone check, on
+versionCode `20261126`), published 2026-11-25 and distributed as the latest
+stable release. The previous stable release was `1.2.0+20261125`, published
+2026-11-24. The latest recorded read-only phone check, on
 2026-11-21, found versionCode `20261122`; check installed versionCodes
 read-only again before installing, including on other target devices. Treat
 that phone value as a dated snapshot, not a permanent current value. The
 `tool/last_release_version_code.txt` holds the build number of the last
-distributed stable release (`20261125`, Notes 1.2.0, published 2026-11-24).
+distributed stable release (`20261126`, Notes 1.3.0, published 2026-11-25).
 Update it in the commit that follows each published release.
 
 ## 1. Preflight

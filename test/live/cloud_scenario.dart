@@ -66,7 +66,7 @@ Future<void> runCloudScenario(CloudScenarioRole role, Uri worker) async {
       deviceName: role == CloudScenarioRole.linux
           ? 'Linux cloud test'
           : 'Android cloud test',
-      loginLauncher: _TestLogin(worker),
+      loginLauncher: TestCloudLogin(worker),
       unavailable: false,
     );
     cloud = cloudService;
@@ -668,8 +668,8 @@ class _DropNextPushApi extends HttpCloudApi {
   }
 }
 
-class _TestLogin implements CloudLoginLauncher {
-  _TestLogin(this.url);
+class TestCloudLogin implements CloudLoginLauncher {
+  TestCloudLogin(this.url);
   final Uri url;
   @override
   Future<CloudLoginResult> login(

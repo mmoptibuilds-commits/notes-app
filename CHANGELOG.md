@@ -2,6 +2,15 @@
 
 All notable changes to Notes are recorded here.
 
+## [1.3.1] - 2026-11-25
+
+### Fixed
+
+- Cloud sync: signing in to an empty cloud library now opens the first-upload
+  setup. In 1.3.0 the screen showed "Could not check the cloud library." and the
+  library could not be uploaded. Only the empty-library answer changed; other
+  cloud errors, including a genuinely changed library, behave as before.
+
 ## [1.3.0] - 2026-11-25
 
 ### Added

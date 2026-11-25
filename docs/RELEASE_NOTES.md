@@ -1,3 +1,22 @@
+# Notes 1.3.1
+
+A fix for cloud sync in 1.3.0. Nothing else changed.
+
+## What's fixed
+
+- **First cloud upload.** After signing in to a cloud library that has never been
+  used, Notes 1.3.0 showed "Could not check the cloud library." instead of the
+  upload setup. It now opens the setup, where you create a verified backup and
+  confirm the upload yourself. Nothing is uploaded until you confirm.
+
+## Upgrading from 1.3.0
+
+Open **Settings → Updates** and confirm the install on Linux, or install the
+APK over the existing app on Android. Your notes, paired devices and cloud
+sign-in are kept. There is no database change in this release.
+
+---
+
 # Notes 1.3.0
 
 Notes is a personal, offline-first notes app for Android and Linux. Notes stay

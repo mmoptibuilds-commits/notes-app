@@ -1,3 +1,40 @@
+# Notes 1.3.0
+
+Notes is a personal, offline-first notes app for Android and Linux. Notes stay
+in an encrypted database on your device. Cloud sync is optional and off by
+default.
+
+## What's new
+
+- **Optional private cloud sync** between your Android and Linux devices, across
+  networks. It needs the owner's Google account, a one-time confirmed upload of
+  your library and a server you control (a Cloudflare Worker and a Neon
+  database, both free tiers). The server stores your notes as readable JSON:
+  cloud sync is not end-to-end encrypted. LAN sync still works and stays
+  available.
+- **Automatic, fast sync.** While cloud sync is on and Notes is open, a saved
+  note usually reaches your other open devices within fifteen seconds, with no
+  need to tap Sync now. Edits made offline are sent as soon as the connection
+  returns, and Android sends waiting edits before it goes to the background.
+- **Edits to different parts of a note are merged automatically.** When two
+  devices change the same lines, Notes keeps the other version and shows
+  **Review edits** on the main note.
+- **Cloud settings** for a verified backup, the confirmed upload, join checks
+  and device management.
+
+## Upgrading from 1.2.0
+
+Open **Settings → Updates** and confirm the install on Linux, or install the
+APK over the existing app on Android. Your notes and paired devices are kept.
+The first start of 1.3.0 upgrades the local database and writes a backup copy
+next to it (`notes.db.pre-v4.bak` on Linux). Export a Notes JSON backup first.
+
+A 1.2.0 build cannot open a database that 1.3.0 has upgraded. To go back, see
+"Upgrading and rolling back" in the release procedure (docs/RELEASE.md): on
+Android it needs a saved export and a reinstall.
+
+---
+
 # Notes 1.2.0
 
 Notes is a personal, offline-first notes app for Android and Linux. Notes stay

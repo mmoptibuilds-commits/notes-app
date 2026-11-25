@@ -85,17 +85,22 @@ drops the connection), then counts the requests each device sends while idle.
 Cross-device times are corrected for the phone/Linux clock offset measured over
 ADB. The isolated test Worker is reset first, so run nothing else against it.
 
-Measured 2026-11-25 with Linux and the Android emulator against the test Worker
-(seconds from saving on one device to seeing it on the other, no Sync now):
+Measured 2026-11-25 against the test Worker, with Linux paired with the Android
+emulator and with a physical Android phone on Wi-Fi (seconds from saving on one
+device to seeing it on the other, no Sync now; both directions pooled):
 
-| Case | Before 1.3.0 timing fix | After |
-|---|---|---|
-| Plain save | 22 to 49 | 2.6 to 11.5 |
-| Save pushed at once (poll only) | 7 to 14 | 2.4 to 7.6 |
-| Save, then app sent to the background | 52 to 70 | 2.6 to 14.5 |
-| Reconnect after 100 s offline | 72 to 84 | 11.5 to 14.5 |
-| Resume | 0.1 | 0.2 |
-| Idle requests per 90 s (head polls) | 3 | 9 |
+| Case | Emulator before | Emulator after | Phone before | Phone after |
+|---|---|---|---|---|
+| Plain save | 22 to 49 | 2.6 to 11.5 | 22 to 68 | 4.5 to 11.0 |
+| Save pushed at once (poll only) | 7 to 14 | 2.4 to 7.6 | 3 to 27 | 0.5 to 9.0 |
+| Save, then app sent to the background | 52 to 70 | 2.6 to 14.5 | 59 to 71 | 1.5 to 2.9 |
+| Reconnect after 100 s offline | 72 to 84 | 11.5 to 14.5 | 73 to 83 | 11.1 to 14.9 |
+| Resume | 0.1 | 0.2 | 0.4 to 0.5 | 0.4 to 0.5 |
+| Idle head requests per 90 s | 3 | 9 | 3 | 9 |
+
+"Before" is the 1.2.x timing (20 s save delay, 30 s poll, Android dropped waiting
+edits when paused). Phone runs have two to three samples per case, so treat the
+ranges as indicative.
 
 The cost is one head request every 10 s while a window is visible, about 8,640 a
 day per device, against the Workers Free limit of 100,000 a day; polls do not

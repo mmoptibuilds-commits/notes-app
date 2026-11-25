@@ -241,8 +241,9 @@ verified backup, then Android joins).
 After a change to `lib/sync/cloud/`, measure it with synthetic notes only (see
 the latency test in [DEVELOPMENT.md](DEVELOPMENT.md)). Expected behaviour while
 two devices are open: a save appears on the other device within about 15
-seconds (measured 2.6 to 11.5 s), an edit made while offline is pushed within one poll after the network
-returns, and a paused Android app pushes waiting edits before it stops.
+seconds (measured 2.6 to 11.5 s on an emulator, 4.5 to 11.0 s on a phone), an
+edit made while offline is pushed within one poll after the network returns, and
+a paused Android app pushes waiting edits before it stops.
 
 ## CI review
 

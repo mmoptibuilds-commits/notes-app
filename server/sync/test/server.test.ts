@@ -460,7 +460,8 @@ describe("request boundary", () => {
   it("returns the documented empty-library response for an authenticated device", async () => {
     const token = await accessToken(secret, id, Math.floor(Date.now() / 1000) + 60);
     const emptyDatabase: Database = {
-      query: async () => ({ rows: [] }),
+      // The device is active; the library table has no row.
+      query: async <T,>(sql: string) => ({ rows: (sql.includes("FROM devices") ? [{ id }] : []) as T[] }),
     };
     const response = await worker.fetch(request("/v1/library", "GET", undefined, token), {
       ...env,

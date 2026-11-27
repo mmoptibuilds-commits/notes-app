@@ -257,8 +257,8 @@ to full commit SHAs with the version in a comment.
 <!-- BEGIN MANUAL RELEASE SMOKE -->
 ## Manual Android and Linux release-build checks
 
-The dispatch workflow must exist on the repository's default branch before it
-can be run. To check a specific branch with owner approval:
+GitHub requires the dispatch workflow on the default branch. Choose the
+branch under test with `--ref`.
 
 ```sh
 gh workflow run release-smoke.yml --ref <branch>

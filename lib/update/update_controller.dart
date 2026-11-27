@@ -417,14 +417,19 @@ class UpdateController extends ChangeNotifier {
 
   // Checking -----------------------------------------------------------------
 
+  static const _checkStateFailure = UpdateFailed(
+    'Notes could not save its local update settings. '
+    'Try again after checking that the device has free space.',
+  );
+
   /// Asks GitHub for the latest stable release and decides what it means.
   /// [manual] only documents the caller; both paths behave the same.
   Future<void> check({bool manual = true}) async {
     if (busy || _disposed) return;
     _lastCandidate = null;
     _set(const UpdateChecking());
-    store.write(UpdateKeys.lastAttempt, _now().toUtc().toIso8601String());
     try {
+      store.write(UpdateKeys.lastAttempt, _now().toUtc().toIso8601String());
       final info = await installer.prepare();
       _info = info;
       final fetch = await _latest();
@@ -433,17 +438,13 @@ class UpdateController extends ChangeNotifier {
           _concluded();
           _set(const UpdateNoStableRelease());
         case ReleaseRateLimited(:final resetAt):
-          _recordFailure(retryAt: resetAt);
-          _set(UpdateRateLimited(resetAt));
+          _failCheck(UpdateRateLimited(resetAt), retryAt: resetAt);
         case ReleaseOffline():
-          _recordFailure();
-          _set(const UpdateOffline());
+          _failCheck(const UpdateOffline());
         case ReleaseFailed(:final message):
-          _recordFailure();
-          _set(UpdateFailed(message));
+          _failCheck(UpdateFailed(message));
         case ReleaseNotModified():
-          _recordFailure();
-          _set(const UpdateFailed('GitHub sent an unexpected answer.'));
+          _failCheck(const UpdateFailed('GitHub sent an unexpected answer.'));
         case ReleaseFetched(:final release):
           store.write(UpdateKeys.retryAfter, null);
           await _evaluate(release, info, automatic: !manual);
@@ -451,22 +452,36 @@ class UpdateController extends ChangeNotifier {
             _recordFailure();
           }
       }
+    } on UpdateStateWriteException {
+      _set(_checkStateFailure);
     } on TimeoutException {
-      _recordFailure();
-      _set(const UpdateFailed('GitHub did not answer in time.'));
+      _failCheck(const UpdateFailed('GitHub did not answer in time.'));
     } on UpdateOfflineException {
-      _recordFailure();
-      _set(const UpdateOffline());
+      _failCheck(const UpdateOffline());
     } on SocketException {
-      _recordFailure();
-      _set(const UpdateOffline());
+      _failCheck(const UpdateOffline());
+    } on BodyTooLargeException {
+      _failCheck(
+        const UpdateFailed(
+          'GitHub sent an unexpectedly large update file. '
+          'Try again once the release has been corrected.',
+        ),
+      );
     } on ManifestException catch (e) {
-      _recordFailure();
-      _set(UpdateVerificationFailed(e.message));
+      _failCheck(UpdateVerificationFailed(e.message));
     } on Object catch (e) {
-      _recordFailure();
-      _set(UpdateFailed(_describe(e)));
+      _failCheck(UpdateFailed(_describe(e)));
     }
+  }
+
+  void _failCheck(UpdateStatus status, {DateTime? retryAt}) {
+    try {
+      _recordFailure(retryAt: retryAt);
+    } on UpdateStateWriteException {
+      _set(_checkStateFailure);
+      return;
+    }
+    _set(status);
   }
 
   void _concluded() {

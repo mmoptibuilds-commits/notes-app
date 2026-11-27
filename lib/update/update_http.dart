@@ -118,9 +118,11 @@ class IoUpdateHttp implements UpdateHttp {
     } on TimeoutException {
       client.close(force: true);
       throw const UpdateOfflineException('Connection timed out.');
-    } on HttpException catch (e) {
+    } on HttpException {
       client.close(force: true);
-      throw UpdateProtocolException(e.message);
+      throw const UpdateProtocolException(
+        'The server sent an invalid HTTP response. Try again.',
+      );
     } catch (_) {
       client.close(force: true);
       rethrow;

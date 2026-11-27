@@ -1,3 +1,5 @@
+import 'package:sqlite3/sqlite3.dart';
+
 import '../data/app_settings.dart';
 
 /// Small persistent bookkeeping for the updater (last check, ETag, highest
@@ -6,7 +8,13 @@ import '../data/app_settings.dart';
 /// would rebuild the whole app.
 abstract class UpdateStateStore {
   String? read(String key);
+
+  /// Throws [UpdateStateWriteException] if the write cannot be persisted.
   void write(String key, String? value);
+}
+
+class UpdateStateWriteException implements Exception {
+  const UpdateStateWriteException();
 }
 
 class AppSettingsUpdateStore implements UpdateStateStore {
@@ -17,7 +25,15 @@ class AppSettingsUpdateStore implements UpdateStateStore {
   String? read(String key) => _settings.read(key);
 
   @override
-  void write(String key, String? value) => _settings.writeSilently(key, value);
+  void write(String key, String? value) {
+    try {
+      _settings.writeSilently(key, value);
+    } on SqliteException {
+      throw const UpdateStateWriteException();
+    } on StateError {
+      throw const UpdateStateWriteException();
+    }
+  }
 }
 
 class MemoryUpdateStore implements UpdateStateStore {

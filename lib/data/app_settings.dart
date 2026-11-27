@@ -204,18 +204,18 @@ class AppSettings extends ChangeNotifier {
   /// displays (last update check, cached ETag): a notification would rebuild
   /// the whole app and re-run every settings listener.
   void writeSilently(String key, String? value) {
+    if (_values[key] == value) return;
     if (value == null) {
-      if (_values.remove(key) == null) return;
       _db.execute('DELETE FROM settings WHERE key = ?', [key]);
+      _values.remove(key);
       return;
     }
-    if (_values[key] == value) return;
-    _values[key] = value;
     _db.execute(
       'INSERT INTO settings(key, value) VALUES (?, ?) '
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       [key, value],
     );
+    _values[key] = value;
   }
 
   /// Raw access for small bits of UI state (for example, last opened folder).

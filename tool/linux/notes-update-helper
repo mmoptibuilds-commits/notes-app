@@ -216,13 +216,20 @@ status_write verified false ''
 tar -tzf "$archive" >/dev/null 2>&1 || verifyfail 'Corrupted archive'
 listing="${state_dir}/.tar-list.$$"
 trap 'rm -f "$listing"; exit 1' HUP INT TERM
-tar -tvzf "$archive" > "$listing" || verifyfail 'Cannot list archive'
-awk '
+LC_ALL=C tar --numeric-owner --quoting-style=escape -tvzf "$archive" > "$listing" || verifyfail 'Cannot list archive'
+# Spell out the five fields: mawk can leave an interval expression over a
+# repeated group unmatched. Preserve spaces in the name after the timestamp.
+LC_ALL=C awk '
 function unsafe(p, n,a,i) { if (p ~ /^\//) return 1; n=split(p,a,"/"); for(i=1;i<=n;i++) if(a[i]=="..") return 1; return 0 }
-{ line=$0; type=substr(line,1,1); if (line ~ /[sS]/ && substr(line,1,10) ~ /[sS]/) exit 1; if (type != "-" && type != "d") exit 1;
-  name=line; sub(/^([^ ]+[ ]+){5}/,"",name); if (type=="l" && name ~ / -> /) { split(name,x," -> "); target=x[2]; if (unsafe(x[1]) || unsafe(target) || target ~ /^\//) exit 1; name=x[1] }
-  if (type=="h" && name ~ / link to /) { split(name,x," link to "); target=x[2]; if (unsafe(x[1]) || unsafe(target) || target ~ /^\//) exit 1; name=x[1] }
-  if (unsafe(name)) exit 1; if (name ~ /(^|\/)bundle\/notes$/ && type=="-") notes=1; if (name ~ /(^|\/)bundle\/lib\/?$/) lib=1; if (name ~ /(^|\/)bundle\/data\/?$/) data=1
+{
+  type=substr($0,1,1)
+  if ((type != "-" && type != "d") || substr($0,1,10) ~ /[sS]/) exit 1
+  name=$0
+  if (!sub(/^[^ ]+ +[^ ]+ +[0-9]+ +[^ ]+ +[^ ]+ /,"",name)) exit 1
+  if (name == "" || unsafe(name)) exit 1
+  if (type=="-" && name ~ /(^|\/)bundle\/notes$/) notes=1
+  if (type=="d" && name ~ /(^|\/)bundle\/lib\/?$/) lib=1
+  if (type=="d" && name ~ /(^|\/)bundle\/data\/?$/) data=1
 } END { if (!notes || !lib || !data) exit 1 }
 ' "$listing" || verifyfail 'Unsafe archive entries or unexpected layout'
 # The archive is extracted and then copied into a same-filesystem staging

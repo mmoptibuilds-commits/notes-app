@@ -31,6 +31,8 @@ void main() {
     archiveRoot = Directory('${temp.path}/notes-1.0.1-linux-x64')..createSync();
     Directory('${archiveRoot.path}/bundle/lib').createSync(recursive: true);
     Directory('${archiveRoot.path}/bundle/data').createSync(recursive: true);
+    File('${archiveRoot.path}/bundle/data/sample file.txt')
+        .writeAsStringSync('synthetic package data');
     Directory('${archiveRoot.path}/update').createSync();
     File(helper).copySync('${archiveRoot.path}/update/notes-update-helper');
     File('${archiveRoot.path}/bundle/notes')
@@ -150,6 +152,10 @@ t.close()
       contains('updated'),
     );
     expect(data.readAsStringSync(), 'synthetic user data');
+    expect(
+      File('${install.path}/data/sample file.txt').readAsStringSync(),
+      'synthetic package data',
+    );
     expect(
       File('${install.path}/.managed-install').readAsStringSync(),
       contains('1.0.1'),
@@ -437,6 +443,10 @@ t.close()
         archiveWith(kind);
         final result = await run();
         expect(result.exitCode, 11, reason: result.stderr.toString());
+        expect(
+          result.stderr,
+          contains('Unsafe archive entries or unexpected layout'),
+        );
         expect(
           File('${install.path}/notes').readAsStringSync(),
           contains('exit 0'),

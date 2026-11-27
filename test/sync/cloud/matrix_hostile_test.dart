@@ -208,7 +208,6 @@ void main() {
         final quarantined =
             hostile == 'wrong digest' ||
             hostile == 'record id differs from row id' ||
-            hostile == 'giant row' ||
             hostile == 'unknown kind';
         if (quarantined) {
           expect(failure, isNull);

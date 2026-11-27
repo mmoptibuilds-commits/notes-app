@@ -33,6 +33,8 @@ simplicity and intuitive editing matter more than feature count.
   per-item restore/delete and bulk uncheck/delete. The stored document keeps
   every line with its formatting; opening a note never rewrites it.
 - Cursor and scroll position are never reset by autosave, resume or sync.
+- When a save fails, Notes stores an encrypted recovery draft and offers it for
+  review from the library. A successful save clears that recovery copy.
 - Long documents stay usable.
 
 ### Appearance

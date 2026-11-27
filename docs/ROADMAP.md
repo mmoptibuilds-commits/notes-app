@@ -1,8 +1,8 @@
 # Notes roadmap
 
-Status: proposed release plan for owner review. Preparation is complete; application implementation has not been authorized by this document. Current stable: v1.3.1 (20261127). Tooling merged in [PR #8](https://github.com/mmoptibuilds-commits/notes-app/pull/8), main at `e4c1769804f4bd8891638b1ad288122da36c10ea` at planning time.
+Status: the owner approved v1.3.2 implementation on 2026-11-28; that candidate is active. Later releases remain proposed. Current stable: v1.3.1 (build 20261127). Tooling is merged in [PR #8](https://github.com/mmoptibuilds-commits/notes-app/pull/8). This roadmap does not authorize work on later releases.
 
-Read [REQUIREMENTS.md](REQUIREMENTS.md) for accepted product decisions, [BACKLOG.md](BACKLOG.md) for the complete inventory, and [plans/v1.3.2.md](plans/v1.3.2.md) for the first proposed application patch. Existing [PRODUCT.md](PRODUCT.md) describes current behavior; future decisions do not retroactively change shipped behavior.
+Read [REQUIREMENTS.md](REQUIREMENTS.md) for accepted product decisions, [BACKLOG.md](BACKLOG.md) for the complete inventory, and [plans/v1.3.2.md](plans/v1.3.2.md) for the approved application patch. Existing [PRODUCT.md](PRODUCT.md) describes current behavior; future decisions do not retroactively change shipped behavior.
 
 ## Release sequence
 

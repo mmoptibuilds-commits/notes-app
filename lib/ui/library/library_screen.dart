@@ -9,6 +9,7 @@ import '../../data/app_settings.dart';
 import '../../data/models.dart';
 import '../../data/note_repository.dart';
 import '../editor/editor_screen.dart';
+import '../editor/recovery_drafts_screen.dart';
 import '../material.dart';
 import '../editor/editor_session.dart';
 import '../settings/settings_screen.dart';
@@ -307,6 +308,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _openSettings() => Navigator.of(context)
       .push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+
+  void _reviewRecoveryDrafts() => Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => const RecoveryDraftsScreen()));
 
   // ---------------------------------------------------------- item events
 
@@ -629,26 +634,56 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 : null,
             body: SafeArea(
               bottom: false,
-              child: LayoutBuilder(
-                builder: (context, cons) {
-                  if (isDesktopSize(MediaQuery.sizeOf(context))) {
-                    return _buildDesktop(context, cons.maxWidth);
-                  }
-                  if (_pane != null) {
-                    // Narrowed below the desktop width: the pane is not built
-                    // (its editor saves as it is disposed); forget it.
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted || _pane == null) return;
-                      if (isDesktopSize(MediaQuery.sizeOf(context))) {
-                        return;
-                      }
-                      setState(() {
-                        _pane = null;
-                        _paneSession = null;
-                      });
-                    });
-                  }
-                  return _buildContent(context, cons.maxWidth);
+              child: ListenableBuilder(
+                listenable: _repo.draftChanges,
+                builder: (context, _) {
+                  final drafts = _repo.pendingEditorDrafts();
+                  return Column(
+                    children: [
+                      if (drafts.isNotEmpty)
+                        MaterialBanner(
+                          leading: Icon(
+                            Icons.warning_amber_rounded,
+                            color: p.danger,
+                          ),
+                          content: Text(
+                            drafts.length == 1
+                                ? 'A note could not be saved. An encrypted recovery draft is available.'
+                                : '${drafts.length} notes could not be saved. Encrypted recovery drafts are available.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: _reviewRecoveryDrafts,
+                              child: const Text('Review drafts'),
+                            ),
+                          ],
+                        ),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, cons) {
+                            if (isDesktopSize(MediaQuery.sizeOf(context))) {
+                              return _buildDesktop(context, cons.maxWidth);
+                            }
+                            if (_pane != null) {
+                              // Narrowed below the desktop width: the pane is not built
+                              // (its editor saves as it is disposed); forget it.
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted || _pane == null) return;
+                                if (isDesktopSize(MediaQuery.sizeOf(context))) {
+                                  return;
+                                }
+                                setState(() {
+                                  _pane = null;
+                                  _paneSession = null;
+                                });
+                              });
+                            }
+                            return _buildContent(context, cons.maxWidth);
+                          },
+                        ),
+                      ),
+                    ],
+                  );
                 },
               ),
             ),

@@ -2,6 +2,31 @@
 
 All notable changes to Notes are recorded here.
 
+## [1.3.2] - 2026-11-28
+
+### Added
+
+- Failed editor saves are kept in an encrypted, device-local recovery draft.
+  The library offers a review screen, and a successful save clears the draft
+  in the same transaction.
+
+### Fixed
+
+- Concurrent database processes refresh the local sequence and HLC under the
+  SQLite write lock. Migration backups are verified before atomic replacement,
+  and import snapshots are bounded.
+- Cloud quarantine limits preserve LAN and unrelated pending records, retrying
+  a page when a malformed row cannot be retained.
+- Linux update archive validation works with Ubuntu's `mawk`; update failures
+  now show safe retry guidance.
+- System reduced-motion preference disables app motion without changing the
+  saved animation setting.
+
+### Changed
+
+- The local database schema is version 5. Notes 1.3.1 and older cannot open a
+  database after this release migrates it.
+
 ## [1.3.1] - 2026-11-25
 
 ### Fixed

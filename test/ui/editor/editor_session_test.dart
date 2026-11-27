@@ -1,15 +1,97 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_quill_delta/dart_quill_delta.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' show TextSelection;
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/core/version_vector.dart';
+import 'package:notes/data/editor_draft.dart';
+import 'package:notes/data/editor_save_barrier.dart';
 import 'package:notes/data/models.dart' show NoteScope;
+import 'package:notes/data/app_database.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/doc/checklist_projection.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/editor/editor_session.dart';
+
+class _SerializationFailureSession extends EditorSession {
+  _SerializationFailureSession({
+    required super.repo,
+    required super.saveBarrier,
+    super.noteId,
+    super.retryDelay,
+  });
+
+  bool failSerialization = false;
+
+  @override
+  Delta canonicalDelta() {
+    if (failSerialization) throw StateError('injected serialization failure');
+    return super.canonicalDelta();
+  }
+}
+
+class _CountingNoteRepository extends NoteRepository {
+  _CountingNoteRepository(super.db);
+
+  int contentWriteAttempts = 0;
+
+  @override
+  EditorDraftWriteResult writeEditorContent({
+    required String draftId,
+    required String? noteId,
+    required String title,
+    required String body,
+    required VersionVector base,
+    String? folderId,
+  }) {
+    contentWriteAttempts++;
+    return super.writeEditorContent(
+      draftId: draftId,
+      noteId: noteId,
+      title: title,
+      body: body,
+      base: base,
+      folderId: folderId,
+    );
+  }
+}
+
+class _TransientRecoveryFailureRepository extends NoteRepository {
+  _TransientRecoveryFailureRepository(super.db);
+
+  bool failContentWrites = true;
+  bool failDraftWrites = true;
+
+  @override
+  EditorDraftWriteResult writeEditorContent({
+    required String draftId,
+    required String? noteId,
+    required String title,
+    required String body,
+    required VersionVector base,
+    String? folderId,
+  }) {
+    if (failContentWrites) throw StateError('injected content failure');
+    return super.writeEditorContent(
+      draftId: draftId,
+      noteId: noteId,
+      title: title,
+      body: body,
+      base: base,
+      folderId: folderId,
+    );
+  }
+
+  @override
+  void savePendingEditorDraft(PendingEditorDraft draft) {
+    if (failDraftWrites) throw StateError('injected draft failure');
+    super.savePendingEditorDraft(draft);
+  }
+}
 
 String json(Delta d) => jsonEncode(d.toJson());
 
@@ -426,4 +508,185 @@ void main() {
       });
     },
   );
+
+  test(
+    'failed editor saves survive restart and recover without duplicating notes',
+    () {
+      fakeAsync((fake) {
+        final dir = Directory.systemTemp.createTempSync(
+          'notes draft recovery ',
+        );
+        final path = '${dir.path}/notes.db';
+        final key = Uint8List.fromList(List.filled(32, 9));
+        var db = AppDatabase.open(path, key: key);
+        var diskRepo = NoteRepository(db);
+        final note = diskRepo.createNote(body: json(Delta()..insert('old\n')));
+        final editor = EditorSession(
+          repo: diskRepo,
+          noteId: note.id,
+          autosaveDelay: const Duration(hours: 1),
+          retryDelay: const Duration(hours: 1),
+        );
+        editor.quill.replaceText(
+          0,
+          0,
+          'precious ',
+          const TextSelection.collapsed(offset: 9),
+        );
+        db.execute('''
+        CREATE TRIGGER fail_editor_update BEFORE UPDATE ON notes BEGIN
+          SELECT RAISE(ABORT, 'injected write failure');
+        END
+      ''');
+        editor.flush();
+        expect(editor.status, SaveStatus.failed);
+        expect(editor.recoveryCopySaved, isTrue);
+        final draftId = diskRepo.pendingEditorDrafts().single.id;
+        editor.dispose();
+        diskRepo.dispose();
+        db.close();
+
+        db = AppDatabase.open(path, key: key);
+        diskRepo = NoteRepository(db);
+        final recoveredDraft = diskRepo.pendingEditorDrafts().single;
+        expect(recoveredDraft.id, draftId);
+        expect(recoveredDraft.body, contains('precious old'));
+        expect(recoveredDraft.noteId, note.id);
+        db.execute('DROP TRIGGER fail_editor_update');
+
+        final recovered = EditorSession(
+          repo: diskRepo,
+          recoveredDraft: recoveredDraft,
+          autosaveDelay: const Duration(hours: 1),
+          retryDelay: const Duration(hours: 1),
+        );
+        expect(recovered.quill.document.toPlainText(), 'precious old\n');
+        recovered.flush();
+        expect(diskRepo.listNotes(), hasLength(1));
+        expect(diskRepo.getNote(note.id)!.preview, 'precious old');
+        expect(diskRepo.pendingEditorDrafts(), isEmpty);
+        recovered.dispose();
+        diskRepo.dispose();
+        db.close();
+        dir.deleteSync(recursive: true);
+        fake.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'a retry handoff that exhausts its limit leaves a recoverable draft',
+    () {
+      fakeAsync((fake) {
+        final countingRepo = _CountingNoteRepository(s.db);
+        final note = countingRepo.createNote(
+          body: json(Delta()..insert('saved\n')),
+        );
+        final editor = EditorSession(
+          repo: countingRepo,
+          noteId: note.id,
+          autosaveDelay: const Duration(hours: 1),
+          retryDelay: const Duration(seconds: 3),
+        );
+        editor.quill.replaceText(
+          0,
+          0,
+          'never abandon ',
+          const TextSelection.collapsed(offset: 15),
+        );
+        s.db.execute('ALTER TABLE notes RENAME TO notes_away');
+        editor.dispose();
+
+        fake.elapse(const Duration(seconds: 6003));
+        expect(countingRepo.contentWriteAttempts, 2001);
+        final draft = countingRepo.pendingEditorDrafts().single;
+        expect(draft.body, contains('never abandon saved'));
+        s.db.execute('ALTER TABLE notes_away RENAME TO notes');
+        expect(countingRepo.getNote(note.id)?.preview, 'saved');
+        final recovered = EditorSession(
+          repo: countingRepo,
+          recoveredDraft: draft,
+        );
+        recovered.flush();
+        expect(countingRepo.getNote(note.id)?.preview, 'never abandon saved');
+        expect(countingRepo.pendingEditorDrafts(), isEmpty);
+        recovered.dispose();
+        countingRepo.dispose();
+      });
+    },
+  );
+
+  test(
+    'dispose retries a serialized snapshot when recovery writes also fail',
+    () {
+      fakeAsync((fake) {
+        final retryRepo = _TransientRecoveryFailureRepository(s.db);
+        final note = retryRepo.createNote(body: json(Delta()..insert('old\n')));
+        final editor = EditorSession(
+          repo: retryRepo,
+          noteId: note.id,
+          autosaveDelay: const Duration(hours: 1),
+          retryDelay: const Duration(seconds: 3),
+        );
+        editor.quill.replaceText(
+          0,
+          0,
+          'typed ',
+          const TextSelection.collapsed(offset: 6),
+        );
+
+        editor.flush();
+        expect(editor.recoveryCopySaved, isFalse);
+        expect(retryRepo.pendingEditorDrafts(), isEmpty);
+        editor.dispose();
+        expect(retryRepo.pendingEditorDrafts(), isEmpty);
+
+        retryRepo.failContentWrites = false;
+        retryRepo.failDraftWrites = false;
+        fake.elapse(const Duration(seconds: 3));
+        fake.flushMicrotasks();
+        expect(retryRepo.getNote(note.id)?.preview, 'typed old');
+        expect(retryRepo.pendingEditorDrafts(), isEmpty);
+        retryRepo.dispose();
+      });
+    },
+  );
+
+  test('serialization failure during dispose keeps the last durable draft and unregisters', () {
+    fakeAsync((fake) {
+      final barrier = EditorSaveBarrier();
+      final note = repo.createNote(body: json(Delta()..insert('old\n')));
+      final editor = _SerializationFailureSession(
+        repo: repo,
+        saveBarrier: barrier,
+        noteId: note.id,
+        retryDelay: const Duration(hours: 1),
+      );
+      editor.quill.replaceText(
+        0,
+        0,
+        'kept draft ',
+        const TextSelection.collapsed(offset: 12),
+      );
+      s.db.execute('ALTER TABLE notes RENAME TO notes_away');
+      editor.flush();
+      final previous = repo.pendingEditorDrafts().single;
+      expect(previous.body, contains('kept draft old'));
+
+      editor.failSerialization = true;
+      expect(editor.dispose, returnsNormally);
+      expect(repo.pendingEditorDrafts().single.body, previous.body);
+      s.db.execute('ALTER TABLE notes_away RENAME TO notes');
+
+      var prepared = false;
+      barrier.prepare().then((_) => prepared = true);
+      fake.flushMicrotasks();
+      expect(
+        prepared,
+        isTrue,
+        reason: 'dispose must unregister after serialization fails',
+      );
+      barrier.release();
+    });
+  });
 }

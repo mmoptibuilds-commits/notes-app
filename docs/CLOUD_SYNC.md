@@ -242,9 +242,13 @@ measured monthly total.
    row is concurrent with the pulled row and a base exists, use
    `threeWayMerge` (section 6). Otherwise use `mergeNotes` (whole-document conflict
    copy). Clock skew guard (2 days) applies as on LAN. Malformed rows are kept
-   in bounded quarantine, counted in cloud status, and retried before each later
-   pull; a newer version replaces a quarantined copy. The cursor moves past a
-   malformed row so it cannot block other records.
+   in cloud quarantine, counted in cloud status, and retried before each later
+   pull. A newer cloud row can replace a retained row with the same kind and
+   ID. A pull can advance past an unreadable row only after retaining its
+   complete payload. If retention would exceed 100 cloud entries or 256 KiB for
+   one entry, the whole page and its cursor roll back for retry. LAN quarantine
+   entries survive cloud pulls and remain available for their peer's next
+   session.
 2. Push: candidates are rows with `local_seq > push_seq` whose digest differs
    from `cloud_notes.digest` (so rows merely received from the server are not
    echoed back). Send in batches of at most 50 rows / 256 KiB with

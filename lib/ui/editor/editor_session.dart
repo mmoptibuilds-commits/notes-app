@@ -6,7 +6,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../core/version_vector.dart';
+import '../../core/ids.dart';
 import '../../data/editor_save_barrier.dart';
+import '../../data/editor_draft.dart';
 import '../../data/models.dart';
 import '../../data/note_repository.dart';
 import '../../doc/checklist_projection.dart';
@@ -38,19 +40,30 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
     required this.repo,
     this.saveBarrier,
     String? noteId,
-    this.folderId,
+    String? folderId,
     this.useCompletedSection = true,
+    PendingEditorDraft? recoveredDraft,
     this.autosaveDelay = const Duration(milliseconds: 700),
     this.retryDelay = const Duration(seconds: 3),
     this.onConflictCopy,
-  }) : _id = noteId {
-    _load();
+  }) : _id = recoveredDraft?.noteId ?? noteId,
+       _draftId = recoveredDraft?.id ?? newId(),
+       folderId = recoveredDraft == null ? folderId : recoveredDraft.folderId {
+    _load(recoveredDraft);
     saveBarrier?.register(this);
+    if (recoveredDraft != null && loadError == null) {
+      _lastSerializedBody = recoveredDraft.body;
+      _serializedCurrent = true;
+      recoveryCopySaved = true;
+      recoveryCopyCurrent = true;
+      _markDirty();
+    }
   }
 
   final NoteRepository repo;
   final EditorSaveBarrier? saveBarrier;
   final String? folderId;
+  final String _draftId;
   final bool useCompletedSection;
   final Duration autosaveDelay;
   final Duration retryDelay;
@@ -76,6 +89,11 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   bool _extractScheduled = false;
   SaveStatus status = SaveStatus.idle;
   Object? lastError;
+  Object? recoverySaveError;
+  bool recoveryCopySaved = false;
+  bool recoveryCopyCurrent = false;
+  String? _lastSerializedBody;
+  bool _serializedCurrent = false;
 
   /// Set when the stored body could not be read as a document. The editor is
   /// then read-only and nothing is ever written, so the stored bytes survive.
@@ -96,10 +114,35 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   /// Checked items currently held in the completed section.
   List<CompletedLine> get completed => _projection.completed;
 
-  void _load() {
+  void _load(PendingEditorDraft? recoveredDraft) {
     Delta visible;
     final id = _id;
-    if (id == null) {
+    if (recoveredDraft != null) {
+      _base = VersionVector.decode(recoveredDraft.baseVv);
+      final original = recoveredDraft.noteId == null
+          ? null
+          : repo.getRecord(recoveredDraft.noteId!);
+      if (original == null || original.purged || original.trashedAt != null) {
+        // Do not write over a purged or trashed note when recovering old text.
+        // Recover it as a new note instead.
+        _id = null;
+      }
+      title = TextEditingController(text: recoveredDraft.title);
+      try {
+        final canonical = deltaFromBody(recoveredDraft.body);
+        if (useCompletedSection) {
+          final s = ChecklistProjection.split(canonical);
+          visible = s.visible;
+          _projection = s.projection;
+        } else {
+          visible = canonical;
+        }
+      } on FormatException catch (e) {
+        loadError = 'This saved draft could not be read: ${e.message}';
+        visible = Delta()..insert('\n');
+        _readOnly = true;
+      }
+    } else if (id == null) {
       visible = Delta()..insert('\n');
       title = TextEditingController();
     } else {
@@ -251,6 +294,8 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   void _markDirty({bool allowFrozen = false}) {
     if (_disposed || _readOnly || (_frozenForUpdate && !allowFrozen)) return;
     _dirty = true;
+    _serializedCurrent = false;
+    recoveryCopyCurrent = false;
     final wasPending = status == SaveStatus.pending;
     status = SaveStatus.pending;
     _timer?.cancel();
@@ -318,9 +363,12 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
         _disposed) {
       return;
     }
-    final body = bodyFromDelta(canonicalDelta());
     final t = title.text;
+    String? body;
     try {
+      body = bodyFromDelta(canonicalDelta());
+      _lastSerializedBody = body;
+      _serializedCurrent = true;
       final id = _id;
       if (id == null) {
         if (t.trim().isEmpty && digestBody(body).isBlank) {
@@ -329,20 +377,53 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
           notifyListeners();
           return;
         }
-        final note = repo.createNote(title: t, body: body, folderId: folderId);
-        _id = note.id;
-        _base = note.contentVv;
-      } else {
-        final r = repo.saveContent(id, title: t, body: body, base: _base);
-        _base = r.contentVv;
-        if (r.conflictCopyId != null) onConflictCopy?.call(r.conflictCopyId!);
       }
+      final r = repo.writeEditorContent(
+        draftId: _draftId,
+        noteId: id,
+        title: t,
+        body: body,
+        base: _base,
+        folderId: folderId,
+      );
+      _id = r.noteId;
+      _base = VersionVector.decode(r.baseVv);
+      if (r.conflictCopyId != null) onConflictCopy?.call(r.conflictCopyId!);
       _dirty = false;
       lastError = null;
+      recoverySaveError = null;
+      recoveryCopySaved = false;
+      recoveryCopyCurrent = false;
       status = SaveStatus.idle;
     } on Object catch (e) {
       lastError = e;
       status = SaveStatus.failed;
+      if (body == null) {
+        _serializedCurrent = false;
+        recoveryCopyCurrent = false;
+        recoverySaveError = e;
+      }
+      if (body != null) {
+        recoveryCopyCurrent = false;
+        try {
+          repo.savePendingEditorDraft(
+            PendingEditorDraft(
+              id: _draftId,
+              noteId: _id,
+              folderId: folderId,
+              title: t,
+              body: body,
+              baseVv: _base.encode(),
+              updatedAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+          recoveryCopySaved = true;
+          recoveryCopyCurrent = true;
+          recoverySaveError = null;
+        } on Object catch (draftError) {
+          recoverySaveError = draftError;
+        }
+      }
       _timer = Timer(retryDelay, flush);
     }
     if (!_disposed) notifyListeners();
@@ -398,30 +479,63 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   @override
   void dispose() {
-    flush();
-    if (_dirty && !_readOnly && loadError == null) {
-      // The last save failed (disk full, database busy...). The editor is
-      // going away, so this is the only copy of the typed text: keep trying
-      // in the background rather than drop it.
-      final handoff = _PendingEditorSave(
-        repo: repo,
-        barrier: saveBarrier,
-        id: _id,
-        title: title.text,
-        body: bodyFromDelta(canonicalDelta()),
-        base: _base,
-        folderId: folderId,
-        retryDelay: retryDelay,
-      );
-      handoff.start();
+    try {
+      flush();
+    } on Object catch (e) {
+      lastError ??= e;
+      status = SaveStatus.failed;
     }
-    _disposed = true;
-    _timer?.cancel();
-    saveBarrier?.unregister(this);
-    title.dispose();
-    scroll.dispose();
-    quill.dispose();
-    super.dispose();
+    try {
+      if (_dirty &&
+          !_readOnly &&
+          loadError == null &&
+          _serializedCurrent &&
+          _lastSerializedBody != null) {
+        // The last save failed (disk full, database busy...). The editor is
+        // going away. The background retry uses the already serialized
+        // snapshot rather than serializing a second time during disposal. If
+        // saving the recovery row also failed, the handoff keeps retrying it.
+        final handoff = _PendingEditorSave(
+          repo: repo,
+          barrier: saveBarrier,
+          draftId: _draftId,
+          id: _id,
+          title: title.text,
+          body: _lastSerializedBody!,
+          base: _base,
+          folderId: folderId,
+          retryDelay: retryDelay,
+        );
+        handoff.start();
+      }
+    } on Object catch (e) {
+      recoverySaveError = e;
+    } finally {
+      _disposed = true;
+      _timer?.cancel();
+      _timer = null;
+      try {
+        saveBarrier?.unregister(this);
+      } on Object {
+        // Continue disposing every editor resource.
+      }
+      try {
+        title.dispose();
+      } on Object {
+        // Continue disposing every editor resource.
+      }
+      try {
+        scroll.dispose();
+      } on Object {
+        // Continue disposing every editor resource.
+      }
+      try {
+        quill.dispose();
+      } on Object {
+        // Continue disposing every editor resource.
+      }
+      super.dispose();
+    }
   }
 }
 
@@ -431,6 +545,7 @@ class _PendingEditorSave implements EditorSaveParticipant {
   _PendingEditorSave({
     required this.repo,
     required this.barrier,
+    required this.draftId,
     required this.id,
     required this.title,
     required this.body,
@@ -441,6 +556,7 @@ class _PendingEditorSave implements EditorSaveParticipant {
 
   final NoteRepository repo;
   final EditorSaveBarrier? barrier;
+  final String draftId;
   final String? folderId;
   final Duration retryDelay;
   String? id;
@@ -481,31 +597,38 @@ class _PendingEditorSave implements EditorSaveParticipant {
   Future<void> _writeSnapshot() async {
     if (!_pending) return;
     try {
-      final existingId = id;
-      if (existingId == null) {
-        if (title.trim().isEmpty && digestBody(body).isBlank) {
-          _finish();
-          return;
-        }
-        final note = repo.createNote(
-          title: title,
-          body: body,
-          folderId: folderId,
-        );
-        id = note.id;
-        base = note.contentVv;
-      } else {
-        final result = repo.saveContent(
-          existingId,
-          title: title,
-          body: body,
-          base: base,
-        );
-        base = result.contentVv;
+      if (id == null && title.trim().isEmpty && digestBody(body).isBlank) {
+        _finish();
+        return;
       }
+      final result = repo.writeEditorContent(
+        draftId: draftId,
+        noteId: id,
+        title: title,
+        body: body,
+        base: base,
+        folderId: folderId,
+      );
+      id = result.noteId;
+      base = VersionVector.decode(result.baseVv);
       _finish();
     } on Object {
       _attempts++;
+      try {
+        repo.savePendingEditorDraft(
+          PendingEditorDraft(
+            id: draftId,
+            noteId: id,
+            folderId: folderId,
+            title: title,
+            body: body,
+            baseVv: base.encode(),
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+      } on Object {
+        // The live handoff keeps retrying if even the recovery write fails.
+      }
       _scheduleRetry();
     }
   }

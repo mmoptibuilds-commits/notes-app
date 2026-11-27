@@ -234,6 +234,29 @@ verified backup, then Android joins).
   role cannot run it), then revoke device rows with the SQL in the Cloud server
   section. Worker code rolls back as described there.
 
+## Schema 5 upgrade and rollback (1.3.1 to 1.3.2)
+
+Notes 1.3.2 adds a device-local encrypted editor-recovery table. Notes 1.3.1
+and older refuse a schema 5 database. Before updating Android, make and verify
+a Notes JSON export and copy it off the device. On Linux, close Notes and make
+a copy of the data directory as well. Keep the 1.3.1 assets and verify their
+checksums before a future rollback.
+
+On first start, 1.3.2 writes `notes.db.pre-v5.bak` before migrating an existing
+database to schema 5. To roll back, first turn cloud sync off and sign out on
+every device. On Linux, install the verified 1.3.1 archive, move `notes.db`,
+`notes.db-wal` and `notes.db-shm` aside, then copy `notes.db.pre-v5.bak` to
+`notes.db`; retain the same keystore key. Edits made after upgrade are not in
+that copy, so export and restore them before rolling back or restore the
+pre-upgrade directory copy.
+
+On Android, the `.pre-v5.bak` copy is in app-private storage. A 1.3.1 APK also
+cannot replace the newer version code in place. With a verified export made
+before the upgrade, uninstall 1.3.2, install the verified 1.3.1 APK signed by
+the same certificate, then restore the export. Uninstalling without a verified
+export deletes the only device copy. Cloud data remains on the configured
+server; it can be left unused while the older build is in use.
+
 ### Checking automatic sync
 
 After a change to `lib/sync/cloud/`, measure it with synthetic notes only (see

@@ -125,7 +125,7 @@ checked by `test/android/splash_resources_test.dart`).
 
 ### 2.1 Tables (`lib/data/migrations.dart`)
 
-Schema version 4 (`schemaVersion == migrations.length`). `PRAGMA user_version`
+Schema version 5 (`schemaVersion == migrations.length`). `PRAGMA user_version`
 holds the applied version.
 
 | Table | Purpose | Key columns |
@@ -141,6 +141,7 @@ holds the applied version.
 | `peers` | paired devices (v2) | `id`, `public_key`, `endpoints` (JSON), `sent_cursor`, `recv_cursor`, `last_error` |
 | `quarantine` | rows received from a peer that could not be applied (v3) | `peer_id`, `kind`, `reason`, `raw` |
 | `cloud_notes` | cloud revision, digest and three-way merge base per record (v4) | `(kind,id)`, `rev`, `digest`, `base_title`, `base_body`, `base_vv`, `base_hlc` |
+| `editor_drafts` | device-local recovery copies for failed editor saves (v5); never synced | `id`, `note_id`, `folder_id`, `title`, `body`, `base_vv`, `updated_at` |
 
 ### 2.2 The `notes` row
 
@@ -174,6 +175,12 @@ are the UI views. `NoteRecord.toJson` is the wire and export format.
 - Local change counter: `AppDatabase.nextSeq()` gives each written row a
   `local_seq`; `local_meta.seq` is persisted at commit and rolled back with the
   transaction.
+- File-backed opens take the OS lock `<db>.open.lock` while validating the
+  database and running migrations. The lock is released automatically if the
+  process exits; a leftover lock file is harmless. Each write transaction
+  refreshes `seq` and `hlc_last` after `BEGIN IMMEDIATE`, while SQLite holds the
+  write lock, so already-open processes cannot allocate duplicate local
+  sequence numbers or stale HLCs.
 
 ### 2.4 Lifecycle states
 
@@ -223,6 +230,11 @@ Rules, enforced by convention and by review:
   version vector differs from `base` (sync wrote underneath), the stored
   version is kept as a deterministic conflict copy and the editor's content
   becomes the note (`SaveOutcome.savedWithConflictCopy`).
+- `writeEditorContent` writes a note and deletes its pending recovery draft in
+  one transaction. Failed saves store a serialized editor snapshot in
+  `editor_drafts`; the library offers a review screen. Recovering a draft whose
+  original note is missing, trashed or purged creates a new note. A stale draft
+  for a live note follows the ordinary version-vector conflict-copy path.
 - `repo.changes` (from the database) drives library reloads and auto sync.
 
 ### 2.6 Settings (`lib/data/app_settings.dart`)
@@ -266,13 +278,22 @@ sample notes; that would bump the change counter and sync to paired devices.
 - `AppDatabase.open` runs each missing step in its own `BEGIN IMMEDIATE ...
   COMMIT` and sets `user_version` inside it. A failing step rolls back.
 - Before migrating an existing database on disk it writes
-  `<db>.pre-v<target>.bak` with `VACUUM INTO` (same encryption), replacing an
-  earlier backup of the same name.
+  `<db>.pre-v<target>.bak` with `VACUUM INTO` (same encryption). The temporary
+  copy is reopened with the key and checked before an atomic same-directory
+  rename replaces an earlier backup; a failed copy or replacement leaves the
+  prior backup intact. Snapshot destinations are locked across processes, so a
+  concurrent import cannot replace another import's recovery copy.
 - A database newer than the app throws `DatabaseTooNewException`; the app shows
-  an error screen and changes nothing.
+  an error screen with the expected pre-migration backup path and safe rollback
+  steps. The file may not exist if that newer version did not create it.
 - Migration 4 adds cloud merge bookkeeping. A 1.2.0 build refuses a database
   after a 1.3.0 build has migrated it; LAN interoperability between 1.2.0
   databases remains unchanged.
+- Migration 5 adds encrypted local editor recovery rows. Drafts do not affect
+  the sync queue and are deleted atomically with a successful editor save.
+- Import/restore snapshots named `before-import-*.db` are verified and capped
+  at seven usable copies per snapshot directory. Unverified files are kept for
+  possible manual recovery.
 - Every migration needs a test that creates a database at the previous version
   and upgrades it. The pattern is `AppDatabase.open(path, schema:
   migrations.sublist(0, n))`, then reopen with the full list: see
@@ -879,10 +900,14 @@ widgets. It owns the `QuillController`, the title controller, the
 - Open writes nothing. A new note is created only on the first non-blank content
   (`flush` with no id and blank title and body does nothing).
 - Autosave: 700 ms after the last edit; on failure retry every 3 s with status
-  `failed`. `dispose` flushes; if that still failed, a background save handoff
-  retries up to 2000 times and remains registered with `EditorSaveBarrier` so a
-  Linux update cannot pass it without confirmation. The update barrier freezes
-  editors while it flushes, then releases them again if a save fails.
+  `failed`. The last serialized snapshot is written to encrypted
+  `editor_drafts`; the library shows **Review drafts** until the user recovers
+  or discards it. A successful note write removes the recovery row in the same
+  transaction. `dispose` flushes; if that still failed, a background save
+  handoff retries up to 2000 times and remains registered with
+  `EditorSaveBarrier` so a Linux update cannot pass it without confirmation.
+  The update barrier freezes editors while it flushes, then releases them again
+  if a save fails.
 - The visible document is never replaced by sync. A save that finds the stored
   version moved on produces a conflict copy (`onConflictCopy` shows a banner).
 - A body that cannot be parsed (`loadError`) or a trashed note opens read-only

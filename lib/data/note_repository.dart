@@ -6,6 +6,7 @@ import '../core/ids.dart';
 import '../core/version_vector.dart';
 import '../doc/delta_text.dart';
 import 'app_database.dart';
+import 'editor_draft.dart';
 import 'models.dart';
 
 /// Prefix of an image embed source that points at a stored attachment:
@@ -46,11 +47,114 @@ class NoteRepository {
 
   final AppDatabase db;
   final int Function() _now;
+  final _draftChanges = _RepositoryDraftNotifier();
 
   /// Fires after every committed change to notes, folders or attachments.
   Listenable get changes => db.changes;
 
+  /// Notifies when the local recovery-draft list changes. Drafts do not enter
+  /// the note sync queue.
+  Listenable get draftChanges => _draftChanges;
+
+  void dispose() => _draftChanges.dispose();
+
   String get _device => db.deviceId;
+
+  // ------------------------------------------------------ editor recovery
+
+  List<PendingEditorDraft> pendingEditorDrafts() => [
+    for (final row in db.select(
+      'SELECT id, note_id, folder_id, title, body, base_vv, updated_at '
+      'FROM editor_drafts ORDER BY updated_at DESC, id',
+    ))
+      PendingEditorDraft(
+        id: row['id'] as String,
+        noteId: row['note_id'] as String?,
+        folderId: row['folder_id'] as String?,
+        title: row['title'] as String,
+        body: row['body'] as String,
+        baseVv: row['base_vv'] as String,
+        updatedAt: row['updated_at'] as int,
+      ),
+  ];
+
+  /// Persists an uncommitted editor snapshot in the encrypted database.
+  void savePendingEditorDraft(PendingEditorDraft draft) {
+    db.transaction(() {
+      db.execute(
+        'INSERT INTO editor_drafts '
+        '(id, note_id, folder_id, title, body, base_vv, updated_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, '
+        'folder_id = excluded.folder_id, title = excluded.title, '
+        'body = excluded.body, base_vv = excluded.base_vv, '
+        'updated_at = excluded.updated_at',
+        [
+          draft.id,
+          draft.noteId,
+          draft.folderId,
+          draft.title,
+          draft.body,
+          draft.baseVv,
+          draft.updatedAt,
+        ],
+      );
+    });
+    _draftChanges.fire();
+  }
+
+  /// Discards [id] after the user confirms that its unsaved text can be
+  /// removed.
+  bool discardPendingEditorDraft(String id) {
+    var removed = false;
+    db.transaction(() {
+      db.execute('DELETE FROM editor_drafts WHERE id = ?', [id]);
+      removed =
+          (db.select('SELECT changes() AS count').first['count'] as int) > 0;
+    });
+    if (removed) _draftChanges.fire();
+    return removed;
+  }
+
+  /// Saves editor content and clears its recovery row in one transaction.
+  /// This prevents a successful write from being offered again after restart.
+  EditorDraftWriteResult writeEditorContent({
+    required String draftId,
+    required String? noteId,
+    required String title,
+    required String body,
+    required VersionVector base,
+    String? folderId,
+  }) {
+    decodeOps(body);
+    var hadDraft = false;
+    final result = db.transaction(() {
+      hadDraft = db.select('SELECT 1 FROM editor_drafts WHERE id = ?', [
+        draftId,
+      ]).isNotEmpty;
+      late final String savedId;
+      late final VersionVector savedVv;
+      String? conflictCopyId;
+      if (noteId == null) {
+        final note = createNote(title: title, body: body, folderId: folderId);
+        savedId = note.id;
+        savedVv = note.contentVv;
+      } else {
+        final saved = saveContent(noteId, title: title, body: body, base: base);
+        savedId = noteId;
+        savedVv = saved.contentVv;
+        conflictCopyId = saved.conflictCopyId;
+      }
+      db.execute('DELETE FROM editor_drafts WHERE id = ?', [draftId]);
+      return EditorDraftWriteResult(
+        noteId: savedId,
+        baseVv: savedVv.encode(),
+        conflictCopyId: conflictCopyId,
+      );
+    });
+    if (hadDraft) _draftChanges.fire();
+    return result;
+  }
 
   // ---------------------------------------------------------------- notes
 
@@ -926,4 +1030,8 @@ class NoteRepository {
     deletedHlc: Hlc.parse(r['deleted_hlc'] as String),
     createdAt: r['created_at'] as int,
   );
+}
+
+class _RepositoryDraftNotifier extends ChangeNotifier {
+  void fire() => notifyListeners();
 }

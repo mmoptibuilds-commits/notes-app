@@ -103,6 +103,7 @@ class AppServices {
     sync?.dispose();
     cloud?.dispose();
     settings.dispose();
+    notes.dispose();
     db.close();
   }
 }

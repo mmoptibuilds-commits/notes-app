@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_selector/file_selector.dart';
 
 import '../../platform/save_file.dart';
+import '../../data/editor_draft.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -35,9 +36,14 @@ Future<void> openEditor(
   BuildContext context, {
   String? noteId,
   String? folderId,
+  PendingEditorDraft? recoveredDraft,
 }) => Navigator.of(context).push(
   MaterialPageRoute<void>(
-    builder: (_) => EditorScreen(noteId: noteId, folderId: folderId),
+    builder: (_) => EditorScreen(
+      noteId: noteId,
+      folderId: folderId,
+      recoveredDraft: recoveredDraft,
+    ),
   ),
 );
 
@@ -46,6 +52,7 @@ class EditorScreen extends StatefulWidget {
     super.key,
     this.noteId,
     this.folderId,
+    this.recoveredDraft,
     this.embedded = false,
     this.onClose,
     this.onSession,
@@ -54,6 +61,7 @@ class EditorScreen extends StatefulWidget {
 
   final String? noteId;
   final String? folderId;
+  final PendingEditorDraft? recoveredDraft;
 
   /// True when shown as a pane inside another screen (desktop) rather than as
   /// a route: the back arrow becomes a close button, no Scaffold is used (the
@@ -98,6 +106,7 @@ class _EditorScreenState extends State<EditorScreen>
       saveBarrier: app.saveBarrier,
       noteId: widget.noteId,
       folderId: widget.folderId,
+      recoveredDraft: widget.recoveredDraft,
       useCompletedSection: app.settings.completedSection,
       onConflictCopy: _onConflictCopy,
     );
@@ -476,7 +485,13 @@ class _EditorScreenState extends State<EditorScreen>
     listenable: session,
     builder: (context, _) => session.status == SaveStatus.failed
         ? Text(
-            'Not saved yet, retrying…',
+            session.recoveryCopySaved
+                ? session.recoveryCopyCurrent
+                      ? 'Not saved yet. An encrypted recovery copy is stored on this device.'
+                      : 'Not saved. The latest edit could not be added to its recovery copy.'
+                : session.recoverySaveError != null
+                ? 'Not saved. Notes could not store a recovery copy.'
+                : 'Not saved yet, retrying…',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             // Two lines at most must fit the 52 dp bar.
@@ -491,7 +506,7 @@ class _EditorScreenState extends State<EditorScreen>
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final p = AppPalette.of(context);
-    final isNew = widget.noteId == null;
+    final isNew = session.noteId == null;
     // On a wide window the bar sits under the app bar, near the text; on a
     // phone it rides above the keyboard.
     final wide = widget.embedded || MediaQuery.sizeOf(context).width > 640;

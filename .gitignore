@@ -59,6 +59,9 @@ app.*.map.json
 # Local build output and packaging
 /dist/
 
-# Worker worktrees and local agent state
+# Local agent state
 /.claude/*
 !/.claude/skills/
+
+# Optional Graphify output
+/graphify-out/

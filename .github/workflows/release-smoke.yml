@@ -60,8 +60,8 @@ jobs:
           keyPassword=$key_password
           EOF
 
-          flutter pub get
-          flutter build apk --release --target-platform android-arm64
+          flutter pub get --enforce-lockfile
+          flutter build apk --no-pub --release --target-platform android-arm64
 
           apk='build/app/outputs/flutter-apk/app-release.apk'
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)"
@@ -111,8 +111,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flutter pub get
+          flutter pub get --enforce-lockfile
           tool/package_linux.sh
+          git diff --exit-code -- pubspec.lock
 
           version="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
           package="dist/notes-${version}-linux-x64.tar.gz"

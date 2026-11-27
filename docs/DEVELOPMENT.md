@@ -8,21 +8,23 @@
 | JDK | 21 | JDK 17 makes the Android Gradle Plugin's lint crash. |
 | Android SDK | platform 36, build-tools with `apksigner`/`aapt2` | Set `ANDROID_HOME` for `tool/verify_release_apk.dart`. |
 | Linux build deps | GTK 3, `libsecret`, `clang`, `cmake`, `ninja`, `pkg-config` | Standard Flutter Linux desktop requirements. |
+| Worker | Node.js 26.13.1 and npm | CI pins Node and installs from `server/sync/package-lock.json`. |
+| Agent tooling | Python 3.10+ | Standard library only. |
 | Runtime tools | `openssl` 3+, `sha256sum` | Release verification; also used by tests. |
 
 `flutter config` should point at the Android SDK and JDK 21. On the
 maintainer's machine Flutter lives at `~/development/flutter/bin` and is not on
-`PATH`; the checkout path contains a space, so quote paths in scripts.
+`PATH`. Quote checkout paths in scripts.
 
 ## Commands
 
 ```bash
-flutter pub get
+flutter pub get --enforce-lockfile
 dart format lib test tool
-flutter analyze
-flutter test                                  # the full suite; takes several minutes
-flutter test test/sync                        # one area
-flutter test --plain-name 'autosave'          # one test by name
+flutter analyze --no-pub
+flutter test --no-pub                                  # the full suite; takes several minutes
+flutter test --no-pub test/sync                        # one area
+flutter test --no-pub --plain-name 'autosave'          # one test by name
 flutter build linux --release
 flutter build apk --release --target-platform android-arm64
 tool/package_linux.sh                         # Linux release archive + .sha256
@@ -130,9 +132,14 @@ file. Treat it as a credential, remove it with the disposable instance, and do
 not commit it. Do not point development instances or live tests at the
 production cloud library.
 
-CI runs formatting, analysis, the full test suite and the release-configuration
-checks on every push (`.github/workflows/ci.yml`). It never builds signed
-artifacts and never holds signing keys.
+Normal CI runs on pushes and pull requests. It enforces the Flutter lockfile,
+checks formatting and analysis, and runs the headless suite once, including
+release-configuration tests. A separate job checks skill mirrors and runs
+the locked Worker install, typecheck, tests and build. Manual release smoke
+builds use a temporary CI certificate. Production signing credentials stay
+with the owner. See [Release](RELEASE.md#ci-review).
+
+For parallel work and independent verification, see [Agent tooling](AGENT_TOOLING.md).
 
 ## Running the app safely
 
@@ -185,7 +192,8 @@ artifacts and never holds signing keys.
 Widget tests can write PNGs of real rendered screens (real fonts, synthetic
 data) to `build/screens/` via `screenshot()` in `test/support/screenshot.dart`.
 `test/visual/review_screens_test.dart` renders the main screens at phone and
-desktop sizes:
+desktop sizes. It also refreshes selected README images in `docs/screenshots/`.
+Review those changes before including them in a commit.
 
 ```bash
 flutter test test/visual/review_screens_test.dart && ls build/screens/

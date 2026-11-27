@@ -1,15 +1,10 @@
 # Stable release procedure
 
-Source release version: `1.3.0+20261126` (versionName `1.3.0`, Android
-versionCode `20261126`), published 2026-11-25 and distributed as the latest
-stable release. The previous stable release was `1.2.0+20261125`, published
-2026-11-24. The latest recorded read-only phone check, on
-2026-11-21, found versionCode `20261122`; check installed versionCodes
-read-only again before installing, including on other target devices. Treat
-that phone value as a dated snapshot, not a permanent current value. The
-`tool/last_release_version_code.txt` holds the build number of the last
-distributed stable release (`20261126`, Notes 1.3.0, published 2026-11-25).
-Update it in the commit that follows each published release.
+The latest stable release is [Notes 1.3.1](https://github.com/mmoptibuilds-commits/notes-app/releases/tag/v1.3.1)
+(build `20261127`, published 2026-11-25). Confirm the current release on
+[GitHub](https://github.com/mmoptibuilds-commits/notes-app/releases/latest)
+before preparing a candidate. `tool/last_release_version_code.txt` records the
+last distributed stable build. Update it in the commit after distribution.
 
 ## 1. Preflight
 
@@ -21,10 +16,12 @@ export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 flutter --version
 java -version
 flutter doctor -v
-flutter pub get
+flutter pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed lib test tool
-flutter analyze
-flutter test
+flutter analyze --no-pub
+flutter test --no-pub
+python3 tool/sync_agent_skills.py check
+(cd server/sync && npm ci && npm run typecheck && npm test && npm run build)
 ```
 
 Confirm the working tree contains the intended release changes. Review the
@@ -33,13 +30,12 @@ upstream permission scope before distributing anything.
 
 ## 2. Set the version
 
-The preceding release was `1.2.0+20261125`; this source tree sets
-`1.3.0+20261126`. Before changing the version for a later release, make a fresh
-read-only check of installed phone versionCodes. Change only the `version:`
-line, then run:
+Before setting a new version, make a fresh read-only check of installed
+versionCodes on target devices. Update the `version:` line in `pubspec.yaml`
+and its mirror in `lib/core/app_version.dart`. Check the next candidate before
+updating the distributed-version marker.
 
 ```sh
-sed -i 's/^version: .*/version: <version>+<build>/' pubspec.yaml
 dart tool/check_stable_version.dart --stable
 ```
 
@@ -75,7 +71,7 @@ The verifier calls Android SDK `apksigner verify --print-certs`, rejects a
 debug certificate, and checks the result against
 `tool/release_cert_sha256.txt`. It finds `apksigner` under the SDK named by
 `ANDROID_SDK_ROOT` or `ANDROID_HOME`. Confirm `apkanalyzer` reports
-the new build number (e.g. `20261125` for 1.2.0) and the APK reports the expected package id,
+the candidate's build number and the APK reports package id
 `com.mmoptibuilds.notes`.
 
 ## 5. Package Linux and verify checksums
@@ -193,17 +189,18 @@ old device rows using the SQL above before the new owner signs in. Keep the
 Google consent screen's test-user list current while it is in Testing mode. No
 Worker, Neon or Google secret may be committed.
 
-## Upgrading and rolling back (1.3.0)
+## Historical schema 4 upgrade and rollback (1.2.0 to 1.3.0)
 
-Users install 1.3.0 from the published GitHub release: the in-app updater on
+The schema 4 transition first shipped in 1.3.0. Install the current stable
+version from the published GitHub release: the in-app updater on
 Linux (signed manifest) or the APK on Android, as an in-place update signed with
 the same certificate as the installed build. Never uninstall or clear the
 installed app to get past a signing mismatch. No private install is needed
 before publishing; the release is checked with the isolated test app
 (`com.mmoptibuilds.notes.cloudtest`), the test Worker and synthetic notes only.
 
-Android's versionCode must be higher than the installed one (1.3.0 is
-20261126, 1.2.0 is 20261125), or the system refuses the update.
+Android requires a versionCode higher than the installed one. Notes 1.3.1
+uses the same schema as 1.3.0.
 
 **Before upgrading a device**, in the 1.2.0 app open Data, export a Notes JSON
 backup, check that the export finishes, and copy it off the device. On Linux,
@@ -213,8 +210,8 @@ Keep the 1.2.0 assets (`notes-1.2.0-android-arm64.apk`,
 `notes-1.2.0-linux-x64.tar.gz`, its `.sha256`, the manifest and its signature)
 from the `v1.2.0` GitHub release.
 
-The first start of 1.3.0 migrates the local database to schema 4 and writes
-`notes.db.pre-v4.bak`, a copy of the database as it was before. 1.2.0 devices
+On first start, a 1.3.x build upgrades a schema 3 database to schema 4 and
+writes `notes.db.pre-v4.bak` with the previous database. 1.2.0 devices
 and 1.3.0 devices keep syncing over the LAN. Cloud sync stays off until the
 owner signs in and confirms the one-time library upload (Linux uploads after a
 verified backup, then Android joins).
@@ -252,18 +249,19 @@ a paused Android app pushes waiting edits before it stops.
 Flutter 3.50.0 stable. No signing secrets are configured or needed:
 release-configuration tests exercise validation helpers and the Gradle release
 guard without building a signed release. The workflow runs formatting,
-analysis and tests on pushes; check the run for the exact release commit before
-distributing. Actions are pinned to full commit SHAs (with the version in a
-comment).
+analysis and the headless suite once on pushes and pull requests. It also
+checks mirrors and runs locked Worker typechecking, tests and bundling. Check
+the run for the exact release commit before distributing. Actions are pinned
+to full commit SHAs with the version in a comment.
 
 <!-- BEGIN MANUAL RELEASE SMOKE -->
 ## Manual Android and Linux release-build checks
 
 The dispatch workflow must exist on the repository's default branch before it
-can be run. To check the workflow on `main`:
+can be run. To check a specific branch with owner approval:
 
 ```sh
-gh workflow run release-smoke.yml --ref main
+gh workflow run release-smoke.yml --ref <branch>
 gh run watch <run-id> --exit-status
 ```
 
@@ -290,8 +288,7 @@ no bypass actors, rules `deletion` and `non_fast_forward`. Ordinary authorized
 fast-forward pushes still work; there is no pull-request, review, status-check
 or update restriction. Other branches and tags are not affected.
 
-To change it, open **Settings → Rules → Rulesets** in the GitHub repository (or
-use `gh api repos/mmoptibuilds-commits/notes-app/rulesets`), edit or delete
-that ruleset, or set it to Disabled. Read the effective rules with
-`gh api repos/mmoptibuilds-commits/notes-app/rules/branches/main`.
+Check the effective rules with
+`gh api repos/mmoptibuilds-commits/notes-app/rules/branches/main`. Repository
+owner approval is required for merges and pushes to `main`.
 <!-- END MANUAL RELEASE SMOKE -->

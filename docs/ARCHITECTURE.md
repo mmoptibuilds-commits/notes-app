@@ -990,10 +990,11 @@ flutter test --plain-name "substring of a test name" test/data
 
 ### 9.4 CI (`.github/workflows/ci.yml`)
 
-CI runs `flutter pub get`, format, analyze and tests on pushes and pull
-requests (Java 21, Flutter 3.50.0; actions pinned by SHA). It repeats the
-Android release-signing and release-validation tests. CI does not build bundles
-or APKs and has no signing key.
+Normal CI enforces the Flutter lockfile and runs formatting, analysis and
+the headless suite, which includes the Android signing and release-validation
+tests. It also validates skill mirrors and runs locked Worker checks. The
+manual smoke workflow verifies release builds with a temporary Android
+certificate. See [Development](DEVELOPMENT.md) and [Release](RELEASE.md).
 
 ## 10. Changing things safely
 

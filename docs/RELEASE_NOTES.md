@@ -49,8 +49,8 @@ The first start of 1.3.0 upgrades the local database and writes a backup copy
 next to it (`notes.db.pre-v4.bak` on Linux). Export a Notes JSON backup first.
 
 A 1.2.0 build cannot open a database that 1.3.0 has upgraded. To go back, see
-"Upgrading and rolling back" in the release procedure (docs/RELEASE.md): on
-Android it needs a saved export and a reinstall.
+the [schema 4 rollback steps](RELEASE.md#historical-schema-4-upgrade-and-rollback-120-to-130).
+On Android, rollback requires a saved export and a reinstall.
 
 ---
 

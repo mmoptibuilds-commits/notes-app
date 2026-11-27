@@ -38,7 +38,8 @@ simplicity and intuitive editing matter more than feature count.
 ### Appearance
 - AMOLED black (default), charcoal, light.
 - Several bundled fonts plus the system font; adjustable text size.
-- Animation intensity: off, reduced, full.
+- Animation intensity: off, reduced, full. The system reduced-motion preference
+  disables app animations without changing the saved intensity setting.
 - Minimal navigation; advanced controls tucked away.
 - Desktop: keyboard shortcuts, context menus, hover, resizable window.
 

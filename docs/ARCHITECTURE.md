@@ -101,6 +101,9 @@ freeze and leaves Notes open for Retry. After the helper starts,
   `buildTheme(settings)`, theme animation duration from `AppMotion`, localisation
   delegate for Quill (its find dialog throws without it), and a `MediaQuery`
   wrapper that multiplies the platform text scaler by `settings.textScale`.
+  Platform accessibility changes also rebuild the theme; `disableAnimations`
+  takes precedence over the saved animation level for component durations,
+  page transitions, ink splashes and theme changes.
 - `initState`: completes onboarding if the database already holds user data;
   schedules the update check after the first frame; starts sync
   (`sync.start()` then `requestAutoSync(2 s)`); listens to

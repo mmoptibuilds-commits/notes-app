@@ -1,7 +1,7 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_settings.dart';
 import 'package:notes/platform/bootstrap.dart';
+import 'package:notes/ui/material.dart';
 import 'package:notes/ui/theme/app_theme.dart';
 
 import '../support/screenshot.dart';
@@ -42,4 +42,68 @@ void main() {
     expect(again.theme, AppTheme.amoled);
     again.dispose();
   });
+
+  for (final size in [const Size(412, 915), const Size(1280, 800)]) {
+    for (final theme in AppTheme.values) {
+      testWidgets('system reduced motion overrides $theme at $size', (
+        tester,
+      ) async {
+        final services = AppServices.inMemory();
+        addTearDown(services.close);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        services.settings.theme = theme;
+        services.settings.textScale = 1.4;
+        await setWindow(tester, size);
+        await pumpApp(tester, services);
+        BuildContext ctx() => tester.element(find.text('All notes').first);
+        expect(AppMotion.of(ctx()).medium, const Duration(milliseconds: 220));
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        await tester.pumpAndSettle();
+        expect(AppMotion.of(ctx()).fast, Duration.zero);
+        expect(AppMotion.of(ctx()).medium, Duration.zero);
+        expect(AppMotion.of(ctx()).page, Duration.zero);
+        expect(Theme.of(ctx()).splashFactory, NoSplash.splashFactory);
+        const page = SizedBox();
+        for (final platform in [TargetPlatform.android, TargetPlatform.linux]) {
+          final transitions = Theme.of(ctx())
+              .pageTransitionsTheme
+              .builders[platform]!;
+          expect(
+            transitions.buildTransitions<void>(
+              MaterialPageRoute<void>(builder: (_) => page),
+              ctx(),
+              kAlwaysCompleteAnimation,
+              kAlwaysDismissedAnimation,
+              page,
+            ),
+            same(page),
+          );
+        }
+        expect(
+          tester
+              .widget<MaterialApp>(find.byType(MaterialApp))
+              .themeAnimationDuration,
+          Duration.zero,
+        );
+        // The system preference is device state, never a stored settings edit.
+        expect(services.settings.animations, AnimationLevel.full);
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures();
+        await tester.pumpAndSettle();
+        expect(AppMotion.of(ctx()).medium, const Duration(milliseconds: 220));
+        services.settings.animations = AnimationLevel.reduced;
+        await tester.pumpAndSettle();
+        expect(AppMotion.of(ctx()).medium, const Duration(milliseconds: 110));
+        services.settings.animations = AnimationLevel.off;
+        await tester.pumpAndSettle();
+        expect(AppMotion.of(ctx()).medium, Duration.zero);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 }

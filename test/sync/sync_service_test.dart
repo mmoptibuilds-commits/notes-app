@@ -206,7 +206,8 @@ void main() {
     b.repo.createNote(title: 'from phone', body: body('world'));
     final out = await b.service.syncPeer(a.id);
     expect(out, isNotNull, reason: b.service.lastError.toString());
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await _quiet(a, b);
+    expect(a.service.syncing || b.service.syncing, isFalse);
     expect(
       {for (final n in a.repo.listNotes()) n.title},
       {'from laptop', 'from phone'},
@@ -225,6 +226,8 @@ void main() {
     expect(a.peers.get(b.id)!.endpoints.first, '127.0.0.1:${b.service.port}');
     final back = await a.service.syncPeer(b.id);
     expect(back, isNotNull, reason: a.service.lastError.toString());
+    await _quiet(a, b);
+    expect(a.service.syncing || b.service.syncing, isFalse);
     expect(b.repo.listNotes().any((n) => n.title == 'later'), isTrue);
   });
 

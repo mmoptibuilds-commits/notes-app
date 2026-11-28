@@ -27,7 +27,9 @@ void main() {
     final api = HttpCloudApi(
       baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: server.port),
       sessions: MemoryCloudSessionStore(),
-      timeout: const Duration(milliseconds: 30),
+      // The first response is intentionally stalled. Keep a finite deadline,
+      // with enough room for a local positive-control request on loaded CI.
+      timeout: const Duration(seconds: 1),
     );
     addTearDown(api.close);
     await expectLater(

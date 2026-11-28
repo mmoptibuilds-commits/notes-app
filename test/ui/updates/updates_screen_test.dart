@@ -241,6 +241,41 @@ void main() {
   }
 
   group('behaviour', () {
+    testWidgets('an oversized update file shows a reason and lets you retry', (
+      tester,
+    ) async {
+      await create();
+      await w.publish();
+      w.http.replace(
+        assetUrl('1.0.1', 'notes-manifest.json'),
+        FakeReply(200, body: List.filled(70 * 1024, 0x20)),
+      );
+      await pump(tester);
+      await run(tester, w.controller.check);
+      expect(find.text('The update check failed'), findsOneWidget);
+      expect(find.textContaining('unexpectedly large'), findsOneWidget);
+
+      await w.publish(version: '1.0.0', build: 20261122);
+      await run(tester, () async {
+        final checked = Completer<void>();
+        void onChanged() {
+          if (w.controller.status is UpdateUpToDate && !checked.isCompleted) {
+            checked.complete();
+          }
+        }
+
+        w.controller.addListener(onChanged);
+        try {
+          await tester.tap(find.text('Try again'));
+          await checked.future.timeout(const Duration(seconds: 2));
+        } finally {
+          w.controller.removeListener(onChanged);
+        }
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Notes is up to date'), findsOneWidget);
+    });
+
     testWidgets('no stable release is never shown as up to date', (
       tester,
     ) async {

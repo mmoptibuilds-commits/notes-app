@@ -96,6 +96,13 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeAccessibilityFeatures() {
+    // Theme construction sits above MaterialApp's MediaQuery, so rebuild it
+    // when the platform preference changes while Notes is open.
+    setState(() {});
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     services.notes.changes.removeListener(_onLocalChange);
@@ -104,6 +111,8 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final disableAnimations = MediaQueryData.fromView(View.of(context))
+        .disableAnimations;
     return AppScope(
       services: services,
       child: ListenableBuilder(
@@ -116,8 +125,11 @@ class _NotesAppState extends State<NotesApp> with WidgetsBindingObserver {
             // Quill's find dialog (Ctrl+F in the editor) throws without its
             // localizations.
             localizationsDelegates: const [FlutterQuillLocalizations.delegate],
-            theme: buildTheme(s),
-            themeAnimationDuration: AppMotion(s.animations).medium,
+            theme: buildTheme(s, disableAnimations: disableAnimations),
+            themeAnimationDuration: AppMotion(
+              s.animations,
+              disableAnimations: disableAnimations,
+            ).medium,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 textScaler: s.textScale == 1

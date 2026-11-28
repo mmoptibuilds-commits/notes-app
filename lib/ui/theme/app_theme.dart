@@ -128,9 +128,11 @@ abstract final class AppMetrics {
   static const editorMaxWidth = 760.0;
 }
 
-/// Durations scaled by the user's animation setting.
+/// Durations scaled by the user's animation setting. The system's request to
+/// disable animations takes precedence without changing that stored setting.
 class AppMotion {
-  const AppMotion(this.level);
+  const AppMotion(AnimationLevel level, {bool disableAnimations = false})
+    : level = disableAnimations ? AnimationLevel.off : level;
   final AnimationLevel level;
 
   static AppMotion of(BuildContext context) =>
@@ -178,10 +180,10 @@ class _FadeTransitions extends PageTransitionsBuilder {
 }
 
 /// The app theme for the user's current settings.
-ThemeData buildTheme(AppSettings s) {
+ThemeData buildTheme(AppSettings s, {bool disableAnimations = false}) {
   final p = AppPalette.forTheme(s.theme);
   final dark = s.theme != AppTheme.light;
-  final motion = AppMotion(s.animations);
+  final motion = AppMotion(s.animations, disableAnimations: disableAnimations);
   final scheme = ColorScheme(
     brightness: dark ? Brightness.dark : Brightness.light,
     primary: p.accent,
@@ -215,7 +217,7 @@ ThemeData buildTheme(AppSettings s) {
         ? InkSparkle.splashFactory
         : NoSplash.splashFactory,
   );
-  final pageBuilder = switch (s.animations) {
+  final pageBuilder = switch (motion.level) {
     AnimationLevel.off => const _NoTransitions(),
     AnimationLevel.reduced => const _FadeTransitions(),
     AnimationLevel.full => null,

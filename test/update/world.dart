@@ -61,21 +61,22 @@ class World {
 
   String get apiUrl => kLatestReleaseUrl.toString();
 
-  UpdateController makeController() => UpdateController(
-    installer: installer,
-    http: http,
-    store: store,
-    autoCheckEnabled: () => autoCheck,
-    keys: keys,
-    now: () => now,
-    devInstance: dev,
-    assetTimeout: const Duration(milliseconds: 300),
-    client: GithubReleaseClient(
-      http,
-      totalTimeout: const Duration(milliseconds: 300),
-      now: () => now,
-    ),
-  );
+  UpdateController makeController({UpdateStateStore? stateStore}) =>
+      UpdateController(
+        installer: installer,
+        http: http,
+        store: stateStore ?? store,
+        autoCheckEnabled: () => autoCheck,
+        keys: keys,
+        now: () => now,
+        devInstance: dev,
+        assetTimeout: const Duration(milliseconds: 300),
+        client: GithubReleaseClient(
+          http,
+          totalTimeout: const Duration(milliseconds: 300),
+          now: () => now,
+        ),
+      );
 
   void dispose() {
     controller.dispose();

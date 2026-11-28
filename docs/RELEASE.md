@@ -234,6 +234,39 @@ verified backup, then Android joins).
   role cannot run it), then revoke device rows with the SQL in the Cloud server
   section. Worker code rolls back as described there.
 
+## Schema 5 upgrade and rollback (1.3.1 to 1.3.2)
+
+Notes 1.3.2 adds a device-local encrypted editor-recovery table. Notes 1.3.1
+and older refuse a schema 5 database. Before updating Android, make and verify
+a Notes JSON export and copy it off the device. On Linux, close Notes and make
+a copy of the data directory as well. Keep the 1.3.1 assets and verify their
+checksums before a future rollback.
+
+On first start, 1.3.2 writes `notes.db.pre-v5.bak` before migrating an existing
+database to schema 5. To roll back safely:
+
+1. Turn cloud sync off and sign out on every device. In 1.3.2, open **Review
+drafts** and recover each draft you want to keep. Confirm that no pending
+recovery drafts remain; discard only drafts you intentionally do not want.
+2. Export the complete current library from 1.3.2, verify the export, and copy
+it off the device. This export must be made after recovering drafts so it
+contains edits made after the upgrade.
+3. On Linux, close Notes and keep copies of the current schema 5 database and
+`notes.db.pre-v5.bak`. Install the verified 1.3.1 archive, move
+`notes.db`, `notes.db-wal` and `notes.db-shm` aside, and copy
+`notes.db.pre-v5.bak` to `notes.db`; retain the same keystore key. Start
+1.3.1, then restore the current 1.3.2 export with **Data → Restore**. The
+restore merges matching note IDs and applies the newer exported edits.
+4. On Android, the `.pre-v5.bak` copy is in app-private storage and a 1.3.1
+APK cannot replace the newer version code in place. After the current
+export is verified and copied off-device, uninstall 1.3.2, install the
+verified 1.3.1 APK signed by the same certificate, and restore the export
+with **Data → Restore**. Uninstalling deletes the database and its key.
+
+Cloud data remains on the configured server; leave it unused while the older
+build is in use. Do not proceed if the current export cannot be verified or
+copied off-device.
+
 ### Checking automatic sync
 
 After a change to `lib/sync/cloud/`, measure it with synthetic notes only (see

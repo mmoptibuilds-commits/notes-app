@@ -8,6 +8,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/app.dart';
 import 'package:notes/data/app_settings.dart';
+import 'package:notes/data/editor_draft.dart';
 import 'package:notes/doc/checklist_projection.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/ui/editor/editor_screen.dart';
@@ -39,7 +40,9 @@ Future<void> pumpEditor(
   WidgetTester tester,
   AppServices s, {
   String? noteId,
+  PendingEditorDraft? recoveredDraft,
   Size size = const Size(412, 915),
+  double textScale = 1,
 }) async {
   await setWindow(tester, size);
   await tester.pumpWidget(
@@ -50,7 +53,16 @@ Future<void> pumpEditor(
         builder: (context, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: buildTheme(s.settings),
-          home: EditorScreen(noteId: noteId),
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: EditorScreen(
+                noteId: noteId,
+                recoveredDraft: recoveredDraft,
+              ),
+            ),
+          ),
         ),
       ),
     ),
@@ -107,6 +119,61 @@ void main() {
       await screenshot(tester, 'editor_phone_expanded');
       await tester.pumpWidget(const SizedBox());
       expect(s.db.currentSeq, seq);
+    },
+  );
+
+  testWidgets(
+    'stale recovery entry stays read-only without Trash actions across layouts',
+    (tester) async {
+      final s = AppServices.inMemory();
+      addTearDown(s.close);
+      final note = s.notes.createNote(title: 'Saved active note');
+      final draft = PendingEditorDraft(
+        id: 'stale-visible-recovery',
+        noteId: note.id,
+        folderId: null,
+        title: 'Unsaved text',
+        body: jsonEncode((Delta()..insert('unsaved text\n')).toJson()),
+        baseVv: note.contentVv.encode(),
+        updatedAt: 1,
+      );
+      s.notes.savePendingEditorDraft(draft);
+      final selectedFromList = s.notes.pendingEditorDrafts().single;
+      s.notes.discardPendingEditorDraft(draft.id);
+
+      const sizes = [
+        Size(412, 915),
+        Size(915, 412),
+        Size(640, 480),
+        Size(1280, 800),
+      ];
+      for (final theme in AppTheme.values) {
+        s.settings.theme = theme;
+        for (final size in sizes) {
+          await pumpEditor(
+            tester,
+            s,
+            recoveredDraft: selectedFromList,
+            size: size,
+            textScale: 1.4,
+          );
+          expect(
+            find.textContaining('already recovered or discarded'),
+            findsOneWidget,
+          );
+          expect(find.text('Restore'), findsNothing);
+          expect(find.text('Delete forever'), findsNothing);
+          expect(tester.takeException(), isNull);
+          expect(
+            tester.widget<TextField>(find.byType(TextField)).readOnly,
+            isTrue,
+          );
+          await tester.pumpWidget(const SizedBox());
+        }
+      }
+      expect(s.notes.getRecord(note.id)!.purged, isFalse);
+      expect(s.notes.getNote(note.id)!.title, 'Saved active note');
+      expect(s.notes.pendingEditorDrafts(), isEmpty);
     },
   );
 

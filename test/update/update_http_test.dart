@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/update/update_http.dart';
@@ -110,4 +111,44 @@ void main() {
       throwsA(isA<UpdateProtocolException>()),
     );
   });
+
+  test('HTTP errors use a retry message without raw exception details', () {
+    return HttpOverrides.runZoned(() async {
+      await expectLater(
+        IoUpdateHttp().get(Uri.parse('https://example.invalid/')),
+        throwsA(
+          isA<UpdateProtocolException>().having(
+            (failure) => failure.message,
+            'message',
+            allOf(
+              contains('invalid HTTP response'),
+              contains('Try again'),
+              isNot(contains('synthetic internal detail')),
+            ),
+          ),
+        ),
+      );
+    }, createHttpClient: (_) => _BrokenHttpClient());
+  });
+}
+
+class _BrokenHttpClient implements HttpClient {
+  @override
+  Duration? connectionTimeout;
+
+  @override
+  String? userAgent;
+
+  @override
+  bool autoUncompress = true;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async =>
+      throw const HttpException('synthetic internal detail');
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

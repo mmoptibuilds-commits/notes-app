@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notes/data/app_database.dart';
+import 'package:notes/data/app_settings.dart';
 import 'package:notes/platform/bootstrap.dart';
 import 'package:notes/update/download_service.dart';
 import 'package:notes/update/installer.dart';
@@ -168,6 +170,45 @@ void main() {
       expect(statusIs<UpdateFailed>().message, contains('in time'));
     });
 
+    for (final key in [UpdateKeys.lastAttempt, UpdateKeys.failureCount]) {
+      test('a write failure for $key explains how to retry', () async {
+        await setUpWorld();
+        final db = AppDatabase.open(null);
+        addTearDown(db.close);
+        final settings = AppSettings(db);
+        addTearDown(settings.dispose);
+        w.controller.dispose();
+        w.controller = w.makeController(
+          stateStore: AppSettingsUpdateStore(settings),
+        );
+        db.execute('''
+          CREATE TRIGGER fail_update_write BEFORE INSERT ON settings
+          WHEN NEW.key = '$key'
+          BEGIN SELECT RAISE(ABORT, 'synthetic internal detail'); END;
+        ''');
+        w.http.on(
+          w.apiUrl,
+          FakeReply(0, error: const UpdateOfflineException()),
+        );
+
+        await w.controller.check();
+        expect(w.controller.busy, isFalse);
+        final failure = statusIs<UpdateFailed>();
+        expect(failure.message, contains('local update settings'));
+        expect(failure.message, contains('Try again'));
+        expect(failure.message, isNot(contains('synthetic internal detail')));
+        expect(settings.read(key), isNull);
+
+        db.execute('DROP TRIGGER fail_update_write');
+        await w.controller.check();
+        statusIs<UpdateOffline>();
+        expect(
+          db.select('SELECT value FROM settings WHERE key = ?', [key]),
+          hasLength(1),
+        );
+      });
+    }
+
     test('rate limit reports the reset time and remembers it', () async {
       await setUpWorld();
       w.http.on(
@@ -216,7 +257,9 @@ void main() {
         FakeReply(200, body: List.filled(70 * 1024, 0x20)),
       );
       await w.controller.check();
-      statusIs<UpdateFailed>();
+      expect(statusIs<UpdateFailed>().message, contains('unexpectedly large'));
+      expect(w.controller.lastSuccessfulCheck, isNull);
+      expect(w.http.count(assetUrl('1.0.1', 'notes-manifest.json.sig')), 0);
     });
 
     test('a second check while one runs is ignored', () async {

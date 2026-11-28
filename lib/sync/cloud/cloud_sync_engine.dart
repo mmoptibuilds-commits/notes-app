@@ -254,38 +254,29 @@ class CloudSyncEngine {
       try {
         repo.db.transaction(() {
           for (final remote in page.rows) {
+            Object? failure;
             try {
               repo.db.savepoint(() => _apply(remote));
-              _deleteQuarantineFor(remote);
             } on ClockSkewException {
               throw const CloudApiException(
                 CloudErrorKind.malformed,
                 "This device's or another device's clock looks wrong. Cloud sync stopped.",
               );
             } on Object catch (e) {
-              // Malformed rows are isolated with a savepoint, then quarantined.
+              failure = e;
+            }
+            _deleteQuarantineFor(remote);
+            if (failure != null) {
               final raw = jsonEncode(remote.toJson());
-              final rawBytes = utf8.encode(raw);
-              final boundedRaw = rawBytes.length > 256 * 1024
-                  ? utf8.decode(
-                      rawBytes.sublist(0, 256 * 1024),
-                      allowMalformed: true,
-                    )
-                  : raw;
-              for (final old in repo.db.select(
-                "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
-                [remote.kind],
-              )) {
-                try {
-                  final decoded = jsonDecode(old['raw'] as String);
-                  if (decoded is Map && decoded['id'] == remote.id) {
-                    repo.db.execute('DELETE FROM quarantine WHERE id=?', [
-                      old['id'],
-                    ]);
-                  }
-                } on Object {
-                  // An unreadable older quarantine item cannot shadow the new row.
-                }
+              if (quarantinedRows >= 100 ||
+                  utf8.encode(raw).length > 256 * 1024) {
+                // Roll back the page, including any replacements, so a later
+                // pull can replay it without losing an acknowledged edit.
+                throw const CloudApiException(
+                  CloudErrorKind.malformed,
+                  'Cloud sync could not retain another unreadable record. '
+                  'The page will be retried. Check for a Notes update.',
+                );
               }
               repo.db.execute(
                 'INSERT INTO quarantine(peer_id,kind,received_at,reason,raw) VALUES(?,?,?,?,?)',
@@ -293,12 +284,9 @@ class CloudSyncEngine {
                   'cloud',
                   remote.kind,
                   _now(),
-                  e.runtimeType.toString(),
-                  boundedRaw,
+                  failure.runtimeType.toString(),
+                  raw,
                 ],
-              );
-              repo.db.execute(
-                'DELETE FROM quarantine WHERE id NOT IN (SELECT id FROM quarantine ORDER BY id DESC LIMIT 100)',
               );
             }
             cursor = remote.seq;
@@ -324,12 +312,13 @@ class CloudSyncEngine {
         final remote = CloudRecord.fromJson(decoded.cast<String, Object?>());
         applyingRemote = true;
         try {
-          repo.db.transaction(() => repo.db.savepoint(() => _apply(remote)));
+          repo.db.transaction(() {
+            _apply(remote);
+            repo.db.execute('DELETE FROM quarantine WHERE id=?', [entry['id']]);
+          });
         } finally {
           applyingRemote = false;
         }
-        repo.db.execute('DELETE FROM quarantine WHERE id=?', [entry['id']]);
-        _deleteQuarantineFor(remote);
       } on Object {
         // Keep malformed rows for a later pull retry.
       }
@@ -337,16 +326,20 @@ class CloudSyncEngine {
   }
 
   void _deleteQuarantineFor(CloudRecord remote) {
+    if (!_isUuid(remote.id)) return;
     for (final old in repo.db.select(
       "SELECT id,raw FROM quarantine WHERE peer_id='cloud' AND kind=?",
       [remote.kind],
     )) {
       try {
         final decoded = jsonDecode(old['raw'] as String);
-        if (decoded is Map && decoded['id'] == remote.id) {
+        if (decoded is Map &&
+            decoded['id'] == remote.id &&
+            decoded['seq'] is int &&
+            (decoded['seq'] as int) <= remote.seq) {
           repo.db.execute('DELETE FROM quarantine WHERE id=?', [old['id']]);
         }
-      } on Object {
+      } on FormatException {
         // An unreadable quarantine item has no reliable record identity.
       }
     }

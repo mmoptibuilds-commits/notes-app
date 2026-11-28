@@ -33,12 +33,17 @@ simplicity and intuitive editing matter more than feature count.
   per-item restore/delete and bulk uncheck/delete. The stored document keeps
   every line with its formatting; opening a note never rewrites it.
 - Cursor and scroll position are never reset by autosave, resume or sync.
+- When a save fails, Notes stores an encrypted recovery draft and offers it for
+  review from the library. A successful save clears that recovery copy.
+- If rich-text serialization fails, Notes keeps the latest title and visible
+  plain text for recovery and warns that formatting and images may need review.
 - Long documents stay usable.
 
 ### Appearance
 - AMOLED black (default), charcoal, light.
 - Several bundled fonts plus the system font; adjustable text size.
-- Animation intensity: off, reduced, full.
+- Animation intensity: off, reduced, full. The system reduced-motion preference
+  disables app animations without changing the saved intensity setting.
 - Minimal navigation; advanced controls tucked away.
 - Desktop: keyboard shortcuts, context menus, hover, resizable window.
 

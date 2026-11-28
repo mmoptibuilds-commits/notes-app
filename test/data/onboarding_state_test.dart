@@ -7,6 +7,30 @@ import 'package:notes/data/app_database.dart';
 import 'package:notes/data/note_repository.dart';
 import 'package:notes/platform/bootstrap.dart';
 
+String _flutterBinary() {
+  final root =
+      Platform.environment['FLUTTER_ROOT'] ??
+      File(Platform.resolvedExecutable).parent.parent.parent.parent.parent.path;
+  return '$root/bin/flutter';
+}
+
+class _RacingKeyStore implements KeyStore {
+  Uint8List? value;
+
+  @override
+  Future<Uint8List?> read() async {
+    final seen = value == null ? null : Uint8List.fromList(value!);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    return seen;
+  }
+
+  @override
+  Future<void> write(Uint8List key) async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    value = Uint8List.fromList(key);
+  }
+}
+
 void main() {
   late Directory dir;
   setUp(() => dir = Directory.systemTemp.createTempSync('notes onboarding '));
@@ -53,6 +77,61 @@ void main() {
       app.close();
     },
   );
+
+  test('simultaneous first launches retain one key and every note', () async {
+    Future<Process> launch(String title, int writeDelayMs) => Process.start(
+      _flutterBinary(),
+      ['test', '--no-pub', 'test/data/sequence_writer_process_test.dart'],
+      environment: {
+        ...Platform.environment,
+        'NOTES_BOOTSTRAP_DIR': dir.path,
+        'NOTES_BOOTSTRAP_TITLE': title,
+        'NOTES_BOOTSTRAP_READ_DELAY_MS': '250',
+        'NOTES_BOOTSTRAP_WRITE_DELAY_MS': '$writeDelayMs',
+      },
+      workingDirectory: Directory.current.path,
+    );
+
+    final first = await launch('First launch', 0);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final second = await launch('Second launch', 500);
+    final output = Future.wait([
+      first.stdout.transform(utf8.decoder).join(),
+      first.stderr.transform(utf8.decoder).join(),
+      second.stdout.transform(utf8.decoder).join(),
+      second.stderr.transform(utf8.decoder).join(),
+    ]);
+    final firstExit = await first.exitCode;
+    final secondExit = await second.exitCode;
+    final logs = await output;
+    expect(firstExit, 0, reason: logs.join('\n'));
+    expect(secondExit, 0, reason: logs.join('\n'));
+
+    final reopened = await bootstrap(dataDir: dir.path);
+    expect(reopened.notes.listNotes(), hasLength(2));
+    expect(reopened.notes.listNotes().map((note) => note.title).toSet(), {
+      'First launch',
+      'Second launch',
+    });
+    reopened.close();
+  });
+
+  test('same-process first launches share one key and database', () async {
+    final store = _RacingKeyStore();
+    final apps = await Future.wait([
+      bootstrap(dataDir: dir.path, keyStore: store),
+      bootstrap(dataDir: dir.path, keyStore: store),
+    ]);
+    apps.first.notes.createNote(title: 'First');
+    apps.last.notes.createNote(title: 'Second');
+    expect(apps.first.notes.listNotes(), hasLength(2));
+    for (final app in apps) {
+      app.close();
+    }
+    final reopened = await bootstrap(dataDir: dir.path, keyStore: store);
+    expect(reopened.notes.listNotes(), hasLength(2));
+    reopened.close();
+  });
 
   test('in-memory services start without onboarding', () {
     final app = AppServices.inMemory();

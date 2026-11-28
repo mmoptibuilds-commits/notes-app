@@ -101,6 +101,9 @@ freeze and leaves Notes open for Retry. After the helper starts,
   `buildTheme(settings)`, theme animation duration from `AppMotion`, localisation
   delegate for Quill (its find dialog throws without it), and a `MediaQuery`
   wrapper that multiplies the platform text scaler by `settings.textScale`.
+  Platform accessibility changes also rebuild the theme; `disableAnimations`
+  takes precedence over the saved animation level for component durations,
+  page transitions, ink splashes and theme changes.
 - `initState`: completes onboarding if the database already holds user data;
   schedules the update check after the first frame; starts sync
   (`sync.start()` then `requestAutoSync(2 s)`); listens to
@@ -122,7 +125,7 @@ checked by `test/android/splash_resources_test.dart`).
 
 ### 2.1 Tables (`lib/data/migrations.dart`)
 
-Schema version 4 (`schemaVersion == migrations.length`). `PRAGMA user_version`
+Schema version 5 (`schemaVersion == migrations.length`). `PRAGMA user_version`
 holds the applied version.
 
 | Table | Purpose | Key columns |
@@ -138,6 +141,7 @@ holds the applied version.
 | `peers` | paired devices (v2) | `id`, `public_key`, `endpoints` (JSON), `sent_cursor`, `recv_cursor`, `last_error` |
 | `quarantine` | rows received from a peer that could not be applied (v3) | `peer_id`, `kind`, `reason`, `raw` |
 | `cloud_notes` | cloud revision, digest and three-way merge base per record (v4) | `(kind,id)`, `rev`, `digest`, `base_title`, `base_body`, `base_vv`, `base_hlc` |
+| `editor_drafts` | device-local recovery copies for failed editor saves (v5); never synced | `id`, `note_id`, `folder_id`, `title`, `body`, `base_vv`, `updated_at` |
 
 ### 2.2 The `notes` row
 
@@ -171,6 +175,17 @@ are the UI views. `NoteRecord.toJson` is the wire and export format.
 - Local change counter: `AppDatabase.nextSeq()` gives each written row a
   `local_seq`; `local_meta.seq` is persisted at commit and rolled back with the
   transaction.
+- Bootstrap holds `.notes-bootstrap.lock` across key lookup or first-run key
+  creation, opening the database and loading the LAN identity. This prevents a
+  second process from replacing the key or creating a different identity while
+  the first database is being initialized. The identity is rechecked inside a
+  transaction after asynchronous key generation.
+- File-backed opens take the blocking OS lock `<db>.open.lock` while validating
+  the database and running migrations. The lock is released automatically if
+  the process exits; a leftover lock file is harmless. Each write transaction
+  refreshes `seq` and `hlc_last` after `BEGIN IMMEDIATE`, while SQLite holds the
+  write lock, so already-open processes cannot allocate duplicate local
+  sequence numbers or stale HLCs.
 
 ### 2.4 Lifecycle states
 
@@ -220,6 +235,26 @@ Rules, enforced by convention and by review:
   version vector differs from `base` (sync wrote underneath), the stored
   version is kept as a deterministic conflict copy and the editor's content
   becomes the note (`SaveOutcome.savedWithConflictCopy`).
+- `writeEditorContent` writes a note and deletes its pending recovery draft in
+  one transaction. A recovery save first checks that its draft row still exists
+  inside that transaction, so two recovery screens cannot create two notes
+  and a confirmed discard cannot be undone by a stale editor. A recovered
+  original note is rechecked under the same writer lock; if it became missing,
+  trashed or purged, recovery creates a new note instead of reviving it. Any
+  purged original remains deleted during a retry; the unsaved text is kept in
+  a new note.
+- Each editor holds a process-local and cross-process lock for its draft ID.
+  Another Notes window opens that recovery copy read-only while the owner is
+  active. After claiming the lease, recovery reloads the latest durable row in
+  case the list screen captured an older snapshot. The OS releases the lock
+  after a crash, so recovery remains available.
+- Failed saves store a serialized editor snapshot in `editor_drafts`; the
+  library offers a review screen. A disposed editor retries only the encrypted
+  draft write, never a note save. If canonical Delta encoding fails, Notes
+  stores the latest title and visible plain text as a recovery copy and warns
+  that formatting and images may need checking. Retries continue with a capped
+  backoff until the copy is durable. A stale draft for a live note follows the
+  ordinary version-vector conflict-copy path.
 - `repo.changes` (from the database) drives library reloads and auto sync.
 
 ### 2.6 Settings (`lib/data/app_settings.dart`)
@@ -239,7 +274,7 @@ setting is per-device and does not sync.
 |---|---|
 | typed setter (`theme = ...`) | persists and notifies listeners (rebuilds the whole `MaterialApp`) |
 | `read(key)` / `write(key, value)` | small UI state such as the selected folder; notifies |
-| `writeSilently(key, value)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); does not notify |
+| `writeSilently(key, value)` / `writeSilentlyBatchIf(values, predicate)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); conditional batch reads and writes use one transaction, and neither method notifies |
 
 Settings never sync. Keys used by code: appearance, editor and `startupView`
 keys above, `library.folder` (the most recently selected active folder/view),
@@ -263,13 +298,24 @@ sample notes; that would bump the change counter and sync to paired devices.
 - `AppDatabase.open` runs each missing step in its own `BEGIN IMMEDIATE ...
   COMMIT` and sets `user_version` inside it. A failing step rolls back.
 - Before migrating an existing database on disk it writes
-  `<db>.pre-v<target>.bak` with `VACUUM INTO` (same encryption), replacing an
-  earlier backup of the same name.
+  `<db>.pre-v<target>.bak` with `VACUUM INTO` (same encryption). The temporary
+  copy is reopened with the key and checked before an atomic same-directory
+  rename replaces an earlier backup; a failed copy or replacement leaves the
+  prior backup intact. Snapshot destinations are locked across processes, so a
+  concurrent import cannot replace another import's recovery copy.
 - A database newer than the app throws `DatabaseTooNewException`; the app shows
-  an error screen and changes nothing.
+  an error screen with the expected pre-migration backup path and safe rollback
+  steps. The file may not exist if that newer version did not create it.
 - Migration 4 adds cloud merge bookkeeping. A 1.2.0 build refuses a database
   after a 1.3.0 build has migrated it; LAN interoperability between 1.2.0
   databases remains unchanged.
+- Migration 5 adds encrypted local editor recovery rows. Drafts do not affect
+  the sync queue and are deleted atomically with a successful editor save.
+- Import/restore snapshots named `before-import-*.db` are verified and capped
+  at seven usable copies per snapshot directory. A usable copy must have a
+  positive Notes schema version, the core Notes tables and readable columns,
+  the expected schema version, and a passing `quick_check`. Unverified files
+  do not count toward the cap and are kept for possible manual recovery.
 - Every migration needs a test that creates a database at the previous version
   and upgrades it. The pattern is `AppDatabase.open(path, schema:
   migrations.sublist(0, n))`, then reopen with the full list: see
@@ -746,9 +792,12 @@ by the last successful check (24 h) and bounded failure backoff (one hour to
 `NOTES_DATA_DIR` instance and can be switched off in Updates settings. A manual
 check is always available. The check fetches the stable release, manifest and
 signature (bounded sizes), verifies the Ed25519 signature over the raw manifest
-bytes, applies replay protection, and selects the platform artifact. A newer
-signed release downloads in the background. Installation always needs the
-user's confirmation.
+bytes, applies replay protection, and selects the platform artifact. The replay
+mark is read from persisted settings and compared/advanced under one writer
+transaction so two open windows cannot lower or mix the remembered version and
+build. A partial mark inherited from 1.3.1 keeps its available version or build
+floor until the pair is repaired. A newer signed release downloads in the
+background. Installation always needs the user's confirmation.
 
 Interrupted, cancelled or offline downloads keep a small metadata file with the
 URL, release version, expected size, digest and ETag. Resume uses `Range` and
@@ -876,10 +925,19 @@ widgets. It owns the `QuillController`, the title controller, the
 - Open writes nothing. A new note is created only on the first non-blank content
   (`flush` with no id and blank title and body does nothing).
 - Autosave: 700 ms after the last edit; on failure retry every 3 s with status
-  `failed`. `dispose` flushes; if that still failed, a background save handoff
-  retries up to 2000 times and remains registered with `EditorSaveBarrier` so a
-  Linux update cannot pass it without confirmation. The update barrier freezes
-  editors while it flushes, then releases them again if a save fails.
+  `failed`. The last serialized snapshot is written to encrypted
+  `editor_drafts`; the library shows **Review drafts** until the user recovers
+  or discards it. A successful note write removes the recovery row in the same
+  transaction. Editors with a durable draft must still find that row when they
+  save; this makes competing recovery screens single-consumer and keeps a
+  confirmed discard from being saved later. `dispose` flushes; if that still
+  failed, a background handoff retries only the encrypted draft write with
+  capped backoff until the snapshot is durable, and remains registered with
+  `EditorSaveBarrier` while it is pending. The update barrier freezes editors
+  while it flushes, then releases them again if a save fails.
+- If canonical Delta serialization fails, recovery falls back to the latest
+  title and visible plain text; the editor warns that formatting and images
+  may need checking after recovery.
 - The visible document is never replaced by sync. A save that finds the stored
   version moved on produces a conflict copy (`onConflictCopy` shows a banner).
 - A body that cannot be parsed (`loadError`) or a trashed note opens read-only

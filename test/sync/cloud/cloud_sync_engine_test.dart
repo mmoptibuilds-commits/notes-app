@@ -1,12 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notes/data/app_database.dart';
 import 'package:notes/data/note_repository.dart';
+import 'package:notes/sync/cloud/cloud_api.dart';
 import 'package:notes/sync/cloud/cloud_sync_engine.dart';
 import 'package:notes/sync/cloud/record_digest.dart';
-import 'package:notes/sync/cloud/cloud_api.dart';
+import 'package:notes/sync/peers.dart';
 
 import '../../support/fake_cloud_server.dart';
 
@@ -188,6 +190,105 @@ void main() {
       );
     },
   );
+
+  test('cloud quarantine preserves LAN edits and replays a full page after restart', () async {
+    final dir = Directory.systemTemp.createTempSync('notes-quarantine-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/notes.db';
+    final key = Uint8List.fromList(List.generate(32, (i) => i));
+    var db = AppDatabase.open(path, key: key);
+    addTearDown(() => db.close());
+
+    final source = AppDatabase.open(null);
+    addTearDown(source.close);
+    final sourceRepo = NoteRepository(source);
+    final original = sourceRepo.createNote(title: 'Pending from old peer');
+    final lanRaw = jsonEncode(sourceRepo.getRecord(original.id)!.toJson());
+    final server = FakeCloudServer();
+    db.transaction(() {
+      db.setMeta('cloud.library_id', server.libraryId);
+      PeerStore(db).quarantine('lan-peer', 'note', 'old parser', lanRaw);
+    });
+
+    String cloudId(int seq) =>
+        '00000000-0000-4000-8000-${seq.toString().padLeft(12, '0')}';
+    void publish(int seq, String id, Map<String, Object?> row, {int rev = 1}) {
+      server.seq = seq;
+      server.records['note:$id'] = CloudRecord(
+        kind: 'note',
+        id: id,
+        seq: seq,
+        rev: rev,
+        digest: recordDigest(row),
+        row: row,
+      );
+    }
+
+    for (var i = 1; i <= 100; i++) {
+      // Same note id on different transports must not link their entries.
+      final id = i == 1 ? original.id : cloudId(i);
+      publish(i, id, {'id': id, 'body': '['});
+    }
+    final engine = CloudSyncEngine(NoteRepository(db), server);
+    await engine.sync();
+    expect(engine.quarantinedRows, 100);
+    expect(db.getMeta('cloud.pull_seq'), '100');
+    expect(
+      PeerStore(db).quarantinePage('lan-peer', afterId: 0).single.raw,
+      lanRaw,
+    );
+
+    final validId = cloudId(101);
+    sourceRepo.createNote(id: validId, title: 'First in retried page');
+    publish(101, validId, sourceRepo.getRecord(validId)!.toJson());
+    final overflowId = cloudId(102);
+    publish(102, overflowId, {'id': overflowId, 'body': '['});
+    await expectLater(engine.sync(), throwsA(isA<CloudApiException>()));
+    expect(NoteRepository(db).getNote(validId), isNull);
+    db.close();
+    db = AppDatabase.open(path, key: key);
+    expect(db.getMeta('cloud.pull_seq'), '100');
+    expect(
+      PeerStore(db).quarantinePage('lan-peer', afterId: 0).single.raw,
+      lanRaw,
+    );
+    expect(
+      db
+          .select("SELECT raw FROM quarantine WHERE peer_id='cloud'")
+          .map((r) => r['raw']),
+      unorderedEquals(
+        server.records.values
+            .where((r) => r.seq <= 100)
+            .map((r) => jsonEncode(r.toJson())),
+      ),
+    );
+
+    sourceRepo.createNote(id: overflowId, title: 'Repaired on server');
+    publish(
+      103,
+      overflowId,
+      sourceRepo.getRecord(overflowId)!.toJson(),
+      rev: 2,
+    );
+    final repo = NoteRepository(db);
+    await CloudSyncEngine(repo, server).sync();
+    expect(repo.getNote(validId)?.title, 'First in retried page');
+    expect(repo.getNote(overflowId)?.title, 'Repaired on server');
+    expect(db.getMeta('cloud.pull_seq'), '103');
+
+    publish(
+      104,
+      original.id,
+      sourceRepo.getRecord(original.id)!.toJson(),
+      rev: 2,
+    );
+    await CloudSyncEngine(repo, server).sync();
+    expect(CloudSyncEngine(repo, server).quarantinedRows, 99);
+    expect(
+      PeerStore(db).quarantinePage('lan-peer', afterId: 0).single.raw,
+      lanRaw,
+    );
+  });
 
   test('oversized local note stays pending while smaller notes sync', () async {
     final db = AppDatabase.open(null);

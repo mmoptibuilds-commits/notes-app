@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
 import '../core/hlc.dart';
@@ -6,6 +9,7 @@ import '../core/ids.dart';
 import '../core/version_vector.dart';
 import '../doc/delta_text.dart';
 import 'app_database.dart';
+import 'editor_draft.dart';
 import 'models.dart';
 
 /// Prefix of an image embed source that points at a stored attachment:
@@ -36,6 +40,55 @@ class SearchHit {
   static const matchEnd = '\u0003';
 }
 
+final Set<String> _activeEditorDraftLeases = {};
+final Map<String, _EditorDraftLockGroup> _editorDraftLockGroups = {};
+
+class _EditorDraftLockGroup {
+  _EditorDraftLockGroup(this.file);
+  final RandomAccessFile file;
+  int leases = 0;
+}
+
+/// A process-wide and cross-process lock for one editor recovery draft.
+/// Linux releases the process's advisory locks when any descriptor for the
+/// same file closes, so locks in one directory share one descriptor until the
+/// final lease is released.
+class EditorDraftLease {
+  EditorDraftLease._(this._leaseKey, this._groupKey, this._offset);
+
+  final String _leaseKey;
+  final String? _groupKey;
+  final int _offset;
+  var _released = false;
+
+  void release() {
+    if (_released) return;
+    _released = true;
+    try {
+      final groupKey = _groupKey;
+      if (groupKey != null) {
+        final group = _editorDraftLockGroups[groupKey];
+        if (group != null) {
+          try {
+            group.file.unlockSync(_offset, _offset + 1);
+          } finally {
+            group.leases--;
+            if (group.leases == 0) {
+              try {
+                group.file.closeSync();
+              } finally {
+                _editorDraftLockGroups.remove(groupKey);
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      _activeEditorDraftLeases.remove(_leaseKey);
+    }
+  }
+}
+
 /// All reads and writes of notes, folders and attachments.
 ///
 /// Every mutation runs in one transaction and stamps the sync metadata
@@ -46,11 +99,266 @@ class NoteRepository {
 
   final AppDatabase db;
   final int Function() _now;
+  final _draftChanges = _RepositoryDraftNotifier();
 
   /// Fires after every committed change to notes, folders or attachments.
   Listenable get changes => db.changes;
 
+  /// Notifies when the local recovery-draft list changes. Drafts do not enter
+  /// the note sync queue.
+  Listenable get draftChanges => _draftChanges;
+
+  void dispose() => _draftChanges.dispose();
+
+  /// Claims a draft for one live editor session. Returns null when another
+  /// editor in this process or another Notes process already owns the row.
+  /// Locks are released on process exit, so a crash does not strand a draft.
+  EditorDraftLease? acquireEditorDraftLease(String id) {
+    final databasePath = db.path;
+    final canonicalDatabasePath = databasePath == null
+        ? null
+        : File(databasePath).resolveSymbolicLinksSync();
+    final scope = canonicalDatabasePath == null
+        ? 'memory:${identityHashCode(db)}'
+        : p.normalize(canonicalDatabasePath);
+    final leaseKey = '$scope|$id';
+    if (!_activeEditorDraftLeases.add(leaseKey)) return null;
+    if (canonicalDatabasePath == null) {
+      return EditorDraftLease._(leaseKey, null, 0);
+    }
+
+    final lockPath = '$canonicalDatabasePath.draft-locks';
+    if (FileSystemEntity.typeSync(lockPath, followLinks: false) ==
+        FileSystemEntityType.link) {
+      _activeEditorDraftLeases.remove(leaseKey);
+      throw StateError('The editor draft lock is a symlink.');
+    }
+    final groupKey = p.normalize(p.absolute(lockPath));
+    var group = _editorDraftLockGroups[groupKey];
+    if (group == null) {
+      try {
+        group = _EditorDraftLockGroup(
+          File(lockPath).openSync(mode: FileMode.append),
+        );
+        _editorDraftLockGroups[groupKey] = group;
+      } on Object {
+        _activeEditorDraftLeases.remove(leaseKey);
+        rethrow;
+      }
+    }
+    final offset = int.parse(sha256OfString(id).substring(0, 13), radix: 16);
+    try {
+      group.file.lockSync(FileLock.exclusive, offset, offset + 1);
+      group.leases++;
+      return EditorDraftLease._(leaseKey, groupKey, offset);
+    } on FileSystemException {
+      if (group.leases == 0) {
+        group.file.closeSync();
+        _editorDraftLockGroups.remove(groupKey);
+      }
+      _activeEditorDraftLeases.remove(leaseKey);
+      return null;
+    } on Object {
+      if (group.leases == 0) {
+        group.file.closeSync();
+        _editorDraftLockGroups.remove(groupKey);
+      }
+      _activeEditorDraftLeases.remove(leaseKey);
+      rethrow;
+    }
+  }
+
   String get _device => db.deviceId;
+
+  // ------------------------------------------------------ editor recovery
+
+  List<PendingEditorDraft> pendingEditorDrafts() => [
+    for (final row in db.select(
+      'SELECT id, note_id, folder_id, title, body, base_vv, updated_at '
+      'FROM editor_drafts ORDER BY updated_at DESC, id',
+    ))
+      PendingEditorDraft(
+        id: row['id'] as String,
+        noteId: row['note_id'] as String?,
+        folderId: row['folder_id'] as String?,
+        title: row['title'] as String,
+        body: row['body'] as String,
+        baseVv: row['base_vv'] as String,
+        updatedAt: row['updated_at'] as int,
+      ),
+  ];
+
+  /// Reads the latest durable snapshot for one draft after its editor lease
+  /// has been acquired. The recovery list may have rendered an older row
+  /// before another editor finished writing it.
+  PendingEditorDraft? pendingEditorDraft(String id) {
+    final rows = db.select(
+      'SELECT id, note_id, folder_id, title, body, base_vv, updated_at '
+      'FROM editor_drafts WHERE id = ?',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return PendingEditorDraft(
+      id: row['id'] as String,
+      noteId: row['note_id'] as String?,
+      folderId: row['folder_id'] as String?,
+      title: row['title'] as String,
+      body: row['body'] as String,
+      baseVv: row['base_vv'] as String,
+      updatedAt: row['updated_at'] as int,
+    );
+  }
+
+  /// Persists an uncommitted editor snapshot in the encrypted database.
+  void savePendingEditorDraft(PendingEditorDraft draft) {
+    db.transaction(() {
+      db.execute(
+        'INSERT INTO editor_drafts '
+        '(id, note_id, folder_id, title, body, base_vv, updated_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, '
+        'folder_id = excluded.folder_id, title = excluded.title, '
+        'body = excluded.body, base_vv = excluded.base_vv, '
+        'updated_at = excluded.updated_at',
+        [
+          draft.id,
+          draft.noteId,
+          draft.folderId,
+          draft.title,
+          draft.body,
+          draft.baseVv,
+          draft.updatedAt,
+        ],
+      );
+    });
+    _draftChanges.fire();
+  }
+
+  /// Saves a disposed editor's snapshot without reviving a draft that was
+  /// already recovered or discarded. When [requireExisting] is true, the
+  /// row is updated only if it is still pending. Otherwise the row is inserted
+  /// only when absent; an existing row is already a durable copy.
+  bool savePendingEditorDraftFromHandoff(
+    PendingEditorDraft draft, {
+    required bool requireExisting,
+  }) {
+    var changed = false;
+    var pending = false;
+    db.transaction(() {
+      if (requireExisting) {
+        db.execute(
+          'UPDATE editor_drafts SET note_id = ?, folder_id = ?, title = ?, '
+          'body = ?, base_vv = ?, updated_at = ? WHERE id = ?',
+          [
+            draft.noteId,
+            draft.folderId,
+            draft.title,
+            draft.body,
+            draft.baseVv,
+            draft.updatedAt,
+            draft.id,
+          ],
+        );
+        changed =
+            (db.select('SELECT changes() AS count').first['count'] as int) > 0;
+      } else {
+        db.execute(
+          'INSERT OR IGNORE INTO editor_drafts '
+          '(id, note_id, folder_id, title, body, base_vv, updated_at) '
+          'VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [
+            draft.id,
+            draft.noteId,
+            draft.folderId,
+            draft.title,
+            draft.body,
+            draft.baseVv,
+            draft.updatedAt,
+          ],
+        );
+        changed =
+            (db.select('SELECT changes() AS count').first['count'] as int) > 0;
+      }
+      pending = db.select('SELECT 1 FROM editor_drafts WHERE id = ?', [
+        draft.id,
+      ]).isNotEmpty;
+    });
+    if (changed) _draftChanges.fire();
+    return pending;
+  }
+
+  /// Discards [id] after the user confirms that its unsaved text can be
+  /// removed.
+  bool discardPendingEditorDraft(String id) {
+    var removed = false;
+    db.transaction(() {
+      db.execute('DELETE FROM editor_drafts WHERE id = ?', [id]);
+      removed =
+          (db.select('SELECT changes() AS count').first['count'] as int) > 0;
+    });
+    if (removed) _draftChanges.fire();
+    return removed;
+  }
+
+  /// Saves editor content and clears its recovery row in one transaction.
+  /// This prevents a successful write from being offered again after restart.
+  EditorDraftWriteResult writeEditorContent({
+    required String draftId,
+    required String? noteId,
+    required String title,
+    required String body,
+    required VersionVector base,
+    bool requirePendingDraft = false,
+    bool recoveringDraft = false,
+    String? folderId,
+  }) {
+    decodeOps(body);
+    var hadDraft = false;
+    final result = db.transaction(() {
+      hadDraft = db.select('SELECT 1 FROM editor_drafts WHERE id = ?', [
+        draftId,
+      ]).isNotEmpty;
+      if (requirePendingDraft && !hadDraft) {
+        throw const EditorDraftUnavailableException();
+      }
+      late final String savedId;
+      late final VersionVector savedVv;
+      String? conflictCopyId;
+      if (noteId == null) {
+        final note = createNote(title: title, body: body, folderId: folderId);
+        savedId = note.id;
+        savedVv = note.contentVv;
+      } else {
+        final current = getRecord(noteId);
+        if (current == null ||
+            current.purged ||
+            (recoveringDraft && current.trashedAt != null)) {
+          final note = createNote(title: title, body: body, folderId: folderId);
+          savedId = note.id;
+          savedVv = note.contentVv;
+        } else {
+          final saved = saveContent(
+            noteId,
+            title: title,
+            body: body,
+            base: base,
+          );
+          savedId = noteId;
+          savedVv = saved.contentVv;
+          conflictCopyId = saved.conflictCopyId;
+        }
+      }
+      db.execute('DELETE FROM editor_drafts WHERE id = ?', [draftId]);
+      return EditorDraftWriteResult(
+        noteId: savedId,
+        baseVv: savedVv.encode(),
+        conflictCopyId: conflictCopyId,
+      );
+    });
+    if (hadDraft) _draftChanges.fire();
+    return result;
+  }
 
   // ---------------------------------------------------------------- notes
 
@@ -926,4 +1234,8 @@ class NoteRepository {
     deletedHlc: Hlc.parse(r['deleted_hlc'] as String),
     createdAt: r['created_at'] as int,
   );
+}
+
+class _RepositoryDraftNotifier extends ChangeNotifier {
+  void fire() => notifyListeners();
 }

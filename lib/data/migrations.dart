@@ -1,6 +1,6 @@
 /// Schema migrations. Append only: once a version has shipped, its entry never
 /// changes. `migrations[i]` upgrades a database from version `i` to `i + 1`.
-const List<List<String>> migrations = [_v1, _v2, _v3, _v4];
+const List<List<String>> migrations = [_v1, _v2, _v3, _v4, _v5];
 
 int get schemaVersion => migrations.length;
 
@@ -196,4 +196,21 @@ const _v4 = <String>[
     PRIMARY KEY(kind, id)
   ) WITHOUT ROWID
   ''',
+];
+
+// v5: encrypted, device-local snapshots of editor content whose normal save
+// did not commit. These rows never enter the sync queue.
+const _v5 = <String>[
+  '''
+  CREATE TABLE editor_drafts (
+    id TEXT PRIMARY KEY,
+    note_id TEXT,
+    folder_id TEXT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    base_vv TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  ) WITHOUT ROWID
+  ''',
+  'CREATE INDEX editor_drafts_updated ON editor_drafts(updated_at DESC)',
 ];

@@ -204,18 +204,85 @@ class AppSettings extends ChangeNotifier {
   /// displays (last update check, cached ETag): a notification would rebuild
   /// the whole app and re-run every settings listener.
   void writeSilently(String key, String? value) {
+    if (_values[key] == value) return;
     if (value == null) {
-      if (_values.remove(key) == null) return;
       _db.execute('DELETE FROM settings WHERE key = ?', [key]);
+      _values.remove(key);
       return;
     }
-    if (_values[key] == value) return;
-    _values[key] = value;
     _db.execute(
       'INSERT INTO settings(key, value) VALUES (?, ?) '
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       [key, value],
     );
+    _values[key] = value;
+  }
+
+  /// Persists a group of silent bookkeeping values in one transaction.
+  /// The in-memory cache changes only after the database commit succeeds.
+  void writeSilentlyBatch(Map<String, String?> values) {
+    writeSilentlyBatchIf(values: values, shouldWrite: (_) => true);
+  }
+
+  /// Reads current persisted values and conditionally writes [values] inside
+  /// one writer transaction. Use this when a decision depends on shared
+  /// settings that another app process may have updated since this instance
+  /// was opened.
+  bool writeSilentlyBatchIf({
+    required Map<String, String?> values,
+    required bool Function(Map<String, String?> current) shouldWrite,
+  }) {
+    if (values.isEmpty) return false;
+    final keys = values.keys.toList(growable: false);
+    var written = false;
+    _db.transaction(() {
+      final placeholders = List.filled(keys.length, '?').join(', ');
+      final current = <String, String?>{for (final key in keys) key: null};
+      for (final row in _db.select(
+        'SELECT key, value FROM settings WHERE key IN ($placeholders)',
+        keys,
+      )) {
+        current[row['key'] as String] = row['value'] as String;
+      }
+      if (!shouldWrite(current)) return;
+      for (final entry in values.entries) {
+        final value = entry.value;
+        if (value == null) {
+          _db.execute('DELETE FROM settings WHERE key = ?', [entry.key]);
+        } else {
+          _db.execute(
+            'INSERT INTO settings(key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            [entry.key, value],
+          );
+        }
+      }
+      written = true;
+    });
+    if (!written) return false;
+    for (final entry in values.entries) {
+      if (entry.value == null) {
+        _values.remove(entry.key);
+      } else {
+        _values[entry.key] = entry.value!;
+      }
+    }
+    return true;
+  }
+
+  /// Reads a consistent persisted snapshot rather than this process's cache.
+  Map<String, String?> readSilentlyBatch(Iterable<String> requestedKeys) {
+    final keys = requestedKeys.toSet().toList(growable: false);
+    if (keys.isEmpty) return const {};
+    final placeholders = List.filled(keys.length, '?').join(', ');
+    final current = <String, String?>{for (final key in keys) key: null};
+    for (final row in _db.select(
+      'SELECT key, value FROM settings WHERE key IN ($placeholders)',
+      keys,
+    )) {
+      current[row['key'] as String] = row['value'] as String;
+    }
+    return current;
   }
 
   /// Raw access for small bits of UI state (for example, last opened folder).

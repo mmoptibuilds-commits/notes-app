@@ -30,6 +30,11 @@ GitHub `Retry-After` is respected. Automatic work does not run in an instance
 started with `NOTES_DATA_DIR`. Turning the setting off cancels queued automatic
 downloads. Manual Check, Download and Install remain available.
 
+Updates shows a reason and a **Try again** action when Notes cannot save local
+update settings, the server sends an invalid HTTP response, or an update file
+exceeds the size limit. The settings error prompts you to check free space
+before retrying.
+
 When an automatic check finds a newer signed release, Notes downloads the
 artifact in the background. A partial transfer has a small sidecar bound to its
 HTTPS URL, version, declared size and SHA-256. Resume is allowed only when the
@@ -163,7 +168,10 @@ waiting up to ten seconds before showing a clear retry message. The helper
 relaunches the updated Notes app after a successful swap and reopens the
 previous app after a failed update. It checks free space on the install parent
 for extraction and staging before it creates either directory. The helper
-never accesses the notes database, keyring, backups, or pairing data. It
+checks paths from a GNU tar listing with numeric owners and a fixed locale,
+using syntax supported by both GNU Awk and mawk. It rejects unexpected listing
+formats before extraction. The helper never accesses the notes database,
+keyring, backups, or pairing data. It
 requires GNU tar, `flock`, `sha256sum`, `df`, `/proc` and `setsid` for relaunch.
 
 Rollback is automatic only when the program-directory swap fails. After a new

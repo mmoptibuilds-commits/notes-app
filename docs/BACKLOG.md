@@ -1,6 +1,6 @@
 # Backlog
 
-Planning register; not permission to implement. Product requirements: [REQUIREMENTS.md](REQUIREMENTS.md). Candidate release scopes: [ROADMAP.md](ROADMAP.md). Current preparation completed in [PR #8](https://github.com/mmoptibuilds-commits/notes-app/pull/8). Stable baseline v1.3.1, build 20261127. Planning base `e4c1769804f4bd8891638b1ad288122da36c10ea`.
+Planning register; v1.3.2 implementation is explicitly authorized and in review. Later entries remain proposals unless separately approved. Product requirements: [REQUIREMENTS.md](REQUIREMENTS.md). Candidate release scopes: [ROADMAP.md](ROADMAP.md). Current preparation completed in [PR #8](https://github.com/mmoptibuilds-commits/notes-app/pull/8). Stable baseline v1.3.1, build 20261127. Planning base `e4c1769804f4bd8891638b1ad288122da36c10ea`.
 
 The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 remain stable. Audit rows overlap feature rows and are not additional independent implementation tasks. Evidence references came from the prior inventory; line numbers can drift, and reported bugs must be checked against the current tree. A proposed target is not a commitment. Use ready, in progress, blocked, in review and done only when a task has been explicitly authorized or evidence supports the status. Record owner, branch, base/head SHA and acceptance evidence in the linked issue or task handover; unassigned rows have no worker or branch yet.
 
@@ -11,8 +11,8 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 
 | ID | Item | Candidate target | Status | Decision / next action | Historical evidence |
 | --- | --- | --- | --- | --- | --- |
-| H001 | Autosave gives up silently after 2000 failed tries | 1.3.2 | proposed | A03: keep unsaved text in encrypted durable recovery; warn and offer recovery. Never abandon the only copy. | lib/ui/editor/editor_session.dart:42 (retry delay), 335-341 (dispose hands off), 352-368 (_handOff; cap at line 363) |
-| H002 | dispose() can skip its own cleanup | 1.3.2 | proposed | A04: reproduce serialization failure and guarantee cleanup without losing drafts. | lib/ui/editor/editor_session.dart:257-263 (body built at 261, try at 263), 336-348 (dispose) |
+| H001 | Autosave gives up silently after 2000 failed tries | 1.3.2 | in review | Encrypted recovery rows, library review, restart recovery, and continued capped-backoff retries until durable are covered in `docs/handovers/v1.3.2.md`. | `test/ui/editor/editor_session_test.dart` |
+| H002 | dispose() can skip its own cleanup | 1.3.2 | in review | Serialization failure and disposal cleanup are covered in `docs/handovers/v1.3.2.md`. | `test/ui/editor/editor_session_test.dart` |
 | H003 | Empty Trash leaves image bytes in the database | 1.3.3 | proposed | A18: safe local/cloud cleanup must account for retained history, pending changes and other devices; defer destructive cleanup until proven. | lib/data/note_repository.dart:327-336 (purge keeps attachments), 339-350 (emptyTrash), 506-514 (collectUnusedAttachments), 604-611 (links rebuilt on save); test/data/note_repository_test.dart:307-309 (only callers); lib/data/migrations.dart:98-104 (attachments table) |
 | H004 | Undo history is wiped when a checklist item moves | 1.4.0 | proposed | Undo and redo must include checklist toggles and completed-section moves. | lib/ui/editor/editor_session.dart:172-186 (_extract and _applyProjectionChange; history cleared at 185); docs/ARCHITECTURE.md:965 (documented limit) |
 | H005 | Very long notes lay out every block up front | Validate / conditional | validate | Measure a long note on a device first (see the benchmark row). Build the lazy path only if the numbers justify it. | docs/ARCHITECTURE.md:947-950 (documented limit) |
@@ -131,13 +131,13 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 
 | ID | Item | Candidate target | Status | Decision / next action | Historical evidence |
 | --- | --- | --- | --- | --- | --- |
-| H076 | Restore snapshots pile up forever | 1.3.2 | proposed | Keep bounded verified snapshots, never remove last usable recovery copy; coordinate A02. | lib/ui/data/data_screen.dart:160-163 (snapshot notice), 228-235 (_snapshotPath); no code deletes files in backups (grep) |
+| H076 | Restore snapshots pile up forever | 1.3.2 | in review | Import snapshots retain at most seven verified copies; unverified files are left alone. | `test/data/app_database_test.dart` |
 | H077 | Optional passphrase on the JSON export | 1.9.0 | proposed | Offer encrypted backup alongside readable JSON; verify restore. | lib/ui/data/data_screen.dart:416 (not encrypted); docs/DECISIONS.md:44 (D5); pubspec.yaml:45 (cryptography ^2.9.0); cryptography 2.9.0 source (src/dart/argon2.dart, src/dart/xchacha20.dart) |
 | H078 | Printable recovery key (your call) | Later | deferred | Defer recovery key until backup improvements are stable. | docs/ARCHITECTURE.md:966-967 (documented); no recovery key code in lib (grep); Everything App "Recovery key for auto-backups" |
 | H079 | Screenshot shield on note screens (your call) | Excluded | excluded | Excluded by owner; no screenshot shield. | No FLAG_SECURE or window flags in android/app/src or lib (grep); Everything App "Screenshot shield" (shipped) |
 | H080 | Scheduled encrypted backups | 1.9.0 | proposed | Daily or weekly, chosen folder, keep seven verified backups. | No backup scheduler in lib (the only Timer.periodic is the pairing tick, lib/ui/sync/pair_screen.dart:114); Everything App "Encrypted auto-backups" (shipped) |
-| H081 | Update checks fail without saying why | 1.3.2 | proposed | Reproduce and show safe actionable updater errors without disclosing secrets. | docs/ARCHITECTURE.md:978-980 (documented; not reproduced in code) |
-| H082 | The too-new database message leaves out the rollback copy | 1.3.2 | proposed | Name the pre-migration copy in the message and say how to restore it. | lib/data/app_database.dart:12-13 (exception), 104-112 (throw and pre-migration copy); lib/ui/startup_error.dart:29-34 (message); docs/ARCHITECTURE.md:974-977 |
+| H081 | Update checks fail without saying why | 1.3.2 | in review | Safe retry guidance and HTTP/update failure cases are covered in the updater handover. | `docs/handovers/v1.3.2-updater.md` |
+| H082 | The too-new database message leaves out the rollback copy | 1.3.2 | in review | Startup recovery guidance points to the expected pre-migration backup; path and short-screen widgets pass. | `test/ui/startup_error_test.dart` |
 
 ### Look, feel and settings
 
@@ -145,7 +145,7 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 | --- | --- | --- | --- | --- | --- |
 | H083 | Theme does not follow the system | 1.5.0 | proposed | System-following option plus true AMOLED default, charcoal and light. | lib/data/app_settings.dart:10 (AppTheme enum); lib/ui/theme/app_theme.dart:183-186 (dark chosen from the app setting only); Everything App "Editor theme that follows the system theme" (shipped) |
 | H084 | Haptics on more than one action | 1.5.0 | proposed | Add haptics to checklist ticks, pin and delete, behind a setting. | lib/ui/library/library_screen.dart:326-327 (the only HapticFeedback call); Everything App "Haptics everywhere" and "Tactile haptics preferences" (shipped) |
-| H085 | The system reduce-motion setting is ignored | 1.3.2 | proposed | Respect system reduced motion and app setting together. | lib/ui/splash.dart:64 (only reader of disableAnimations); lib/data/app_settings.dart:128-129 (animations default full); lib/ui/theme/app_theme.dart:139-145, 218-222; Everything App "Reduced motion support" (shipped) |
+| H085 | The system reduce-motion setting is ignored | 1.3.2 | in review | System reduced motion disables app motion without changing the saved setting; see S5 handover. | `docs/handovers/v1.3.2-s5.md` |
 | H086 | Localisation (your call) | Later | deferred | English only; no localization work planned. | pubspec.yaml (no intl or flutter_localizations); lib/app.dart:107 (only Quill's localisation delegate); Everything App "Full Russian localisation", "Tamil language support" and "Per-app language settings" (shipped) |
 | H087 | Material 3 Expressive styling (your call) | 1.5.0 | proposed | Selective Material 3 Expressive components only where helpful. | No expressive or morphing code in lib (grep); Everything App "Material 3 Expressive design system", "Wavy slider" and "Morphing action buttons" (shipped) |
 | H088 | Dithered background | 1.5.0 | proposed | Optional toggle if inexpensive. | pub.dev material_palette (MIT; 1.6.0; Linux listed); earlier pass: Bayer dither wrap shader |
@@ -170,7 +170,7 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 | H102 | Lint suppressions hide deprecations and an internal import | 1.4.0 | proposed | Prefer public API for Quill; document any necessary private import and targeted lint suppression. | lib/ui/material.dart:7; lib/ui/editor/editor_screen.dart:11-12 |
 | H103 | Turn on more lints | Validate / conditional | validate | Do not broadly change lint rules unless justified. | analysis_options.yaml:10 (include), 29-31 (rules block, all commented out) |
 | H104 | Record release benchmarks for long notes and big libraries | 2.0.0 | proposed | Measure a long note and a big library on a device, and record the numbers with the build they came from. | docs/PERFORMANCE.md:5-6, 100-102; docs/ARCHITECTURE.md:947-950 |
-| H105 | Upgrade sqlite3 to 3.9.2, after an encrypted-database test | 1.3.2 | proposed | Evaluate SQLite patch with encrypted DB compatibility; no blind upgrade. | sqlite3 3.9.2 CHANGELOG.md:2-16 (research copy); pubspec.yaml:35 (^3.9.1); docs/DECISIONS.md:22-29 (D4) |
+| H105 | Upgrade sqlite3 to 3.9.2, after an encrypted-database test | 1.3.2 | evaluated; defer | Keep 3.9.1 until encrypted database compatibility is verified on Android arm64 and Linux; see S5 handover. | `docs/handovers/v1.3.2-s5.md` |
 | H106 | Two packages with no release since 2023 | Validate / conditional | validate | Check open issues on each one, then keep, fork or replace it. | pubspec.yaml:42, 46; lib/ui/library/library_screen.dart:5; lib/ui/sync/pair_screen.dart:6, 151; pub.dev package pages (checked 2026-11-23) |
 | H107 | Hardware checks still open | 2.0.0 | proposed | Actual updater and relevant physical devices remain gates for every release; no Tailscale work. | docs/ARCHITECTURE.md:984-987; README.md:106-110 |
 | H108 | Releases grouped by theme | Prep | verify / proposed | Theme-based release notes are useful; automated changelog tool and commit-prefix enforcement remain optional proposals, not approved requirements. | Your request; release steps in docs/RELEASE.md |
@@ -179,12 +179,12 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 
 | ID | Finding | Priority / candidate target | Status | Next action |
 | --- | --- | --- | --- | --- |
-| A01 | Duplicate local sequence numbers | Critical 1.3.2 | validate / proposed | Two Linux windows may assign the same change number, causing skipped sync edits. Prevent unsafe concurrent access and test. |
-| A02 | Migration backup rotation | Critical 1.3.2 | validate / proposed | Keep the previous verified recovery copy until replacement is verified. |
-| A03 | Autosave abandons text | Critical 1.3.2 | validate / proposed | Persist pending draft and show clear failure warning. |
-| A04 | Editor disposal cleanup | High 1.3.2 | validate / proposed | Serialization failure can skip cleanup; reproduce with a targeted test. |
-| A05 | Linux archive path validation | Critical 1.3.2 | open; [#9](https://github.com/mmoptibuilds-commits/notes-app/issues/9) | Reported mawk failure. Verify hostile archive rejection on stock Ubuntu. |
-| A06 | LAN quarantine deletion | Critical 1.3.2 | validate / proposed | Cloud cleanup must not delete unrelated pending LAN records. |
+| A01 | Duplicate local sequence numbers | Critical 1.3.2 | in review | Two writer processes now refresh sequence and HLC metadata under the SQLite write lock; see root handover. |
+| A02 | Migration backup rotation | Critical 1.3.2 | in review | Backup replacement is verified and atomic; a failed replacement retains the previous copy. |
+| A03 | Autosave abandons text | Critical 1.3.2 | in review | Encrypted pending drafts survive restart and closed-editor retries continue with capped backoff until durable; see root handover. |
+| A04 | Editor disposal cleanup | High 1.3.2 | in review | Cleanup runs after serialization failure; see root handover. |
+| A05 | Linux archive path validation | Critical 1.3.2 | reproduced; in review; [#9](https://github.com/mmoptibuilds-commits/notes-app/issues/9) | Jammy and Noble mawk reproduce the parser failure; both accept the valid fixture and reject hostile fixtures with the fix. |
+| A06 | LAN quarantine deletion | Critical 1.3.2 | in review | Cloud quarantine limits now preserve unrelated LAN entries and retry unreadable pages; see S4 worker evidence. |
 | A07 | Cloud page of 51 | Critical 1.3.3 | validate / proposed | Server pagination can produce more=true at head; add boundary regression. |
 | A08 | Attachment download >192 KiB | Critical 1.3.3 | validate / proposed | Chunk completion mismatch can stop after first chunk. |
 | A09 | More than 100 hashes | High 1.3.3 | validate / proposed | Batch attachment hash checks for initial upload and join. |

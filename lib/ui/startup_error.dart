@@ -30,7 +30,8 @@ class StartupErrorApp extends StatelessWidget {
         'This version of Notes is too old',
         'Your notes were last opened by a newer version of the app '
             '(data version ${e.found}, this app supports ${e.supported}). '
-            'Install the newer version. Nothing has been changed.',
+            'Install the newer version. Nothing has been changed.'
+            '${e.recoveryBackupPath == null ? '' : '\n\nA pre-migration copy, if present, is at ${e.recoveryBackupPath}. To roll back, close Notes, keep the current database and its -wal/-shm files aside, then copy that backup to ${e.databasePath}. Keep both copies until Notes opens and you verify the recovered library.'}',
       ),
       _ => ('Notes could not start', '$error'),
     };
@@ -39,25 +40,32 @@ class StartupErrorApp extends StatelessWidget {
       theme: ThemeData.dark(useMaterial3: true)
           .copyWith(scaffoldBackgroundColor: Colors.black),
       home: Scaffold(
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                    ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SelectableText(
+                        detail,
+                        style: const TextStyle(height: 1.4),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  SelectableText(detail, style: const TextStyle(height: 1.4)),
-                ],
+                ),
               ),
             ),
           ),

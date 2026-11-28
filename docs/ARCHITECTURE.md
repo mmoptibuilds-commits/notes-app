@@ -795,8 +795,9 @@ signature (bounded sizes), verifies the Ed25519 signature over the raw manifest
 bytes, applies replay protection, and selects the platform artifact. The replay
 mark is read from persisted settings and compared/advanced under one writer
 transaction so two open windows cannot lower or mix the remembered version and
-build. A newer signed release downloads in the background. Installation always
-needs the user's confirmation.
+build. A partial mark inherited from 1.3.1 keeps its available version or build
+floor until the pair is repaired. A newer signed release downloads in the
+background. Installation always needs the user's confirmation.
 
 Interrupted, cancelled or offline downloads keep a small metadata file with the
 URL, release version, expected size, digest and ETag. Resume uses `Range` and

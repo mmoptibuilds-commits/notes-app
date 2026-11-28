@@ -77,4 +77,24 @@ void main() {
     secondDb.close();
     directory.deleteSync(recursive: true);
   });
+
+  test('legacy partial replay marks still protect the known floor', () {
+    final db = AppDatabase.open(null);
+    final settings = AppSettings(db);
+    final store = AppSettingsUpdateStore(settings);
+
+    settings.writeSilently(UpdateKeys.highestVersion, '1.3.2');
+    expect(store.replayMarkAllows('1.3.1', 99999999), isFalse);
+    expect(store.advanceReplayMark('1.3.1', 99999999), isFalse);
+    expect(store.advanceReplayMark('1.3.2', 20261129), isTrue);
+
+    settings.writeSilently(UpdateKeys.highestVersion, null);
+    settings.writeSilently(UpdateKeys.highestBuild, '20261129');
+    expect(store.replayMarkAllows('1.3.1', 20261128), isFalse);
+    expect(store.advanceReplayMark('1.3.1', 20261128), isFalse);
+    expect(store.advanceReplayMark('1.3.2', 20261130), isTrue);
+
+    settings.dispose();
+    db.close();
+  });
 }

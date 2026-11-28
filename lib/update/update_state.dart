@@ -51,9 +51,7 @@ class AppSettingsUpdateStore implements UpdateStateStore {
       ]);
       final highestVersion = mark[UpdateKeys.highestVersion];
       final highestBuild = int.tryParse(mark[UpdateKeys.highestBuild] ?? '');
-      if (highestVersion == null && highestBuild == null) return true;
-      if (highestVersion == null || highestBuild == null) return false;
-      return compareReleases(version, build, highestVersion, highestBuild) >= 0;
+      return _replayMarkAllows(version, build, highestVersion, highestBuild);
     } on SqliteException {
       throw const UpdateStateWriteException();
     } on StateError {
@@ -74,14 +72,12 @@ class AppSettingsUpdateStore implements UpdateStateStore {
           final highestBuild = int.tryParse(
             mark[UpdateKeys.highestBuild] ?? '',
           );
-          if (highestVersion == null || highestBuild == null) return true;
-          return compareReleases(
-                version,
-                build,
-                highestVersion,
-                highestBuild,
-              ) >=
-              0;
+          return _replayMarkAllows(
+            version,
+            build,
+            highestVersion,
+            highestBuild,
+          );
         },
       );
     } on SqliteException {
@@ -111,24 +107,36 @@ class MemoryUpdateStore implements UpdateStateStore {
   bool replayMarkAllows(String version, int build) {
     final highestVersion = read(UpdateKeys.highestVersion);
     final highestBuild = int.tryParse(read(UpdateKeys.highestBuild) ?? '');
-    if (highestVersion == null && highestBuild == null) return true;
-    if (highestVersion == null || highestBuild == null) return false;
-    return compareReleases(version, build, highestVersion, highestBuild) >= 0;
+    return _replayMarkAllows(version, build, highestVersion, highestBuild);
   }
 
   @override
   bool advanceReplayMark(String version, int build) {
     final highestVersion = read(UpdateKeys.highestVersion);
     final highestBuild = int.tryParse(read(UpdateKeys.highestBuild) ?? '');
-    if (highestVersion != null &&
-        highestBuild != null &&
-        compareReleases(version, build, highestVersion, highestBuild) < 0) {
+    if (!_replayMarkAllows(version, build, highestVersion, highestBuild)) {
       return false;
     }
     values[UpdateKeys.highestVersion] = version;
     values[UpdateKeys.highestBuild] = '$build';
     return true;
   }
+}
+
+bool _replayMarkAllows(
+  String version,
+  int build,
+  String? highestVersion,
+  int? highestBuild,
+) {
+  if (highestVersion == null && highestBuild == null) return true;
+  if (highestVersion == null) return build >= highestBuild!;
+  if (highestBuild == null) {
+    // Notes 1.3.1 wrote the version before the build. If its second write
+    // failed, retain the semantic-version floor that did reach disk.
+    return compareReleases(version, 0, highestVersion, 0) >= 0;
+  }
+  return compareReleases(version, build, highestVersion, highestBuild) >= 0;
 }
 
 /// Setting keys owned by the updater.

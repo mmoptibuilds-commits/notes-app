@@ -1,6 +1,7 @@
 import 'package:sqlite3/sqlite3.dart';
 
 import '../data/app_settings.dart';
+import 'version_compare.dart';
 
 /// Small persistent bookkeeping for the updater (last check, ETag, highest
 /// verified release). Backed by app settings but written silently: these
@@ -12,8 +13,11 @@ abstract class UpdateStateStore {
   /// Throws [UpdateStateWriteException] if the write cannot be persisted.
   void write(String key, String? value);
 
-  /// Persists related state as one atomic update.
-  void writeAll(Map<String, String?> values);
+  /// Whether [version] and [build] are at least the persisted replay mark.
+  bool replayMarkAllows(String version, int build);
+
+  /// Atomically rejects rollback and advances the persisted replay mark.
+  bool advanceReplayMark(String version, int build);
 }
 
 class UpdateStateWriteException implements Exception {
@@ -39,9 +43,47 @@ class AppSettingsUpdateStore implements UpdateStateStore {
   }
 
   @override
-  void writeAll(Map<String, String?> values) {
+  bool replayMarkAllows(String version, int build) {
     try {
-      _settings.writeSilentlyBatch(values);
+      final mark = _settings.readSilentlyBatch(const [
+        UpdateKeys.highestVersion,
+        UpdateKeys.highestBuild,
+      ]);
+      final highestVersion = mark[UpdateKeys.highestVersion];
+      final highestBuild = int.tryParse(mark[UpdateKeys.highestBuild] ?? '');
+      if (highestVersion == null && highestBuild == null) return true;
+      if (highestVersion == null || highestBuild == null) return false;
+      return compareReleases(version, build, highestVersion, highestBuild) >= 0;
+    } on SqliteException {
+      throw const UpdateStateWriteException();
+    } on StateError {
+      throw const UpdateStateWriteException();
+    }
+  }
+
+  @override
+  bool advanceReplayMark(String version, int build) {
+    try {
+      return _settings.writeSilentlyBatchIf(
+        values: {
+          UpdateKeys.highestVersion: version,
+          UpdateKeys.highestBuild: '$build',
+        },
+        shouldWrite: (mark) {
+          final highestVersion = mark[UpdateKeys.highestVersion];
+          final highestBuild = int.tryParse(
+            mark[UpdateKeys.highestBuild] ?? '',
+          );
+          if (highestVersion == null || highestBuild == null) return true;
+          return compareReleases(
+                version,
+                build,
+                highestVersion,
+                highestBuild,
+              ) >=
+              0;
+        },
+      );
     } on SqliteException {
       throw const UpdateStateWriteException();
     } on StateError {
@@ -66,10 +108,26 @@ class MemoryUpdateStore implements UpdateStateStore {
   }
 
   @override
-  void writeAll(Map<String, String?> values) {
-    for (final entry in values.entries) {
-      write(entry.key, entry.value);
+  bool replayMarkAllows(String version, int build) {
+    final highestVersion = read(UpdateKeys.highestVersion);
+    final highestBuild = int.tryParse(read(UpdateKeys.highestBuild) ?? '');
+    if (highestVersion == null && highestBuild == null) return true;
+    if (highestVersion == null || highestBuild == null) return false;
+    return compareReleases(version, build, highestVersion, highestBuild) >= 0;
+  }
+
+  @override
+  bool advanceReplayMark(String version, int build) {
+    final highestVersion = read(UpdateKeys.highestVersion);
+    final highestBuild = int.tryParse(read(UpdateKeys.highestBuild) ?? '');
+    if (highestVersion != null &&
+        highestBuild != null &&
+        compareReleases(version, build, highestVersion, highestBuild) < 0) {
+      return false;
     }
+    values[UpdateKeys.highestVersion] = version;
+    values[UpdateKeys.highestBuild] = '$build';
+    return true;
   }
 }
 

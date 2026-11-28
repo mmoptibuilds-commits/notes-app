@@ -25,7 +25,8 @@ All notable changes to Notes are recorded here.
 - Recovery drafts have one active editor across Notes processes; stale saves
   cannot recreate a recovered or discarded copy.
 - Signed update replay protection stores the verified release version and
-  build together in one settings transaction.
+  build together in one settings transaction, comparing persisted values so
+  concurrent app windows cannot lower the mark.
 - Cloud quarantine limits preserve LAN and unrelated pending records, retrying
   a page when a malformed row cannot be retained.
 - Linux update archive validation works with Ubuntu's `mawk`; update failures

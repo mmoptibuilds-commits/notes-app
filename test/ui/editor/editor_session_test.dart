@@ -147,6 +147,21 @@ class _RetryAfterManyFailuresRepository extends NoteRepository {
   }
 }
 
+class _FailOnceDraftLookupRepository extends NoteRepository {
+  _FailOnceDraftLookupRepository(super.db);
+
+  var failNextLookup = true;
+
+  @override
+  PendingEditorDraft? pendingEditorDraft(String id) {
+    if (failNextLookup) {
+      failNextLookup = false;
+      throw StateError('synthetic transient read failure');
+    }
+    return super.pendingEditorDraft(id);
+  }
+}
+
 String json(Delta d) => jsonEncode(d.toJson());
 
 Delta shopping() => Delta()
@@ -698,6 +713,33 @@ void main() {
     expect(repo.listNotes().single.title, 'Newer durable snapshot');
     expect(repo.listNotes().single.preview, 'newer text');
     recovered.dispose();
+  });
+
+  test('a transient latest-row read failure releases the draft lease', () {
+    final draft = PendingEditorDraft(
+      id: 'read-failure-releases-lease',
+      noteId: null,
+      folderId: null,
+      title: 'Can retry opening',
+      body: json(Delta()..insert('reopen after a read failure\n')),
+      baseVv: VersionVector.empty.encode(),
+      updatedAt: 50,
+    );
+    repo.savePendingEditorDraft(draft);
+    final failingRepo = _FailOnceDraftLookupRepository(s.db);
+
+    expect(
+      () => EditorSession(repo: failingRepo, recoveredDraft: draft),
+      throwsA(isA<StateError>()),
+    );
+    final recovered = EditorSession(repo: repo, recoveredDraft: draft);
+    expect(recovered.readOnly, isFalse);
+    recovered.flush();
+
+    expect(repo.pendingEditorDrafts(), isEmpty);
+    expect(repo.listNotes().single.title, 'Can retry opening');
+    recovered.dispose();
+    failingRepo.dispose();
   });
 
   test('a recovery editor cannot save after confirmed discard', () {

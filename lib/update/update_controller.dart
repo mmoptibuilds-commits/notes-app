@@ -355,7 +355,7 @@ class UpdateController extends ChangeNotifier {
         'The saved update does not match this device.',
       );
     }
-    if (!_isAtLeastHighest(manifest)) {
+    if (!store.replayMarkAllows(manifest.version, manifest.buildNumber)) {
       throw const UpdateVerificationFailure(
         'This release is older than one Notes has already verified.',
       );
@@ -578,24 +578,14 @@ class UpdateController extends ChangeNotifier {
 
     // Replay protection: a signed manifest older than one already seen is a
     // rollback attempt. Only authenticated manifests move the mark.
-    if (verified.signed) {
-      final hv = store.read(UpdateKeys.highestVersion);
-      final hb = int.tryParse(store.read(UpdateKeys.highestBuild) ?? '');
-      if (hv != null && hb != null) {
-        if (compareReleases(manifest.version, manifest.buildNumber, hv, hb) <
-            0) {
-          _set(
-            const UpdateVerificationFailed(
-              'This release is older than one Notes has already verified.',
-            ),
-          );
-          return;
-        }
-      }
-      store.writeAll({
-        UpdateKeys.highestVersion: manifest.version,
-        UpdateKeys.highestBuild: '${manifest.buildNumber}',
-      });
+    if (verified.signed &&
+        !store.advanceReplayMark(manifest.version, manifest.buildNumber)) {
+      _set(
+        const UpdateVerificationFailed(
+          'This release is older than one Notes has already verified.',
+        ),
+      );
+      return;
     }
 
     final platform = info.platform;
@@ -944,7 +934,7 @@ class UpdateController extends ChangeNotifier {
         'The signed update details do not match this download.',
       );
     }
-    if (!_isAtLeastHighest(manifest)) {
+    if (!store.replayMarkAllows(manifest.version, manifest.buildNumber)) {
       throw const UpdateVerificationFailure(
         'This release is older than one Notes has already verified.',
       );
@@ -971,22 +961,6 @@ class UpdateController extends ChangeNotifier {
     } on UpdateVerificationFailure {
       rethrow;
     }
-  }
-
-  bool _isAtLeastHighest(UpdateManifest manifest) {
-    final highestVersion = store.read(UpdateKeys.highestVersion);
-    final highestBuild = int.tryParse(
-      store.read(UpdateKeys.highestBuild) ?? '',
-    );
-    if (highestVersion == null && highestBuild == null) return true;
-    if (highestVersion == null || highestBuild == null) return false;
-    return compareReleases(
-          manifest.version,
-          manifest.buildNumber,
-          highestVersion,
-          highestBuild,
-        ) >=
-        0;
   }
 
   bool _isNewer(

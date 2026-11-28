@@ -274,7 +274,7 @@ setting is per-device and does not sync.
 |---|---|
 | typed setter (`theme = ...`) | persists and notifies listeners (rebuilds the whole `MaterialApp`) |
 | `read(key)` / `write(key, value)` | small UI state such as the selected folder; notifies |
-| `writeSilently(key, value)` / `writeSilentlyBatch(values)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); batch writes commit atomically and neither method notifies |
+| `writeSilently(key, value)` / `writeSilentlyBatchIf(values, predicate)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); conditional batch reads and writes use one transaction, and neither method notifies |
 
 Settings never sync. Keys used by code: appearance, editor and `startupView`
 keys above, `library.folder` (the most recently selected active folder/view),
@@ -792,8 +792,10 @@ by the last successful check (24 h) and bounded failure backoff (one hour to
 `NOTES_DATA_DIR` instance and can be switched off in Updates settings. A manual
 check is always available. The check fetches the stable release, manifest and
 signature (bounded sizes), verifies the Ed25519 signature over the raw manifest
-bytes, applies replay protection, and selects the platform artifact. A newer
-signed release downloads in the background. Installation always needs the
+bytes, applies replay protection, and selects the platform artifact. The replay
+mark is read from persisted settings and compared/advanced under one writer
+transaction so two open windows cannot lower or mix the remembered version and
+build. A newer signed release downloads in the background. Installation always needs the
 user's confirmation.
 
 Interrupted, cancelled or offline downloads keep a small metadata file with the

@@ -52,28 +52,30 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
        folderId = recoveredDraft == null ? folderId : recoveredDraft.folderId {
     _draftLease = repo.acquireEditorDraftLease(_draftId);
     var draftToLoad = recoveredDraft;
-    if (_draftLease == null && recoveredDraft != null) {
-      _readOnly = true;
-      loadError =
-          'This recovery draft is already open in another Notes window.';
-    } else if (_draftLease == null) {
-      throw StateError('Notes could not claim a new editor session.');
-    } else if (recoveredDraft != null) {
-      // The recovery list may hold an older snapshot than the latest failed
-      // save. Read the durable row only after claiming the per-draft lease.
-      draftToLoad = repo.pendingEditorDraft(_draftId);
-      if (draftToLoad == null) {
-        _id = null;
-        _recoveringDraft = false;
-        _readOnly = true;
-        recoveryDraftUnavailable = true;
-        loadError = const EditorDraftUnavailableException().toString();
-      } else {
-        _id = draftToLoad.noteId;
-        this.folderId = draftToLoad.folderId;
-      }
-    }
     try {
+      if (_draftLease == null && recoveredDraft != null) {
+        _readOnly = true;
+        loadError =
+            'This recovery draft is already open in another Notes window.';
+      } else if (_draftLease == null) {
+        throw StateError('Notes could not claim a new editor session.');
+      } else {
+        if (recoveredDraft != null) {
+          // The recovery list may hold an older snapshot than the latest failed
+          // save. Read the durable row only after claiming the per-draft lease.
+          draftToLoad = repo.pendingEditorDraft(_draftId);
+          if (draftToLoad == null) {
+            _id = null;
+            _recoveringDraft = false;
+            _readOnly = true;
+            recoveryDraftUnavailable = true;
+            loadError = const EditorDraftUnavailableException().toString();
+          } else {
+            _id = draftToLoad.noteId;
+            this.folderId = draftToLoad.folderId;
+          }
+        }
+      }
       _load(draftToLoad);
     } on Object {
       _draftLease?.release();

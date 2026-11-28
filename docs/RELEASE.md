@@ -243,19 +243,29 @@ a copy of the data directory as well. Keep the 1.3.1 assets and verify their
 checksums before a future rollback.
 
 On first start, 1.3.2 writes `notes.db.pre-v5.bak` before migrating an existing
-database to schema 5. To roll back, first turn cloud sync off and sign out on
-every device. On Linux, install the verified 1.3.1 archive, move `notes.db`,
-`notes.db-wal` and `notes.db-shm` aside, then copy `notes.db.pre-v5.bak` to
-`notes.db`; retain the same keystore key. Edits made after upgrade are not in
-that copy, so export and restore them before rolling back or restore the
-pre-upgrade directory copy.
+database to schema 5. To roll back safely:
 
-On Android, the `.pre-v5.bak` copy is in app-private storage. A 1.3.1 APK also
-cannot replace the newer version code in place. With a verified export made
-before the upgrade, uninstall 1.3.2, install the verified 1.3.1 APK signed by
-the same certificate, then restore the export. Uninstalling without a verified
-export deletes the only device copy. Cloud data remains on the configured
-server; it can be left unused while the older build is in use.
+1. Turn cloud sync off and sign out on every device. In 1.3.2, open **Review
+drafts** and recover each draft you want to keep. Confirm that no pending
+recovery drafts remain; discard only drafts you intentionally do not want.
+2. Export the complete current library from 1.3.2, verify the export, and copy
+it off the device. This export must be made after recovering drafts so it
+contains edits made after the upgrade.
+3. On Linux, close Notes and keep copies of the current schema 5 database and
+`notes.db.pre-v5.bak`. Install the verified 1.3.1 archive, move
+`notes.db`, `notes.db-wal` and `notes.db-shm` aside, and copy
+`notes.db.pre-v5.bak` to `notes.db`; retain the same keystore key. Start
+1.3.1, then restore the current 1.3.2 export with **Data → Restore**. The
+restore merges matching note IDs and applies the newer exported edits.
+4. On Android, the `.pre-v5.bak` copy is in app-private storage and a 1.3.1
+APK cannot replace the newer version code in place. After the current
+export is verified and copied off-device, uninstall 1.3.2, install the
+verified 1.3.1 APK signed by the same certificate, and restore the export
+with **Data → Restore**. Uninstalling deletes the database and its key.
+
+Cloud data remains on the configured server; leave it unused while the older
+build is in use. Do not proceed if the current export cannot be verified or
+copied off-device.
 
 ### Checking automatic sync
 

@@ -471,6 +471,46 @@ void main() {
     db.close();
   });
 
+  test('only one process can edit a recovery draft at a time', () async {
+    final db = AppDatabase.open(path());
+    final repo = NoteRepository(db);
+    const draftId = 'cross-process-recovery-lock';
+    final ready = File(path('draft-lock-ready'));
+    final release = File(path('draft-lock-release'));
+    final worker = await Process.start(
+      _flutterBinary(),
+      [
+        'test',
+        '--no-pub',
+        'test/data/sequence_writer_process_test.dart',
+        '--reporter',
+        'expanded',
+      ],
+      workingDirectory: Directory.current.path,
+      environment: {
+        ...Platform.environment,
+        'NOTES_PROCESS_DB': path(),
+        'NOTES_PROCESS_DRAFT_LOCK_ID': draftId,
+        'NOTES_PROCESS_READY': ready.path,
+        'NOTES_PROCESS_RELEASE': release.path,
+      },
+    );
+    unawaited(worker.stdout.drain<void>());
+    unawaited(worker.stderr.drain<void>());
+    try {
+      await _waitForFiles([ready], [worker]);
+      expect(repo.acquireEditorDraftLease(draftId), isNull);
+    } finally {
+      release.writeAsStringSync('go');
+    }
+    expect(await worker.exitCode, 0);
+    final lease = repo.acquireEditorDraftLease(draftId);
+    expect(lease, isNotNull);
+    lease!.release();
+    repo.dispose();
+    db.close();
+  });
+
   test('a database from a newer app version is refused, not downgraded', () {
     final db = AppDatabase.open(path());
     db.raw.userVersion = migrations.length + 5;
@@ -547,12 +587,17 @@ void main() {
     for (var i = 0; i < 9; i++) {
       db.snapshotTo('${backups.path}/before-import-$i.db');
     }
+    for (var i = 0; i < 7; i++) {
+      File('${backups.path}/before-import-empty-$i.db').writeAsBytesSync([]);
+    }
+    db.snapshotTo('${backups.path}/before-import-after-empty.db');
     final retained = backups
         .listSync()
         .whereType<File>()
         .where(
           (file) =>
               file.uri.pathSegments.last.startsWith('before-import-') &&
+              !file.uri.pathSegments.last.contains('-empty-') &&
               file.path.endsWith('.db'),
         )
         .toList();

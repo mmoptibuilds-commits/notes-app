@@ -36,3 +36,11 @@ class EditorDraftWriteResult {
   final String baseVv;
   final String? conflictCopyId;
 }
+
+class EditorDraftUnavailableException implements Exception {
+  const EditorDraftUnavailableException();
+
+  @override
+  String toString() =>
+      'This recovery draft was already recovered or discarded on another screen.';
+}

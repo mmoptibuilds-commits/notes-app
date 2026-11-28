@@ -104,7 +104,10 @@ class AppDatabase {
           throw StateError('The database open lock is a symlink.');
         }
         openLock = File(lockPath).openSync(mode: FileMode.append);
-        openLock.lockSync(FileLock.exclusive);
+        // Exclusive locks are non-blocking by default in Dart. Waiting here
+        // keeps simultaneous first opens and migrations from failing with a
+        // transient lock error.
+        openLock.lockSync(FileLock.blockingExclusive);
         lockHeld = true;
       }
       final db = path == null ? sqlite3.openInMemory() : sqlite3.open(path);
@@ -308,7 +311,11 @@ class AppDatabase {
     );
     if (p.basename(target).startsWith('before-import-') &&
         p.extension(target) == '.db') {
-      _pruneImportSnapshots(p.dirname(target), _key);
+      _pruneImportSnapshots(
+        p.dirname(target),
+        _key,
+        expectedVersion: _db.userVersion,
+      );
     }
   }
 
@@ -343,7 +350,7 @@ void _writeVerifiedCopy(
   final targetLock = File(lockPath).openSync(mode: FileMode.append);
   var lockHeld = false;
   try {
-    targetLock.lockSync(FileLock.exclusive);
+    targetLock.lockSync(FileLock.blockingExclusive);
     lockHeld = true;
     if (!replace &&
         FileSystemEntity.typeSync(target, followLinks: false) !=
@@ -382,9 +389,23 @@ void _verifyDatabaseCopy(
     if (key != null) copy.execute("PRAGMA key = 'raw:${hex(key)}'");
     copy.select('SELECT count(*) FROM sqlite_master');
     final version = copy.userVersion;
+    if (version < 1) {
+      throw StateError('Database snapshot has no Notes schema version.');
+    }
     if (expectedVersion != null && version != expectedVersion) {
       throw StateError('Database snapshot has unexpected schema version.');
     }
+    final tables = copy.select(
+      "SELECT name FROM sqlite_master WHERE type = 'table' "
+      "AND name IN ('notes', 'local_meta')",
+    );
+    if (tables.length != 2) {
+      throw StateError('Database snapshot is missing Notes tables.');
+    }
+    // Force SQLite to resolve and read the columns used by Notes. quick_check
+    // alone accepts a zero-byte file as a perfectly healthy empty database.
+    copy.select('SELECT id, title, body FROM notes LIMIT 1');
+    copy.select('SELECT key, value FROM local_meta LIMIT 1');
     final check = copy.select('PRAGMA quick_check');
     if (check.length != 1 || check.first.values.first != 'ok') {
       throw StateError('Database snapshot did not pass quick_check.');
@@ -394,7 +415,11 @@ void _verifyDatabaseCopy(
   }
 }
 
-void _pruneImportSnapshots(String directoryPath, Uint8List? key) {
+void _pruneImportSnapshots(
+  String directoryPath,
+  Uint8List? key, {
+  required int expectedVersion,
+}) {
   final directory = Directory(directoryPath);
   if (!directory.existsSync()) return;
   final snapshots = <File>[];
@@ -405,7 +430,11 @@ void _pruneImportSnapshots(String directoryPath, Uint8List? key) {
       continue;
     }
     try {
-      _verifyDatabaseCopy(entity.path, key: key);
+      _verifyDatabaseCopy(
+        entity.path,
+        key: key,
+        expectedVersion: expectedVersion,
+      );
       snapshots.add(entity);
     } on Object {
       // An unverified older copy is left untouched; it may still be useful

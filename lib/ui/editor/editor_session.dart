@@ -48,8 +48,23 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
     this.onConflictCopy,
   }) : _id = recoveredDraft?.noteId ?? noteId,
        _draftId = recoveredDraft?.id ?? newId(),
+       _recoveringDraft = recoveredDraft != null,
        folderId = recoveredDraft == null ? folderId : recoveredDraft.folderId {
-    _load(recoveredDraft);
+    _draftLease = repo.acquireEditorDraftLease(_draftId);
+    if (_draftLease == null && recoveredDraft != null) {
+      _readOnly = true;
+      loadError =
+          'This recovery draft is already open in another Notes window.';
+    } else if (_draftLease == null) {
+      throw StateError('Notes could not claim a new editor session.');
+    }
+    try {
+      _load(recoveredDraft);
+    } on Object {
+      _draftLease?.release();
+      _draftLease = null;
+      rethrow;
+    }
     saveBarrier?.register(this);
     if (recoveredDraft != null && loadError == null) {
       _lastSerializedBody = recoveredDraft.body;
@@ -64,6 +79,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   final EditorSaveBarrier? saveBarrier;
   final String? folderId;
   final String _draftId;
+  bool _recoveringDraft;
   final bool useCompletedSection;
   final Duration autosaveDelay;
   final Duration retryDelay;
@@ -92,6 +108,8 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   Object? recoverySaveError;
   bool recoveryCopySaved = false;
   bool recoveryCopyCurrent = false;
+  bool recoveryCopyIsPlainTextFallback = false;
+  bool recoveryDraftUnavailable = false;
   String? _lastSerializedBody;
   bool _serializedCurrent = false;
 
@@ -107,6 +125,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   bool get isTrashed => _readOnly && loadError == null;
   bool get frozenForUpdate => _frozenForUpdate;
   bool _readOnly = false;
+  EditorDraftLease? _draftLease;
 
   @override
   bool get hasUnconfirmedSaves => _dirty;
@@ -296,6 +315,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
     _dirty = true;
     _serializedCurrent = false;
     recoveryCopyCurrent = false;
+    recoveryCopyIsPlainTextFallback = false;
     final wasPending = status == SaveStatus.pending;
     status = SaveStatus.pending;
     _timer?.cancel();
@@ -316,6 +336,29 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   /// The complete document as it should be stored.
   Delta canonicalDelta() => _projection.merge(quill.document.toDelta());
+
+  String _plainTextForRecovery() {
+    try {
+      final merged = _projection.merge(quill.document.toDelta());
+      final text = StringBuffer();
+      for (final op in merged.toList()) {
+        final value = op.data;
+        if (value is String) {
+          text.write(value);
+        } else if (value is Map && value.containsKey('image')) {
+          text.write('[Image]');
+        }
+      }
+      return text.toString();
+    } on Object {
+      final visible = quill.document.toPlainText().trimRight();
+      final completed = _projection.completed
+          .map((line) => line.text)
+          .where((line) => line.isNotEmpty)
+          .join('\n');
+      return [visible, completed].where((part) => part.isNotEmpty).join('\n');
+    }
+  }
 
   @override
   void freezeForUpdate() {
@@ -372,6 +415,11 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
       final id = _id;
       if (id == null) {
         if (t.trim().isEmpty && digestBody(body).isBlank) {
+          repo.discardPendingEditorDraft(_draftId);
+          _recoveringDraft = false;
+          recoveryCopySaved = false;
+          recoveryCopyCurrent = false;
+          recoveryCopyIsPlainTextFallback = false;
           _dirty = false;
           status = SaveStatus.idle;
           notifyListeners();
@@ -384,24 +432,53 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
         title: t,
         body: body,
         base: _base,
+        requirePendingDraft: _recoveringDraft || recoveryCopySaved,
+        recoveringDraft: _recoveringDraft,
         folderId: folderId,
       );
       _id = r.noteId;
       _base = VersionVector.decode(r.baseVv);
+      _recoveringDraft = false;
       if (r.conflictCopyId != null) onConflictCopy?.call(r.conflictCopyId!);
       _dirty = false;
       lastError = null;
       recoverySaveError = null;
       recoveryCopySaved = false;
       recoveryCopyCurrent = false;
+      recoveryCopyIsPlainTextFallback = false;
       status = SaveStatus.idle;
+    } on EditorDraftUnavailableException catch (e) {
+      // Another screen recovered or discarded this row first. In particular,
+      // do not turn its confirmed discard back into a new recovery copy.
+      _timer?.cancel();
+      _timer = null;
+      _dirty = false;
+      _readOnly = true;
+      quill.readOnly = true;
+      recoveryDraftUnavailable = true;
+      recoveryCopySaved = false;
+      recoveryCopyCurrent = false;
+      lastError = e;
+      recoverySaveError = e;
+      status = SaveStatus.failed;
     } on Object catch (e) {
       lastError = e;
       status = SaveStatus.failed;
       if (body == null) {
-        _serializedCurrent = false;
-        recoveryCopyCurrent = false;
-        recoverySaveError = e;
+        try {
+          // Keep the latest title and visible text if canonical Delta encoding
+          // itself fails. Formatting and embeds may need checking on recovery,
+          // but the typed words survive closing or an update.
+          body = bodyFromPlainText(_plainTextForRecovery());
+          _lastSerializedBody = body;
+          _serializedCurrent = true;
+          recoveryCopyIsPlainTextFallback = true;
+          recoverySaveError = e;
+        } on Object catch (fallbackError) {
+          _serializedCurrent = false;
+          recoveryCopyCurrent = false;
+          recoverySaveError = fallbackError;
+        }
       }
       if (body != null) {
         recoveryCopyCurrent = false;
@@ -419,7 +496,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
           );
           recoveryCopySaved = true;
           recoveryCopyCurrent = true;
-          recoverySaveError = null;
+          if (!recoveryCopyIsPlainTextFallback) recoverySaveError = null;
         } on Object catch (draftError) {
           recoverySaveError = draftError;
         }
@@ -490,7 +567,8 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
           !_readOnly &&
           loadError == null &&
           _serializedCurrent &&
-          _lastSerializedBody != null) {
+          _lastSerializedBody != null &&
+          !recoveryCopyCurrent) {
         // The last save failed (disk full, database busy...). The editor is
         // going away. The background retry uses the already serialized
         // snapshot rather than serializing a second time during disposal. If
@@ -499,19 +577,34 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
           repo: repo,
           barrier: saveBarrier,
           draftId: _draftId,
-          id: _id,
+          lease: _draftLease!,
+          noteId: _id,
           title: title.text,
           body: _lastSerializedBody!,
           base: _base,
           folderId: folderId,
+          requireExisting: recoveryCopySaved,
           retryDelay: retryDelay,
         );
-        handoff.start();
+        _draftLease = null;
+        try {
+          handoff.start();
+        } on Object {
+          handoff.release();
+          rethrow;
+        }
       }
     } on Object catch (e) {
       recoverySaveError = e;
     } finally {
       _disposed = true;
+      try {
+        _draftLease?.release();
+      } on Object {
+        // Continue disposing every editor resource.
+      } finally {
+        _draftLease = null;
+      }
       _timer?.cancel();
       _timer = null;
       try {
@@ -546,23 +639,27 @@ class _PendingEditorSave implements EditorSaveParticipant {
     required this.repo,
     required this.barrier,
     required this.draftId,
-    required this.id,
+    required this.lease,
+    required this.noteId,
     required this.title,
     required this.body,
     required this.base,
     required this.folderId,
+    required this.requireExisting,
     required this.retryDelay,
   });
 
   final NoteRepository repo;
   final EditorSaveBarrier? barrier;
   final String draftId;
+  final EditorDraftLease lease;
+  final String? noteId;
   final String? folderId;
+  final bool requireExisting;
   final Duration retryDelay;
-  String? id;
   final String title;
   final String body;
-  VersionVector base;
+  final VersionVector base;
   Timer? _retry;
   Future<void>? _inFlight;
   var _pending = true;
@@ -597,38 +694,27 @@ class _PendingEditorSave implements EditorSaveParticipant {
   Future<void> _writeSnapshot() async {
     if (!_pending) return;
     try {
-      if (id == null && title.trim().isEmpty && digestBody(body).isBlank) {
+      if (noteId == null && title.trim().isEmpty && digestBody(body).isBlank) {
         _finish();
         return;
       }
-      final result = repo.writeEditorContent(
-        draftId: draftId,
-        noteId: id,
-        title: title,
-        body: body,
-        base: base,
-        folderId: folderId,
+      repo.savePendingEditorDraftFromHandoff(
+        PendingEditorDraft(
+          id: draftId,
+          noteId: noteId,
+          folderId: folderId,
+          title: title,
+          body: body,
+          baseVv: base.encode(),
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+        requireExisting: requireExisting,
       );
-      id = result.noteId;
-      base = VersionVector.decode(result.baseVv);
       _finish();
     } on Object {
       _attempts++;
-      try {
-        repo.savePendingEditorDraft(
-          PendingEditorDraft(
-            id: draftId,
-            noteId: id,
-            folderId: folderId,
-            title: title,
-            body: body,
-            baseVv: base.encode(),
-            updatedAt: DateTime.now().millisecondsSinceEpoch,
-          ),
-        );
-      } on Object {
-        // The live handoff keeps retrying if even the recovery write fails.
-      }
+      // Retry through the same conditional operation. A consumed or discarded
+      // row must never be recreated by a delayed handoff.
       _scheduleRetry();
     }
   }
@@ -638,7 +724,10 @@ class _PendingEditorSave implements EditorSaveParticipant {
     _retry?.cancel();
     _retry = null;
     barrier?.unregister(this);
+    lease.release();
   }
+
+  void release() => _finish();
 
   @override
   void freezeForUpdate() {}

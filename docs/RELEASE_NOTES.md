@@ -7,23 +7,27 @@ reduced-motion support.
 
 - **Editor recovery.** If a note save fails, Notes keeps an encrypted recovery
   draft on this device and offers **Review drafts** from the library. A
-  successful save clears the recovery copy.
+  successful save clears the recovery copy. If rich-text serialization fails,
+  Notes keeps the latest title and text and warns that formatting or images may
+  need review.
 - **Reduced motion.** The system preference now disables app animation without
   changing the animation setting saved in Notes.
 - **Reliable sync and updates.** Cloud quarantine limits preserve unrelated
   LAN edits. Linux update archive checks work with Ubuntu's `mawk`, and update
   failures provide retry guidance.
-- **Safer database recovery.** Concurrent Notes processes allocate unique local
-  sequence numbers, and migration backups are checked before replacement.
+- **Safer database recovery.** First-run key setup and LAN identity creation are
+  serialized across processes. Concurrent writers allocate unique local
+  sequence numbers, and backup retention keeps readable Notes snapshots.
 
 ## Upgrading from 1.3.1
 
 Notes 1.3.2 upgrades the encrypted database to schema version 5. On Linux, the
-first start writes `notes.db.pre-v5.bak` beside the database. Keep a Notes JSON
-export before upgrading if you may need to roll back. On Android, rollback to
-1.3.1 requires a verified export made before the upgrade, because the app's
-private database copy cannot be reached without root. See the [schema 5
-rollback steps](RELEASE.md#schema-5-upgrade-and-rollback-132-to-131).
+first start writes `notes.db.pre-v5.bak` beside the database. Before upgrading,
+keep a verified Notes JSON export off-device. If rolling back after using
+1.3.2, recover or intentionally discard pending drafts, export the current
+library, and copy that export off-device before replacing the database or
+uninstalling. Android's private database copy cannot be reached without root.
+See the [schema 5 rollback steps](RELEASE.md#schema-5-upgrade-and-rollback-131-to-132).
 
 Install the Linux update from **Settings → Updates** and confirm it, or install
 the matching APK over the existing Android app. The Android package must retain

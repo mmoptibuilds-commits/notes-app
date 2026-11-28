@@ -35,15 +35,22 @@ class DeviceIdentity {
   static const _metaKey = 'identity_private';
 
   static Future<DeviceIdentity> loadOrCreate(AppDatabase db) async {
-    final stored = db.getMeta(_metaKey);
-    final Uint8List priv;
+    var stored = db.getMeta(_metaKey);
     if (stored == null) {
       final kp = await X25519().newKeyPair();
-      priv = Uint8List.fromList(await kp.extractPrivateKeyBytes());
-      db.transaction(() => db.setMeta(_metaKey, base64Encode(priv)));
-    } else {
-      priv = base64Decode(stored);
+      final candidate = Uint8List.fromList(await kp.extractPrivateKeyBytes());
+      // Key generation is asynchronous, so another process may have populated
+      // this row in the meantime. Recheck while holding SQLite's writer lock
+      // and keep the first committed identity.
+      stored = db.transaction(() {
+        final current = db.getMeta(_metaKey);
+        if (current != null) return current;
+        final encoded = base64Encode(candidate);
+        db.setMeta(_metaKey, encoded);
+        return encoded;
+      });
     }
+    final priv = base64Decode(stored!);
     return fromPrivate(priv);
   }
 

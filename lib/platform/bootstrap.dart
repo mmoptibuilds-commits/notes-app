@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -224,6 +225,49 @@ class FileKeyStore implements KeyStore {
       File(path).writeAsStringSync(base64Encode(key), flush: true);
 }
 
+final Map<String, Future<void>> _bootstrapQueues = {};
+
+Future<T> _withBootstrapLock<T>(String directory, Future<T> Function() body) {
+  final key = Directory(directory).resolveSymbolicLinksSync();
+  final previous = _bootstrapQueues[key] ?? Future<void>.value();
+  final released = Completer<void>();
+  final queued = released.future;
+  _bootstrapQueues[key] = queued;
+  return () async {
+    await previous;
+    try {
+      final lockPath = p.join(directory, '.notes-bootstrap.lock');
+      if (FileSystemEntity.typeSync(lockPath, followLinks: false) ==
+          FileSystemEntityType.link) {
+        throw StateError('The Notes bootstrap lock is a symlink.');
+      }
+      final lock = await File(lockPath).open(mode: FileMode.append);
+      var lockHeld = false;
+      try {
+        await lock.lock(FileLock.blockingExclusive);
+        lockHeld = true;
+        return await body();
+      } finally {
+        if (lockHeld) await lock.unlock();
+        await lock.close();
+      }
+    } finally {
+      released.complete();
+      if (identical(_bootstrapQueues[key], queued)) {
+        _bootstrapQueues.remove(key);
+      }
+    }
+  }();
+}
+
+class _InitializedNotes {
+  const _InitializedNotes(this.db, this.notes, this.settings, this.identity);
+  final AppDatabase db;
+  final NoteRepository notes;
+  final AppSettings settings;
+  final DeviceIdentity identity;
+}
+
 /// Opens the app's database, creating it and its key on first run.
 ///
 /// Throws [DatabaseKeyMissingException] when a database exists without a key,
@@ -239,24 +283,40 @@ Future<AppServices> bootstrap({String? dataDir, KeyStore? keyStore}) async {
           ? const SecureKeyStore()
           : FileKeyStore(p.join(dir, 'dev.key')));
 
-  final dbPath = p.join(dir, 'notes.db');
-  var key = await store.read();
-  if (key == null) {
-    if (File(dbPath).existsSync()) throw DatabaseKeyMissingException(dbPath);
-    key = randomBytes(32);
-    await store.write(key);
-    // Make sure the key really is retrievable before any note depends on it.
-    final check = await store.read();
-    if (check == null || hex(check) != hex(key)) {
-      throw StateError('The system keystore did not keep the database key.');
+  final initialized = await _withBootstrapLock(dir, () async {
+    final dbPath = p.join(dir, 'notes.db');
+    var key = await store.read();
+    if (key == null) {
+      if (File(dbPath).existsSync()) {
+        throw DatabaseKeyMissingException(dbPath);
+      }
+      key = randomBytes(32);
+      await store.write(key);
+      // Make sure the key really is retrievable before any note depends on it.
+      final check = await store.read();
+      if (check == null || hex(check) != hex(key)) {
+        throw StateError('The system keystore did not keep the database key.');
+      }
     }
-  }
-  final db = AppDatabase.open(dbPath, key: key);
-  final notes = NoteRepository(db);
-  final settings = AppSettings(db);
-  // Only a database created by this very launch can need the introduction.
-  if (db.createdNow) settings.write('onboarding', 'pending');
-  final identity = await DeviceIdentity.loadOrCreate(db);
+    final db = AppDatabase.open(dbPath, key: key);
+    final notes = NoteRepository(db);
+    final settings = AppSettings(db);
+    try {
+      // Only a database created by this very launch can need the introduction.
+      if (db.createdNow) settings.write('onboarding', 'pending');
+      final identity = await DeviceIdentity.loadOrCreate(db);
+      return _InitializedNotes(db, notes, settings, identity);
+    } on Object {
+      settings.dispose();
+      notes.dispose();
+      db.close();
+      rethrow;
+    }
+  });
+  final db = initialized.db;
+  final notes = initialized.notes;
+  final settings = initialized.settings;
+  final identity = initialized.identity;
   final sync = SyncService(
     repo: notes,
     peers: PeerStore(db),

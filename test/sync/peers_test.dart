@@ -34,6 +34,23 @@ void main() {
     expect(other.publicKey, isNot(id1.publicKey));
   });
 
+  test('concurrent identity creation keeps the first committed key', () async {
+    final dir = Directory.systemTemp.createTempSync('notes identity race ');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/notes.db';
+    final first = AppDatabase.open(path);
+    final second = AppDatabase.open(path);
+    addTearDown(first.close);
+    addTearDown(second.close);
+
+    final identities = await Future.wait([
+      DeviceIdentity.loadOrCreate(first),
+      DeviceIdentity.loadOrCreate(second),
+    ]);
+
+    expect(identities.first.publicKey, identities.last.publicKey);
+  });
+
   test('add, refresh by same key, refuse a different key, remove', () {
     final p = store.add(
       id: 'peer1',

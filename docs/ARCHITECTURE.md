@@ -175,9 +175,14 @@ are the UI views. `NoteRecord.toJson` is the wire and export format.
 - Local change counter: `AppDatabase.nextSeq()` gives each written row a
   `local_seq`; `local_meta.seq` is persisted at commit and rolled back with the
   transaction.
-- File-backed opens take the OS lock `<db>.open.lock` while validating the
-  database and running migrations. The lock is released automatically if the
-  process exits; a leftover lock file is harmless. Each write transaction
+- Bootstrap holds `.notes-bootstrap.lock` across key lookup or first-run key
+  creation, opening the database and loading the LAN identity. This prevents a
+  second process from replacing the key or creating a different identity while
+  the first database is being initialized. The identity is rechecked inside a
+  transaction after asynchronous key generation.
+- File-backed opens take the blocking OS lock `<db>.open.lock` while validating
+  the database and running migrations. The lock is released automatically if
+  the process exits; a leftover lock file is harmless. Each write transaction
   refreshes `seq` and `hlc_last` after `BEGIN IMMEDIATE`, while SQLite holds the
   write lock, so already-open processes cannot allocate duplicate local
   sequence numbers or stale HLCs.
@@ -231,10 +236,20 @@ Rules, enforced by convention and by review:
   version is kept as a deterministic conflict copy and the editor's content
   becomes the note (`SaveOutcome.savedWithConflictCopy`).
 - `writeEditorContent` writes a note and deletes its pending recovery draft in
-  one transaction. Failed saves store a serialized editor snapshot in
-  `editor_drafts`; the library offers a review screen. Recovering a draft whose
-  original note is missing, trashed or purged creates a new note. A stale draft
-  for a live note follows the ordinary version-vector conflict-copy path.
+  one transaction. A recovery save first checks that its draft row still exists
+  inside that transaction, so two recovery screens cannot create two notes
+  and a confirmed discard cannot be undone by a stale editor. A recovered
+  original note is rechecked under the same writer lock; if it became missing,
+  trashed or purged, recovery creates a new note instead of reviving it.
+- Each editor holds a process-local and cross-process lock for its draft ID.
+  Another Notes window opens that recovery copy read-only while the owner is
+  active. The OS releases the lock after a crash, so recovery remains available.
+- Failed saves store a serialized editor snapshot in `editor_drafts`; the
+  library offers a review screen. A disposed editor retries only the encrypted
+  draft write, never a note save. If canonical Delta encoding fails, Notes
+  stores the latest title and visible plain text as a recovery copy and warns
+  that formatting and images may need checking. A stale draft for a live note
+  follows the ordinary version-vector conflict-copy path.
 - `repo.changes` (from the database) drives library reloads and auto sync.
 
 ### 2.6 Settings (`lib/data/app_settings.dart`)
@@ -292,8 +307,10 @@ sample notes; that would bump the change counter and sync to paired devices.
 - Migration 5 adds encrypted local editor recovery rows. Drafts do not affect
   the sync queue and are deleted atomically with a successful editor save.
 - Import/restore snapshots named `before-import-*.db` are verified and capped
-  at seven usable copies per snapshot directory. Unverified files are kept for
-  possible manual recovery.
+  at seven usable copies per snapshot directory. A usable copy must have a
+  positive Notes schema version, the core Notes tables and readable columns,
+  the expected schema version, and a passing `quick_check`. Unverified files
+  do not count toward the cap and are kept for possible manual recovery.
 - Every migration needs a test that creates a database at the previous version
   and upgrades it. The pattern is `AppDatabase.open(path, schema:
   migrations.sublist(0, n))`, then reopen with the full list: see
@@ -903,11 +920,16 @@ widgets. It owns the `QuillController`, the title controller, the
   `failed`. The last serialized snapshot is written to encrypted
   `editor_drafts`; the library shows **Review drafts** until the user recovers
   or discards it. A successful note write removes the recovery row in the same
-  transaction. `dispose` flushes; if that still failed, a background save
-  handoff retries up to 2000 times and remains registered with
-  `EditorSaveBarrier` so a Linux update cannot pass it without confirmation.
-  The update barrier freezes editors while it flushes, then releases them again
-  if a save fails.
+  transaction. Editors with a durable draft must still find that row when they
+  save; this makes competing recovery screens single-consumer and keeps a
+  confirmed discard from being saved later. `dispose` flushes; if that still
+  failed, a background handoff retries only the encrypted draft write, up to
+  2000 times, and remains registered with `EditorSaveBarrier` until the latest
+  snapshot is durable. The update barrier freezes editors while it flushes,
+  then releases them again if a save fails.
+- If canonical Delta serialization fails, recovery falls back to the latest
+  title and visible plain text; the editor warns that formatting and images
+  may need checking after recovery.
 - The visible document is never replaced by sync. A save that finds the stored
   version moved on produces a conflict copy (`onConflictCopy` shows a banner).
 - A body that cannot be parsed (`loadError`) or a trashed note opens read-only

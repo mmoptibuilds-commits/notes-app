@@ -485,9 +485,13 @@ class _EditorScreenState extends State<EditorScreen>
     listenable: session,
     builder: (context, _) => session.status == SaveStatus.failed
         ? Text(
-            session.recoveryCopySaved
+            session.recoveryDraftUnavailable
+                ? 'This recovery draft was already recovered or discarded elsewhere.'
+                : session.recoveryCopySaved
                 ? session.recoveryCopyCurrent
-                      ? 'Not saved yet. An encrypted recovery copy is stored on this device.'
+                      ? session.recoveryCopyIsPlainTextFallback
+                            ? 'Latest text is kept in recovery. Check formatting and images after recovery.'
+                            : 'Not saved yet. An encrypted recovery copy is stored on this device.'
                       : 'Not saved. The latest edit could not be added to its recovery copy.'
                 : session.recoverySaveError != null
                 ? 'Not saved. Notes could not store a recovery copy.'

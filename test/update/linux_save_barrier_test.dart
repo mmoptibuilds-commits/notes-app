@@ -425,7 +425,7 @@ void main() {
     },
   );
 
-  test('barrier sees a failed save handed off after editor disposal', () async {
+  test('durable recovery copy survives update after editor disposal', () async {
     final h = await makeHarness();
     final note = h.repo.createNote(body: _body('old text\n'));
     final session = openSession(h, note.id);
@@ -450,7 +450,8 @@ void main() {
       onQuit: () async {},
     );
     launcher.beforeStart = () async {
-      expect(h.repo.getNote(note.id)!.preview, 'handed off old text');
+      expect(h.repo.getNote(note.id)!.preview, 'old text');
+      expect(h.repo.pendingEditorDrafts().single.body, contains('handed off'));
     };
     final info = await i.prepare();
     final result = await i.install(await ready(), info);
@@ -458,8 +459,9 @@ void main() {
     expect(result, isA<InstallHandedToOs>());
     expect(barriers, 1);
     expect(launcher.started, hasLength(1));
-    expect(h.repo.getNote(note.id)!.preview, 'handed off old text');
-    expect(h.repo.attempts, greaterThanOrEqualTo(3));
+    expect(h.repo.getNote(note.id)!.preview, 'old text');
+    expect(h.repo.pendingEditorDrafts().single.body, contains('handed off'));
+    expect(h.repo.attempts, greaterThanOrEqualTo(2));
   });
 
   test('an unconfirmed save times out without arming the helper', () async {

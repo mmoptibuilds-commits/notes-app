@@ -8,13 +8,17 @@ All notable changes to Notes are recorded here.
 
 - Failed editor saves are kept in an encrypted, device-local recovery draft.
   The library offers a review screen, and a successful save clears the draft
-  in the same transaction.
+  in the same transaction. If rich-text serialization fails, recovery keeps
+  the latest title and text and warns that formatting or images may need review.
 
 ### Fixed
 
-- Concurrent database processes refresh the local sequence and HLC under the
-  SQLite write lock. Migration backups are verified before atomic replacement,
-  and import snapshots are bounded.
+- First-run key and LAN identity initialization are serialized across
+  processes. Concurrent database writers refresh the local sequence and HLC
+  under the SQLite write lock. Migration backups are verified before atomic
+  replacement, and import retention counts only readable Notes databases.
+- Recovery drafts have one active editor across Notes processes; stale saves
+  cannot recreate a recovered or discarded copy.
 - Cloud quarantine limits preserve LAN and unrelated pending records, retrying
   a page when a malformed row cannot be retained.
 - Linux update archive validation works with Ubuntu's `mawk`; update failures

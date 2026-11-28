@@ -35,6 +35,8 @@ simplicity and intuitive editing matter more than feature count.
 - Cursor and scroll position are never reset by autosave, resume or sync.
 - When a save fails, Notes stores an encrypted recovery draft and offers it for
   review from the library. A successful save clears that recovery copy.
+- If rich-text serialization fails, Notes keeps the latest title and visible
+  plain text for recovery and warns that formatting and images may need review.
 - Long documents stay usable.
 
 ### Appearance

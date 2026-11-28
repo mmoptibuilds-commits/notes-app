@@ -51,23 +51,38 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
        _recoveringDraft = recoveredDraft != null,
        folderId = recoveredDraft == null ? folderId : recoveredDraft.folderId {
     _draftLease = repo.acquireEditorDraftLease(_draftId);
+    var draftToLoad = recoveredDraft;
     if (_draftLease == null && recoveredDraft != null) {
       _readOnly = true;
       loadError =
           'This recovery draft is already open in another Notes window.';
     } else if (_draftLease == null) {
       throw StateError('Notes could not claim a new editor session.');
+    } else if (recoveredDraft != null) {
+      // The recovery list may hold an older snapshot than the latest failed
+      // save. Read the durable row only after claiming the per-draft lease.
+      draftToLoad = repo.pendingEditorDraft(_draftId);
+      if (draftToLoad == null) {
+        _id = null;
+        _recoveringDraft = false;
+        _readOnly = true;
+        recoveryDraftUnavailable = true;
+        loadError = const EditorDraftUnavailableException().toString();
+      } else {
+        _id = draftToLoad.noteId;
+        this.folderId = draftToLoad.folderId;
+      }
     }
     try {
-      _load(recoveredDraft);
+      _load(draftToLoad);
     } on Object {
       _draftLease?.release();
       _draftLease = null;
       rethrow;
     }
     saveBarrier?.register(this);
-    if (recoveredDraft != null && loadError == null) {
-      _lastSerializedBody = recoveredDraft.body;
+    if (draftToLoad != null && loadError == null) {
+      _lastSerializedBody = draftToLoad.body;
       _serializedCurrent = true;
       recoveryCopySaved = true;
       recoveryCopyCurrent = true;
@@ -77,7 +92,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   final NoteRepository repo;
   final EditorSaveBarrier? saveBarrier;
-  final String? folderId;
+  String? folderId;
   final String _draftId;
   bool _recoveringDraft;
   final bool useCompletedSection;
@@ -122,7 +137,8 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
 
   /// True for a note in Trash: shown read-only until restored.
   bool get readOnly => _readOnly || _frozenForUpdate;
-  bool get isTrashed => _readOnly && loadError == null;
+  bool get isTrashed =>
+      _readOnly && loadError == null && !recoveryDraftUnavailable;
   bool get frozenForUpdate => _frozenForUpdate;
   bool _readOnly = false;
   EditorDraftLease? _draftLease;
@@ -450,17 +466,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
     } on EditorDraftUnavailableException catch (e) {
       // Another screen recovered or discarded this row first. In particular,
       // do not turn its confirmed discard back into a new recovery copy.
-      _timer?.cancel();
-      _timer = null;
-      _dirty = false;
-      _readOnly = true;
-      quill.readOnly = true;
-      recoveryDraftUnavailable = true;
-      recoveryCopySaved = false;
-      recoveryCopyCurrent = false;
-      lastError = e;
-      recoverySaveError = e;
-      status = SaveStatus.failed;
+      _markRecoveryDraftUnavailable(e);
     } on Object catch (e) {
       lastError = e;
       status = SaveStatus.failed;
@@ -483,7 +489,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
       if (body != null) {
         recoveryCopyCurrent = false;
         try {
-          repo.savePendingEditorDraft(
+          final pending = repo.savePendingEditorDraftFromHandoff(
             PendingEditorDraft(
               id: _draftId,
               noteId: _id,
@@ -493,17 +499,38 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
               baseVv: _base.encode(),
               updatedAt: DateTime.now().millisecondsSinceEpoch,
             ),
+            requireExisting: _recoveringDraft || recoveryCopySaved,
           );
-          recoveryCopySaved = true;
-          recoveryCopyCurrent = true;
-          if (!recoveryCopyIsPlainTextFallback) recoverySaveError = null;
+          if (pending) {
+            recoveryCopySaved = true;
+            recoveryCopyCurrent = true;
+            if (!recoveryCopyIsPlainTextFallback) recoverySaveError = null;
+          } else {
+            _markRecoveryDraftUnavailable(
+              const EditorDraftUnavailableException(),
+            );
+          }
         } on Object catch (draftError) {
           recoverySaveError = draftError;
         }
       }
-      _timer = Timer(retryDelay, flush);
+      if (!recoveryDraftUnavailable) _timer = Timer(retryDelay, flush);
     }
     if (!_disposed) notifyListeners();
+  }
+
+  void _markRecoveryDraftUnavailable(Object error) {
+    _timer?.cancel();
+    _timer = null;
+    _dirty = false;
+    _readOnly = true;
+    quill.readOnly = true;
+    recoveryDraftUnavailable = true;
+    recoveryCopySaved = false;
+    recoveryCopyCurrent = false;
+    lastError = error;
+    recoverySaveError = error;
+    status = SaveStatus.failed;
   }
 
   // ---------------------------------------------------- note operations
@@ -539,7 +566,7 @@ class EditorSession extends ChangeNotifier implements EditorSaveParticipant {
   /// Takes a trashed note out of Trash and makes it editable.
   void restoreFromTrash() {
     final id = _id;
-    if (id == null || _frozenForUpdate) return;
+    if (id == null || _frozenForUpdate || recoveryDraftUnavailable) return;
     repo.restore([id]);
     if (loadError == null) {
       _readOnly = false;
@@ -674,9 +701,18 @@ class _PendingEditorSave implements EditorSaveParticipant {
   }
 
   void _scheduleRetry() {
-    if (!_pending || _attempts >= 2000) return;
+    if (!_pending) return;
     _retry?.cancel();
-    _retry = Timer(retryDelay, () => unawaited(_attempt()));
+    var delayMilliseconds = retryDelay.inMilliseconds;
+    if (delayMilliseconds < 1) delayMilliseconds = 1;
+    for (var i = 0; i < _attempts && delayMilliseconds < 60000; i++) {
+      delayMilliseconds *= 2;
+    }
+    if (delayMilliseconds > 60000) delayMilliseconds = 60000;
+    _retry = Timer(
+      Duration(milliseconds: delayMilliseconds),
+      () => unawaited(_attempt()),
+    );
   }
 
   Future<void> _attempt() {

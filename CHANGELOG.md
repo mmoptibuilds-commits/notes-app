@@ -10,15 +10,22 @@ All notable changes to Notes are recorded here.
   The library offers a review screen, and a successful save clears the draft
   in the same transaction. If rich-text serialization fails, recovery keeps
   the latest title and text and warns that formatting or images may need review.
+- Recovery opens the latest durable draft after claiming its editor lease.
+  Closed-editor handoffs keep retrying with capped backoff until the encrypted
+  copy is durable; a retry after permanent deletion preserves the tombstone and
+  saves the unsaved text as a new note.
 
 ### Fixed
 
 - First-run key and LAN identity initialization are serialized across
   processes. Concurrent database writers refresh the local sequence and HLC
   under the SQLite write lock. Migration backups are verified before atomic
-  replacement, and import retention counts only readable Notes databases.
+  replacement, and import retention counts only readable Notes databases while
+  keeping the newly written pre-import copy even after system clock changes.
 - Recovery drafts have one active editor across Notes processes; stale saves
   cannot recreate a recovered or discarded copy.
+- Signed update replay protection stores the verified release version and
+  build together in one settings transaction.
 - Cloud quarantine limits preserve LAN and unrelated pending records, retrying
   a page when a malformed row cannot be retained.
 - Linux update archive validation works with Ubuntu's `mawk`; update failures

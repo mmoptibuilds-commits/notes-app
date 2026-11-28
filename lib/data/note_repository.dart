@@ -188,6 +188,28 @@ class NoteRepository {
       ),
   ];
 
+  /// Reads the latest durable snapshot for one draft after its editor lease
+  /// has been acquired. The recovery list may have rendered an older row
+  /// before another editor finished writing it.
+  PendingEditorDraft? pendingEditorDraft(String id) {
+    final rows = db.select(
+      'SELECT id, note_id, folder_id, title, body, base_vv, updated_at '
+      'FROM editor_drafts WHERE id = ?',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return PendingEditorDraft(
+      id: row['id'] as String,
+      noteId: row['note_id'] as String?,
+      folderId: row['folder_id'] as String?,
+      title: row['title'] as String,
+      body: row['body'] as String,
+      baseVv: row['base_vv'] as String,
+      updatedAt: row['updated_at'] as int,
+    );
+  }
+
   /// Persists an uncommitted editor snapshot in the encrypted database.
   void savePendingEditorDraft(PendingEditorDraft draft) {
     db.transaction(() {
@@ -309,8 +331,9 @@ class NoteRepository {
         savedVv = note.contentVv;
       } else {
         final current = getRecord(noteId);
-        if (recoveringDraft &&
-            (current == null || current.purged || current.trashedAt != null)) {
+        if (current == null ||
+            current.purged ||
+            (recoveringDraft && current.trashedAt != null)) {
           final note = createNote(title: title, body: body, folderId: folderId);
           savedId = note.id;
           savedVv = note.contentVv;

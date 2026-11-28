@@ -308,15 +308,17 @@ class AppDatabase {
       key: _key,
       expectedVersion: _db.userVersion,
       replace: false,
+      afterReplace:
+          p.basename(target).startsWith('before-import-') &&
+              p.extension(target) == '.db'
+          ? () => _pruneImportSnapshots(
+              p.dirname(target),
+              _key,
+              expectedVersion: _db.userVersion,
+              preservePath: target,
+            )
+          : null,
     );
-    if (p.basename(target).startsWith('before-import-') &&
-        p.extension(target) == '.db') {
-      _pruneImportSnapshots(
-        p.dirname(target),
-        _key,
-        expectedVersion: _db.userVersion,
-      );
-    }
   }
 
   ResultSet select(String sql, [List<Object?> args = const []]) =>
@@ -340,6 +342,7 @@ void _writeVerifiedCopy(
   required int expectedVersion,
   required bool replace,
   void Function()? beforeReplace,
+  void Function()? afterReplace,
 }) {
   Directory(p.dirname(target)).createSync(recursive: true);
   final lockPath = p.join(p.dirname(target), '.notes-snapshot.write.lock');
@@ -370,6 +373,9 @@ void _writeVerifiedCopy(
       // the supported Linux and Android filesystems. The old verified copy is
       // untouched until this point.
       temporary.renameSync(target);
+      // Import snapshot retention shares this lock with publication so a
+      // concurrent snapshot cannot prune the just-written recovery point.
+      afterReplace?.call();
     } finally {
       if (temporary.existsSync()) temporary.deleteSync();
     }
@@ -419,6 +425,7 @@ void _pruneImportSnapshots(
   String directoryPath,
   Uint8List? key, {
   required int expectedVersion,
+  required String preservePath,
 }) {
   final directory = Directory(directoryPath);
   if (!directory.existsSync()) return;
@@ -445,8 +452,15 @@ void _pruneImportSnapshots(
     (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
   );
   if (snapshots.length <= _maxImportSnapshots) return;
+  final protected = p.normalize(p.absolute(preservePath));
+  final retained = <File>[
+    for (final snapshot in snapshots)
+      if (p.normalize(p.absolute(snapshot.path)) == protected) snapshot,
+    for (final snapshot in snapshots)
+      if (p.normalize(p.absolute(snapshot.path)) != protected) snapshot,
+  ];
   var usable = snapshots.length;
-  for (final old in snapshots.skip(_maxImportSnapshots)) {
+  for (final old in retained.skip(_maxImportSnapshots)) {
     if (usable <= 1) break;
     try {
       old.deleteSync();

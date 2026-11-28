@@ -240,16 +240,21 @@ Rules, enforced by convention and by review:
   inside that transaction, so two recovery screens cannot create two notes
   and a confirmed discard cannot be undone by a stale editor. A recovered
   original note is rechecked under the same writer lock; if it became missing,
-  trashed or purged, recovery creates a new note instead of reviving it.
+  trashed or purged, recovery creates a new note instead of reviving it. Any
+  purged original remains deleted during a retry; the unsaved text is kept in
+  a new note.
 - Each editor holds a process-local and cross-process lock for its draft ID.
   Another Notes window opens that recovery copy read-only while the owner is
-  active. The OS releases the lock after a crash, so recovery remains available.
+  active. After claiming the lease, recovery reloads the latest durable row in
+  case the list screen captured an older snapshot. The OS releases the lock
+  after a crash, so recovery remains available.
 - Failed saves store a serialized editor snapshot in `editor_drafts`; the
   library offers a review screen. A disposed editor retries only the encrypted
   draft write, never a note save. If canonical Delta encoding fails, Notes
   stores the latest title and visible plain text as a recovery copy and warns
-  that formatting and images may need checking. A stale draft for a live note
-  follows the ordinary version-vector conflict-copy path.
+  that formatting and images may need checking. Retries continue with a capped
+  backoff until the copy is durable. A stale draft for a live note follows the
+  ordinary version-vector conflict-copy path.
 - `repo.changes` (from the database) drives library reloads and auto sync.
 
 ### 2.6 Settings (`lib/data/app_settings.dart`)
@@ -269,7 +274,7 @@ setting is per-device and does not sync.
 |---|---|
 | typed setter (`theme = ...`) | persists and notifies listeners (rebuilds the whole `MaterialApp`) |
 | `read(key)` / `write(key, value)` | small UI state such as the selected folder; notifies |
-| `writeSilently(key, value)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); does not notify |
+| `writeSilently(key, value)` / `writeSilentlyBatch(values)` | bookkeeping nobody renders (update timestamps, ETag, replay mark); batch writes commit atomically and neither method notifies |
 
 Settings never sync. Keys used by code: appearance, editor and `startupView`
 keys above, `library.folder` (the most recently selected active folder/view),
@@ -923,10 +928,10 @@ widgets. It owns the `QuillController`, the title controller, the
   transaction. Editors with a durable draft must still find that row when they
   save; this makes competing recovery screens single-consumer and keeps a
   confirmed discard from being saved later. `dispose` flushes; if that still
-  failed, a background handoff retries only the encrypted draft write, up to
-  2000 times, and remains registered with `EditorSaveBarrier` until the latest
-  snapshot is durable. The update barrier freezes editors while it flushes,
-  then releases them again if a save fails.
+  failed, a background handoff retries only the encrypted draft write with
+  capped backoff until the snapshot is durable, and remains registered with
+  `EditorSaveBarrier` while it is pending. The update barrier freezes editors
+  while it flushes, then releases them again if a save fails.
 - If canonical Delta serialization fails, recovery falls back to the latest
   title and visible plain text; the editor warns that formatting and images
   may need checking after recovery.

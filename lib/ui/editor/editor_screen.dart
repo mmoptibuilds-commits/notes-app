@@ -483,11 +483,10 @@ class _EditorScreenState extends State<EditorScreen>
 
   Widget _statusText(AppPalette p) => ListenableBuilder(
     listenable: session,
-    builder: (context, _) => session.status == SaveStatus.failed
+    builder: (context, _) =>
+        session.status == SaveStatus.failed && !session.recoveryDraftUnavailable
         ? Text(
-            session.recoveryDraftUnavailable
-                ? 'This recovery draft was already recovered or discarded elsewhere.'
-                : session.recoveryCopySaved
+            session.recoveryCopySaved
                 ? session.recoveryCopyCurrent
                       ? session.recoveryCopyIsPlainTextFallback
                             ? 'Latest text is kept in recovery. Check formatting and images after recovery.'
@@ -537,6 +536,11 @@ class _EditorScreenState extends State<EditorScreen>
           builder: (context, _) {
             if (session.loadError != null) {
               return _Banner(text: session.loadError!);
+            }
+            if (session.recoveryDraftUnavailable) {
+              return const _Banner(
+                text: 'This recovery draft was already recovered or discarded elsewhere.',
+              );
             }
             if (session.isTrashed) {
               return _Banner(

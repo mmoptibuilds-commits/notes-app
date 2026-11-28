@@ -218,6 +218,37 @@ class AppSettings extends ChangeNotifier {
     _values[key] = value;
   }
 
+  /// Persists a group of silent bookkeeping values in one transaction.
+  /// The in-memory cache changes only after the database commit succeeds.
+  void writeSilentlyBatch(Map<String, String?> values) {
+    final changed = <String, String?>{
+      for (final entry in values.entries)
+        if (_values[entry.key] != entry.value) entry.key: entry.value,
+    };
+    if (changed.isEmpty) return;
+    _db.transaction(() {
+      for (final entry in changed.entries) {
+        final value = entry.value;
+        if (value == null) {
+          _db.execute('DELETE FROM settings WHERE key = ?', [entry.key]);
+        } else {
+          _db.execute(
+            'INSERT INTO settings(key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            [entry.key, value],
+          );
+        }
+      }
+    });
+    for (final entry in changed.entries) {
+      if (entry.value == null) {
+        _values.remove(entry.key);
+      } else {
+        _values[entry.key] = entry.value!;
+      }
+    }
+  }
+
   /// Raw access for small bits of UI state (for example, last opened folder).
   String? read(String key) => _values[key];
   void write(String key, String? value) {

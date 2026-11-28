@@ -613,4 +613,29 @@ void main() {
     expect(last.readAsBytesSync(), contents);
     db.close();
   });
+
+  test('a new pre-import snapshot survives older files with future mtimes', () {
+    final db = AppDatabase.open(path(), key: key(8));
+    final backups = Directory(path('clock-corrected-backups'));
+    final future = DateTime.now().add(const Duration(days: 1));
+    for (var i = 0; i < 7; i++) {
+      final oldPath = '${backups.path}/before-import-old-$i.db';
+      db.snapshotTo(oldPath);
+      File(oldPath).setLastModifiedSync(future);
+    }
+    final newNote = NoteRepository(db)
+        .createNote(title: 'Only in the new pre-import snapshot');
+    final target = '${backups.path}/before-import-current.db';
+
+    db.snapshotTo(target);
+
+    expect(File(target).existsSync(), isTrue);
+    final copy = AppDatabase.open(target, key: key(8));
+    expect(
+      NoteRepository(copy).getNote(newNote.id)?.title,
+      'Only in the new pre-import snapshot',
+    );
+    copy.close();
+    db.close();
+  });
 }

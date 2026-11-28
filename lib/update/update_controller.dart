@@ -592,8 +592,10 @@ class UpdateController extends ChangeNotifier {
           return;
         }
       }
-      store.write(UpdateKeys.highestVersion, manifest.version);
-      store.write(UpdateKeys.highestBuild, '${manifest.buildNumber}');
+      store.writeAll({
+        UpdateKeys.highestVersion: manifest.version,
+        UpdateKeys.highestBuild: '${manifest.buildNumber}',
+      });
     }
 
     final platform = info.platform;

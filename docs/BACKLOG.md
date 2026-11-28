@@ -11,7 +11,7 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 
 | ID | Item | Candidate target | Status | Decision / next action | Historical evidence |
 | --- | --- | --- | --- | --- | --- |
-| H001 | Autosave gives up silently after 2000 failed tries | 1.3.2 | in review | Encrypted recovery rows, library review, restart recovery, and retry exhaustion are covered in `docs/handovers/v1.3.2.md`. | `test/ui/editor/editor_session_test.dart` |
+| H001 | Autosave gives up silently after 2000 failed tries | 1.3.2 | in review | Encrypted recovery rows, library review, restart recovery, and continued capped-backoff retries until durable are covered in `docs/handovers/v1.3.2.md`. | `test/ui/editor/editor_session_test.dart` |
 | H002 | dispose() can skip its own cleanup | 1.3.2 | in review | Serialization failure and disposal cleanup are covered in `docs/handovers/v1.3.2.md`. | `test/ui/editor/editor_session_test.dart` |
 | H003 | Empty Trash leaves image bytes in the database | 1.3.3 | proposed | A18: safe local/cloud cleanup must account for retained history, pending changes and other devices; defer destructive cleanup until proven. | lib/data/note_repository.dart:327-336 (purge keeps attachments), 339-350 (emptyTrash), 506-514 (collectUnusedAttachments), 604-611 (links rebuilt on save); test/data/note_repository_test.dart:307-309 (only callers); lib/data/migrations.dart:98-104 (attachments table) |
 | H004 | Undo history is wiped when a checklist item moves | 1.4.0 | proposed | Undo and redo must include checklist toggles and completed-section moves. | lib/ui/editor/editor_session.dart:172-186 (_extract and _applyProjectionChange; history cleared at 185); docs/ARCHITECTURE.md:965 (documented limit) |
@@ -181,7 +181,7 @@ The original inventory IDs H001–H108 and consolidated audit IDs A01–A24 rema
 | --- | --- | --- | --- | --- |
 | A01 | Duplicate local sequence numbers | Critical 1.3.2 | in review | Two writer processes now refresh sequence and HLC metadata under the SQLite write lock; see root handover. |
 | A02 | Migration backup rotation | Critical 1.3.2 | in review | Backup replacement is verified and atomic; a failed replacement retains the previous copy. |
-| A03 | Autosave abandons text | Critical 1.3.2 | in review | Encrypted pending drafts survive restart and exhaustion; see root handover. |
+| A03 | Autosave abandons text | Critical 1.3.2 | in review | Encrypted pending drafts survive restart and closed-editor retries continue with capped backoff until durable; see root handover. |
 | A04 | Editor disposal cleanup | High 1.3.2 | in review | Cleanup runs after serialization failure; see root handover. |
 | A05 | Linux archive path validation | Critical 1.3.2 | reproduced; in review; [#9](https://github.com/mmoptibuilds-commits/notes-app/issues/9) | Jammy and Noble mawk reproduce the parser failure; both accept the valid fixture and reject hostile fixtures with the fix. |
 | A06 | LAN quarantine deletion | Critical 1.3.2 | in review | Cloud quarantine limits now preserve unrelated LAN entries and retry unreadable pages; see S4 worker evidence. |

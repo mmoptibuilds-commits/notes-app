@@ -11,6 +11,9 @@ abstract class UpdateStateStore {
 
   /// Throws [UpdateStateWriteException] if the write cannot be persisted.
   void write(String key, String? value);
+
+  /// Persists related state as one atomic update.
+  void writeAll(Map<String, String?> values);
 }
 
 class UpdateStateWriteException implements Exception {
@@ -34,6 +37,17 @@ class AppSettingsUpdateStore implements UpdateStateStore {
       throw const UpdateStateWriteException();
     }
   }
+
+  @override
+  void writeAll(Map<String, String?> values) {
+    try {
+      _settings.writeSilentlyBatch(values);
+    } on SqliteException {
+      throw const UpdateStateWriteException();
+    } on StateError {
+      throw const UpdateStateWriteException();
+    }
+  }
 }
 
 class MemoryUpdateStore implements UpdateStateStore {
@@ -48,6 +62,13 @@ class MemoryUpdateStore implements UpdateStateStore {
       values.remove(key);
     } else {
       values[key] = value;
+    }
+  }
+
+  @override
+  void writeAll(Map<String, String?> values) {
+    for (final entry in values.entries) {
+      write(entry.key, entry.value);
     }
   }
 }

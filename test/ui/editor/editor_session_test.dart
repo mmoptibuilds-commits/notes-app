@@ -22,6 +22,7 @@ class _SerializationFailureSession extends EditorSession {
     required super.repo,
     required super.saveBarrier,
     super.noteId,
+    super.recoveredDraft,
     super.retryDelay,
   });
 
@@ -106,6 +107,39 @@ class _TransientRecoveryFailureRepository extends NoteRepository {
     required bool requireExisting,
   }) {
     if (failDraftWrites) throw StateError('injected draft failure');
+    return super.savePendingEditorDraftFromHandoff(
+      draft,
+      requireExisting: requireExisting,
+    );
+  }
+}
+
+class _RetryAfterManyFailuresRepository extends NoteRepository {
+  _RetryAfterManyFailuresRepository(super.db);
+
+  int handoffAttempts = 0;
+
+  @override
+  EditorDraftWriteResult writeEditorContent({
+    required String draftId,
+    required String? noteId,
+    required String title,
+    required String body,
+    required VersionVector base,
+    bool requirePendingDraft = false,
+    bool recoveringDraft = false,
+    String? folderId,
+  }) => throw StateError('synthetic storage failure');
+
+  @override
+  bool savePendingEditorDraftFromHandoff(
+    PendingEditorDraft draft, {
+    required bool requireExisting,
+  }) {
+    handoffAttempts++;
+    if (handoffAttempts <= 2000) {
+      throw StateError('synthetic storage failure');
+    }
     return super.savePendingEditorDraftFromHandoff(
       draft,
       requireExisting: requireExisting,
@@ -628,6 +662,44 @@ void main() {
     expect(repo.pendingEditorDrafts(), isEmpty);
   });
 
+  test('recovery loads the latest row after taking its lease', () {
+    final oldSnapshot = PendingEditorDraft(
+      id: 'stale-recovery-selection',
+      noteId: null,
+      folderId: null,
+      title: 'Older list snapshot',
+      body: json(Delta()..insert('older text\n')),
+      baseVv: VersionVector.empty.encode(),
+      updatedAt: 50,
+    );
+    repo.savePendingEditorDraft(oldSnapshot);
+    final selectedFromList = repo.pendingEditorDrafts().single;
+    repo.savePendingEditorDraft(
+      PendingEditorDraft(
+        id: oldSnapshot.id,
+        noteId: null,
+        folderId: null,
+        title: 'Newer durable snapshot',
+        body: json(Delta()..insert('newer text\n')),
+        baseVv: VersionVector.empty.encode(),
+        updatedAt: 51,
+      ),
+    );
+
+    final recovered = EditorSession(
+      repo: repo,
+      recoveredDraft: selectedFromList,
+    );
+    expect(recovered.title.text, 'Newer durable snapshot');
+    expect(recovered.quill.document.toPlainText(), 'newer text\n');
+    recovered.flush();
+
+    expect(repo.pendingEditorDrafts(), isEmpty);
+    expect(repo.listNotes().single.title, 'Newer durable snapshot');
+    expect(repo.listNotes().single.preview, 'newer text');
+    recovered.dispose();
+  });
+
   test('a recovery editor cannot save after confirmed discard', () {
     final draft = PendingEditorDraft(
       id: 'discarded-while-open',
@@ -645,11 +717,105 @@ void main() {
     recovered.flush();
 
     expect(recovered.recoveryDraftUnavailable, isTrue);
+    expect(recovered.isTrashed, isFalse);
     expect(repo.pendingEditorDrafts(), isEmpty);
     expect(repo.listNotes(), isEmpty);
     recovered.dispose();
     expect(repo.pendingEditorDrafts(), isEmpty);
     expect(repo.listNotes(), isEmpty);
+  });
+
+  test('unavailable recovery cannot restore or delete its active original', () {
+    final note = repo.createNote(title: 'Saved original');
+    final draft = PendingEditorDraft(
+      id: 'discarded-attached-draft',
+      noteId: note.id,
+      folderId: null,
+      title: 'Unsaved edit',
+      body: json(Delta()..insert('unsaved edit\n')),
+      baseVv: note.contentVv.encode(),
+      updatedAt: 50,
+    );
+    repo.savePendingEditorDraft(draft);
+    final recovered = EditorSession(repo: repo, recoveredDraft: draft);
+
+    repo.discardPendingEditorDraft(draft.id);
+    recovered.flush();
+    recovered.restoreFromTrash();
+
+    expect(recovered.recoveryDraftUnavailable, isTrue);
+    expect(recovered.isTrashed, isFalse);
+    expect(recovered.readOnly, isTrue);
+    expect(repo.getRecord(note.id)!.purged, isFalse);
+    expect(repo.pendingEditorDrafts(), isEmpty);
+    recovered.dispose();
+  });
+
+  test('serialization fallback does not recreate a confirmed discard', () {
+    final draft = PendingEditorDraft(
+      id: 'serialization-after-discard',
+      noteId: null,
+      folderId: null,
+      title: 'Pending title',
+      body: json(Delta()..insert('pending text\n')),
+      baseVv: VersionVector.empty.encode(),
+      updatedAt: 50,
+    );
+    repo.savePendingEditorDraft(draft);
+    final recovered = _SerializationFailureSession(
+      repo: repo,
+      saveBarrier: EditorSaveBarrier(),
+      recoveredDraft: draft,
+      retryDelay: const Duration(hours: 1),
+    );
+    recovered.failSerialization = true;
+    recovered.flush();
+    expect(recovered.recoveryCopySaved, isTrue);
+
+    repo.discardPendingEditorDraft(draft.id);
+    recovered.flush();
+
+    expect(recovered.recoveryDraftUnavailable, isTrue);
+    expect(recovered.isTrashed, isFalse);
+    expect(repo.pendingEditorDrafts(), isEmpty);
+    expect(repo.listNotes(), isEmpty);
+    recovered.dispose();
+  });
+
+  test('retrying a durable editor draft keeps a purged original deleted', () {
+    final note = repo.createNote(title: 'Before deletion');
+    final editor = EditorSession(
+      repo: repo,
+      noteId: note.id,
+      autosaveDelay: const Duration(hours: 1),
+      retryDelay: const Duration(hours: 1),
+    );
+    s.db.execute('''
+      CREATE TRIGGER fail_editor_save BEFORE UPDATE ON notes BEGIN
+        SELECT RAISE(ABORT, 'injected note write failure');
+      END
+    ''');
+    editor.title.text = 'Unsaved after deletion';
+    editor.quill.replaceText(
+      0,
+      0,
+      'body kept on a new id',
+      const TextSelection.collapsed(offset: 21),
+    );
+    editor.flush();
+    expect(repo.pendingEditorDrafts(), hasLength(1));
+
+    s.db.execute('DROP TRIGGER fail_editor_save');
+    repo.purge([note.id]);
+    editor.flush();
+
+    expect(repo.getRecord(note.id)!.purged, isTrue);
+    expect(repo.listNotes(), hasLength(1));
+    expect(repo.listNotes().single.id, isNot(note.id));
+    expect(repo.listNotes().single.title, 'Unsaved after deletion');
+    expect(repo.listNotes().single.preview, 'body kept on a new id');
+    expect(repo.pendingEditorDrafts(), isEmpty);
+    editor.dispose();
   });
 
   test('clearing a failed new note removes its older recovery text', () {
@@ -825,6 +991,41 @@ void main() {
         expect(retryRepo.getNote(note.id)?.preview, 'typed old');
         expect(retryRepo.pendingEditorDrafts(), isEmpty);
         recovered.dispose();
+        retryRepo.dispose();
+      });
+    },
+  );
+
+  test(
+    'disposed editor retries past 2000 failures until its draft is durable',
+    () {
+      fakeAsync((fake) {
+        final retryRepo = _RetryAfterManyFailuresRepository(s.db);
+        final editor = EditorSession(
+          repo: retryRepo,
+          autosaveDelay: const Duration(hours: 1),
+          retryDelay: const Duration(milliseconds: 1),
+        );
+        editor.title.text = 'Recovered after storage returns';
+        editor.quill.replaceText(
+          0,
+          0,
+          'durable text',
+          const TextSelection.collapsed(offset: 12),
+        );
+        editor.flush();
+        editor.dispose();
+        expect(retryRepo.pendingEditorDrafts(), isEmpty);
+
+        fake.elapse(const Duration(days: 2));
+        fake.flushMicrotasks();
+
+        expect(retryRepo.handoffAttempts, greaterThan(2000));
+        expect(retryRepo.pendingEditorDrafts(), hasLength(1));
+        expect(
+          retryRepo.pendingEditorDrafts().single.title,
+          'Recovered after storage returns',
+        );
         retryRepo.dispose();
       });
     },
